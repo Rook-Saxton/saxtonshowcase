@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gift Local v0.1 — Saxton Showcase</title>
+<meta name="description" content="Who's it for, what's the vibe - get gift ideas and the actual Perrysburg shops to buy them at.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎁</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Shantell+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f6f1e3; --ink:#2b2620; --red:#d9402c; --green:#2e7d46; --blue:#2b5fce;
+    --wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'Shantell Sans', cursive; line-height:1.55;}
+  .wrap{max-width:780px; margin:0 auto; padding:2rem 1.2rem 4rem;}
+  .crumb{font-size:.95rem;} .crumb a{color:var(--blue);}
+  h1{font-family:'Caveat', cursive; font-weight:700; font-size:clamp(2.6rem,8vw,3.8rem); margin:.3rem 0 .1rem; transform:rotate(-1.2deg);}
+  h1 .hl{box-shadow: inset 0 -0.35em 0 rgba(217,64,44,.35);}
+  .sub{max-width:36em; margin:.2rem 0 1.6rem;}
+  fieldset{border:2.5px solid var(--ink); border-radius:var(--wobble); background:#fffdf4; padding:1rem 1.2rem; margin:0 0 1.2rem;}
+  legend{font-family:'Caveat', cursive; font-size:1.5rem; font-weight:700; padding:0 .5rem;}
+  label{display:block; font-weight:600; margin:.8rem 0 .15rem;}
+  input[type=text], textarea, select{
+    width:100%; font-family:'Shantell Sans', cursive; font-size:1rem; color:var(--ink);
+    background:#fff; border:2px solid var(--ink); border-radius:12px 225px 12px 225px / 225px 12px 225px 12px;
+    padding:.5rem .8rem;
+  }
+  .hint{font-size:.85rem; opacity:.75; margin:.15rem 0 0;}
+  .btn{
+    display:inline-block; margin-top:.4rem; padding:.55rem 1.3rem;
+    font-family:'Shantell Sans', cursive; font-weight:600; font-size:1.05rem;
+    color:var(--ink); background:#fff; border:2.5px solid var(--ink);
+    border-radius:var(--wobble); cursor:pointer; box-shadow:2.5px 3px 0 rgba(43,38,32,.25);
+  }
+  .btn:hover{background:#fdf3d8;}
+  .btn.big{font-size:1.2rem; background:#fdf3d8; box-shadow:3px 4px 0 rgba(217,64,44,.4);}
+  #out{display:none;}
+  .card{
+    position:relative; background:#fffdf4; border:2.5px solid var(--ink); border-radius:var(--wobble);
+    padding:1rem 1.2rem; margin:1.1rem 0; box-shadow:3px 4px 0 rgba(43,38,32,.15);
+  }
+  .card:nth-child(odd){transform:rotate(-.4deg);} .card:nth-child(even){transform:rotate(.5deg);}
+  .card h3{font-family:'Caveat', cursive; font-size:1.7rem; margin:.1rem 0 .2rem;}
+  .card p{margin:.25rem 0;}
+  .card .why{font-size:.92rem; opacity:.85;}
+  .shop{border-left:4px solid var(--green);}
+  .shop .meta{font-size:.9rem; opacity:.85;}
+  #toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%) rotate(-1deg);
+    background:var(--ink); color:var(--paper); padding:.5rem 1.1rem; border-radius:var(--wobble);
+    font-family:'Shantell Sans', cursive; display:none; z-index:9;
+  }
+  .fineprint{font-size:.85rem; opacity:.8; margin-top:2.4rem; border-top:2px dashed rgba(43,38,32,.4); padding-top:.8rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="crumb"><a href="/">← back to the shelf</a></p>
+  <h1>Gift <span class="hl">Local</span> <small style="font-size:.45em;">v0.1</small></h1>
+  <p class="sub">Answer three things about who you're buying for. You get ideas that fit them - and the actual shops around Perrysburg to go get them, so the money stays in town.</p>
+
+  <fieldset>
+    <legend>The person</legend>
+    <label for="who">Who's it for?</label>
+    <select id="who">
+      <option value="partner">my partner</option>
+      <option value="kid">a kid</option>
+      <option value="teen">a teenager</option>
+      <option value="parent">a parent</option>
+      <option value="friend">a friend</option>
+      <option value="teacher">a teacher / coach</option>
+      <option value="coworker">a coworker</option>
+    </select>
+    <label for="vibe">Their thing</label>
+    <select id="vibe">
+      <option value="reader">reads everything</option>
+      <option value="foodie">lives to eat</option>
+      <option value="cozy">homebody, cozy stuff</option>
+      <option value="artsy">makes things / art person</option>
+      <option value="outdoorsy">outside whenever possible</option>
+      <option value="selfcare">deserves to be pampered</option>
+    </select>
+    <label for="budget">Budget</label>
+    <select id="budget">
+      <option value="25">under $25</option>
+      <option value="50" selected>under $50</option>
+      <option value="100">up to $100</option>
+    </select>
+    <label for="occasion">Occasion <span class="hint">(optional - birthday, thank-you, just because)</span></label>
+    <input type="text" id="occasion" placeholder="e.g. birthday">
+    <div style="text-align:center; margin-top:1rem;">
+      <button class="btn big" id="go">Find it 🎁</button>
+    </div>
+  </fieldset>
+
+  <div id="out">
+    <h2 style="font-family:'Caveat',cursive; font-size:2.1rem; margin:0;">What to get, where to get it.</h2>
+    <div id="ideas"></div>
+    <h2 style="font-family:'Caveat',cursive; font-size:2.1rem; margin:1.4rem 0 0;">Around here.</h2>
+    <p class="hint" id="shopnote"></p>
+    <div id="shops"></div>
+    <div style="text-align:center; margin-top:1.4rem;">
+      <button class="btn big" id="copyall">Copy it all 📋</button>
+    </div>
+  </div>
+
+  <p class="fineprint">Made for Perrysburg gift-givers. The job: "what do I even get them" without defaulting to an Amazon box. Shop lookups run live against Google when you ask - nothing's stockpiled. Contract record: <a href="manifest.json">manifest.json</a> (v0.1, unsigned draft).</p>
+</div>
+<div id="toast">copied ✔</div>
+<script>
+window.PLACES_KEY = ""; // restricted key - same plumbing as Perrysburg Marketer
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+const IDEAS = {
+  reader:    {ideas:["a book you'd actually press into their hands, with a note inside the cover about why","a bookstore gift card + one book you pick, so they get the fun of choosing too","a nice bookmark and a 'do not disturb, reading' mug"], cats:["book store"]},
+  foodie:    {ideas:["a box of the good stuff from a local bakery - not grocery store cookies, the real ones","olive oil or spice set from a specialty food shop","gift card to that restaurant they keep mentioning"], cats:["bakery","gourmet food store"]},
+  cozy:      {ideas:["a candle that doesn't smell like a mall","a throw blanket heavy enough to mean it","fancy hot chocolate + a mug with some personality"], cats:["home goods store","gift shop"]},
+  artsy:     {ideas:["a real sketchbook and pens that glide - makers know the difference","a class or workshop at a local studio","a frame for something they made and never hung"], cats:["art supply store","art gallery","craft store"]},
+  outdoorsy: {ideas:["a proper insulated bottle - the kind that survives being dropped off a kayak","trail snacks + a local trail map rolled up with twine","gloves or a beanie from an outfitter, not a gas station"], cats:["sporting goods store","outdoor gear store"]},
+  selfcare:  {ideas:["bath stuff that smells expensive, from a shop that wraps it for you","a gift certificate for an hour where nobody asks them for anything","a good candle + fancy lotion + permission to disappear"], cats:["spa","beauty supply store","gift shop"]}
+};
+const WHO_ADJ = {partner:"someone you actually like", kid:"a kid", teen:"a teenager (good luck)", parent:"a parent", friend:"a friend", teacher:"someone who earns it daily", coworker:"a coworker"};
+
+function loadPlaces(){
+  const key = (window.PLACES_KEY||'').trim();
+  if(!key){ $('shopnote').textContent = 'Live shop lookup flips on soon. For now: downtown Perrysburg and Levis Commons are your hunting grounds - walk them.'; return; }
+  const s = document.createElement('script');
+  s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&libraries=places&loading=async';
+  s.async = true; s.defer = true;
+  s.onload = () => { window._placesReady = true; };
+  document.head.appendChild(s);
+}
+
+function findShops(cats, cb){
+  if(!window._placesReady || !(window.google && google.maps && google.maps.places)){ cb([]); return; }
+  const svc = new google.maps.places.PlacesService(document.createElement('div'));
+  const results = []; let done = 0;
+  cats.slice(0,2).forEach(cat => {
+    svc.textSearch({query: cat + ' in Perrysburg, OH'}, (res, st) => {
+      if(st === 'OK' && res) results.push(...res.slice(0,3));
+      if(++done === Math.min(cats.length,2)){
+        const seen = new Set();
+        cb(results.filter(r => { if(seen.has(r.place_id)) return false; seen.add(r.place_id); return true; }).slice(0,5));
+      }
+    });
+  });
+}
+
+function build(){
+  const who = $('who').value, vibe = $('vibe').value, budget = $('budget').value;
+  const occ = $('occasion').value.trim();
+  const data = IDEAS[vibe];
+
+  const ideasEl = $('ideas'); ideasEl.innerHTML = '';
+  data.ideas.forEach((idea, i) => {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `<h3>Idea ${i+1}</h3><p>${esc(idea)}</p><p class="why">For ${esc(WHO_ADJ[who])}${occ ? ', ' + esc(occ) : ''}, under $${esc(budget)} - doable.</p>`;
+    ideasEl.appendChild(div);
+  });
+
+  const shopsEl = $('shops'); shopsEl.innerHTML = '';
+  if(window._placesReady){
+    $('shopnote').textContent = 'Looked up live just now:';
+    findShops(data.cats, shops => {
+      if(!shops.length){ $('shopnote').textContent = 'No live matches came back - downtown Perrysburg and Levis Commons are the move.'; return; }
+      shops.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'card shop';
+        div.innerHTML = `<h3>${esc(s.name)}</h3><p class="meta">${esc(s.formatted_address || '')}${s.rating ? ' · ★ ' + esc(s.rating) : ''}</p>`;
+        shopsEl.appendChild(div);
+      });
+    });
+  }
+
+  $('out').style.display = 'block';
+  $('out').scrollIntoView({behavior:'smooth'});
+  $('copyall').onclick = () => {
+    let txt = `GIFT PLAN - for ${WHO_ADJ[who]}${occ ? ', ' + occ : ''}, under $${budget}\n` + '='.repeat(30) + '\n';
+    txt += data.ideas.map((i,n) => `${n+1}. ${i}`).join('\n') + '\n';
+    const shopNames = [...shopsEl.querySelectorAll('h3')].map(h=>h.textContent);
+    if(shopNames.length) txt += '\nSHOPS\n' + shopNames.map(s=>'- '+s).join('\n');
+    copy(txt);
+  };
+}
+function copy(text){
+  const done = () => { const t = $('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none', 1400); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, done);
+  else { const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); }
+}
+$('go').onclick = build;
+loadPlaces();
+</script>
+</body>
+</html>
