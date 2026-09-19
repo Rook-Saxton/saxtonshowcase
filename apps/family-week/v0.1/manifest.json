@@ -1,0 +1,46 @@
+{
+  "identity": {
+    "id": "family-week",
+    "version": "0.1",
+    "owner": "saxton-showcase",
+    "status": "draft",
+    "universal_link": "https://saxtonshowcase.com/apps/family-week/v0.1/"
+  },
+  "access": {
+    "tier": "free",
+    "audience": "households running on sticky notes and hope",
+    "recurring_job": "Sunday-night 'what IS this week'",
+    "next_step": "a family agent that already knows the calendar and hands you the page"
+  },
+  "runtime": {
+    "kind": "web",
+    "url": "https://saxtonshowcase.com/apps/family-week/v0.1/",
+    "capabilities": [
+      "form-input",
+      "plan-assembly",
+      "copy-to-clipboard"
+    ],
+    "agent_ready": false,
+    "notes": "runs fully client-side; day names in event lines are matched to the week"
+  },
+  "persona": {
+    "pack": null
+  },
+  "safety": {
+    "requested_data": "none leaves the browser",
+    "per_run_consent": "n/a - no external actions",
+    "allowed_actions": [
+      "assemble text locally",
+      "copy plan to clipboard"
+    ],
+    "retention": "none - refresh clears",
+    "signed": false
+  },
+  "changelog": [
+    {
+      "version": "0.1",
+      "date": "2026-09-18",
+      "notes": "first working demo"
+    }
+  ]
+}
