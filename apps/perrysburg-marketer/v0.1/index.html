@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perrysburg Marketer v0.1 — Saxton Showcase</title>
+<meta name="description" content="A week of local marketing, planned in one sitting. Seven days of posts plus an email blurb for Perrysburg-area small businesses.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📣</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Shantell+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f6f1e3; --ink:#2b2620; --blue:#2b5fce; --red:#d9402c; --green:#2e7d46;
+    --wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'Shantell Sans', cursive; line-height:1.55;}
+  .wrap{max-width:780px; margin:0 auto; padding:2rem 1.2rem 4rem;}
+  .crumb{font-size:.95rem;} .crumb a{color:var(--blue);}
+  h1{font-family:'Caveat', cursive; font-weight:700; font-size:clamp(2.6rem,8vw,3.8rem); margin:.3rem 0 .1rem; transform:rotate(-1.2deg);}
+  h1 .hl{box-shadow: inset 0 -0.35em 0 rgba(43,95,206,.3);}
+  .sub{max-width:36em; margin:.2rem 0 1.6rem;}
+  fieldset{border:2.5px solid var(--ink); border-radius:var(--wobble); background:#fffdf4; padding:1rem 1.2rem; margin:0 0 1.2rem;}
+  legend{font-family:'Caveat', cursive; font-size:1.5rem; font-weight:700; padding:0 .5rem;}
+  label{display:block; font-weight:600; margin:.8rem 0 .15rem;}
+  input[type=text], textarea, select{
+    width:100%; font-family:'Shantell Sans', cursive; font-size:1rem; color:var(--ink);
+    background:#fff; border:2px solid var(--ink); border-radius:12px 225px 12px 225px / 225px 12px 225px 12px;
+    padding:.5rem .8rem;
+  }
+  textarea{min-height:4.2em; resize:vertical;}
+  .hint{font-size:.85rem; opacity:.75; margin:.15rem 0 0;}
+  .btn{
+    display:inline-block; margin-top:.4rem; padding:.55rem 1.3rem;
+    font-family:'Shantell Sans', cursive; font-weight:600; font-size:1.05rem;
+    color:var(--ink); background:#fff; border:2.5px solid var(--ink);
+    border-radius:var(--wobble); cursor:pointer; box-shadow:2.5px 3px 0 rgba(43,38,32,.25);
+  }
+  .btn:hover{background:#fdf3d8;}
+  .btn.big{font-size:1.2rem; background:#fdf3d8; box-shadow:3px 4px 0 rgba(43,95,206,.45);}
+  #out{display:none;}
+  .day{
+    position:relative; background:#fffdf4; border:2.5px solid var(--ink); border-radius:var(--wobble);
+    padding:1rem 1.2rem; margin:1.1rem 0; box-shadow:3px 4px 0 rgba(43,38,32,.15);
+  }
+  .day:nth-child(odd){transform:rotate(-.4deg);} .day:nth-child(even){transform:rotate(.5deg);}
+  .day h3{font-family:'Caveat', cursive; font-size:1.7rem; margin:.1rem 0 .1rem;}
+  .day .goal{font-size:.9rem; opacity:.8; margin:0 0 .5rem;}
+  .day pre{
+    white-space:pre-wrap; word-wrap:break-word; font-family:'Shantell Sans', cursive; font-size:.98rem;
+    background:#fff; border:2px dashed rgba(43,38,32,.4); border-radius:12px; padding:.7rem .9rem; margin:.4rem 0;
+  }
+  .copyrow{text-align:right;}
+  .copyrow .btn{font-size:.85rem; padding:.25rem .8rem; margin-top:.2rem;}
+  #toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%) rotate(-1deg);
+    background:var(--ink); color:var(--paper); padding:.5rem 1.1rem; border-radius:var(--wobble);
+    font-family:'Shantell Sans', cursive; display:none; z-index:9;
+  }
+  .fineprint{font-size:.85rem; opacity:.8; margin-top:2.4rem; border-top:2px dashed rgba(43,38,32,.4); padding-top:.8rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="crumb"><a href="/">← back to the shelf</a></p>
+  <h1>Perrysburg <span class="hl">Marketer</span> <small style="font-size:.45em;">v0.1</small></h1>
+  <p class="sub">One sitting, one week of local marketing. Answer four things below and get seven days of posts plus a short email for your list. Everything runs in your browser — nothing leaves this page.</p>
+
+  <fieldset>
+    <legend>The setup</legend>
+    <label for="biz">Business name</label>
+    <input type="text" id="biz" placeholder="e.g. Riverbend Coffee">
+    <label for="kind">What kind of place is it?</label>
+    <select id="kind">
+      <option value="coffee shop">coffee shop / café</option>
+      <option value="restaurant">restaurant</option>
+      <option value="salon">salon / barbershop</option>
+      <option value="boutique">boutique / retail shop</option>
+      <option value="fitness studio">fitness studio</option>
+      <option value="home services">home services</option>
+      <option value="other local business">other local business</option>
+    </select>
+    <label for="hook">This week's hook (the one thing to push)</label>
+    <input type="text" id="hook" placeholder="e.g. new fall drink menu, Saturday sidewalk sale">
+    <label for="around">Anything happening around town? <span class="hint">(optional — market days, games, festivals)</span></label>
+    <input type="text" id="around" placeholder="e.g. farmers market Thursday, home game Friday">
+    <label for="tone">Tone</label>
+    <select id="tone">
+      <option value="warm">warm &amp; neighborly</option>
+      <option value="playful">playful</option>
+      <option value="straightforward">straightforward</option>
+    </select>
+    <div style="text-align:center; margin-top:1rem;">
+      <button class="btn big" id="go">Plan my week ✏️</button>
+    </div>
+  </fieldset>
+
+  <div id="out">
+    <h2 style="font-family:'Caveat',cursive; font-size:2.1rem; margin:0 0 .2rem;">Your week, planned.</h2>
+    <p class="hint" style="margin-bottom:.6rem;">Copy each day as you go, or grab the whole pack at the bottom. Results live only on this page — a refresh starts over, so copy or screenshot what you keep.</p>
+    <div id="days"></div>
+    <div class="day" id="emailday">
+      <h3>✉️ Email blurb</h3>
+      <p class="goal">Short send for your list, midweek.</p>
+      <pre id="emailbody"></pre>
+      <div class="copyrow"><button class="btn" data-copy="emailbody">copy</button></div>
+    </div>
+    <div style="text-align:center; margin-top:1.4rem;">
+      <button class="btn big" id="copyall">Copy the whole week 📋</button>
+    </div>
+  </div>
+
+  <p class="fineprint">Named audience: Perrysburg-area small businesses. Recurring job: the weekly marketing push. Next step: a managed version where your agent writes these in your voice every week — that's the paid tier. Tool contract record: <a href="manifest.json">manifest.json</a> (v0.1, unsigned draft).</p>
+</div>
+<div id="toast">copied ✔</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+function openers(tone){
+  return {
+    warm: ["Good morning, neighbors.", "Hey Perrysburg friends,", "From our corner of town to yours:"],
+    playful: ["Plot twist:", "Okay, hear us out.", "We did a thing."],
+    straightforward: ["Quick update from us:", "Here's what's on this week:", "The short version:"]
+  }[tone];
+}
+function pick(arr, i){ return arr[i % arr.length]; }
+
+function build(){
+  const biz = ($('biz').value || "your local spot").trim();
+  const kind = $('kind').value;
+  const hook = ($('hook').value || "what's new this week").trim();
+  const around = $('around').value.trim();
+  const tone = $('tone').value;
+  const O = openers(tone);
+  const tags = "#Perrysburg #PerrysburgOhio #ShopLocal #SupportLocal #419Local";
+  const town = around ? around : "the usual buzz around downtown Perrysburg";
+
+  const days = [
+    ["Monday — Kickoff", "Announce the week and lead with the hook.",
+     `${pick(O,0)}\n\nThis week at ${biz}: ${hook}. That's the headline.\n\nCome see us early in the week — Monday regulars get first pick.\n\n${tags}`],
+    ["Tuesday — Show the work", "Behind-the-counter post. People buy from people.",
+     `A look behind the counter at ${biz} today. The unglamorous prep that makes ${hook} worth your trip.\n\nIf you've ever wondered how a local ${kind} actually runs — this is it.\n\n${tags}`],
+    ["Wednesday — Customer spotlight", "Social proof. Ask for it directly.",
+     `We want to hear it: what's your go-to order at ${biz}?\n\nBest answer this week gets bragging rights (and maybe a little something extra — ask us in person).\n\n${tags}`],
+    ["Thursday — Tie into town", `Connect the hook to what's happening: ${town}.`,
+     `${around ? `With ${around}, the week's got some energy.` : `Midweek in Perrysburg.`}\n\nMake ${biz} part of the plan: ${hook}.\n\n${tags}`],
+    ["Friday — Weekend last call", "Urgency, gently. The weekend decision happens today.",
+     `${pick(O,1)}\n\nWeekend's here and so is ${hook}. Today's the easy day to swing by ${biz} — tomorrow everyone else has the same idea.\n\n${tags}`],
+    ["Saturday — In-the-moment", "Short, present-tense story posts through the day.",
+     `Happening right now at ${biz}: ${hook}.\n\nIf you're out around town today, stop in. We'll keep the good stuff coming while it lasts.\n\n${tags}`],
+    ["Sunday — Thanks + tease", "Gratitude post; plant next week's seed.",
+     `Thank you, Perrysburg. Another week of familiar faces and new ones at ${biz}.\n\nNext week we've got more coming — keep an eye here Monday morning.\n\n${tags}`]
+  ];
+
+  const daysEl = $('days'); daysEl.innerHTML = '';
+  days.forEach((d, i) => {
+    const div = document.createElement('div');
+    div.className = 'day';
+    div.innerHTML = `<h3>${esc(d[0])}</h3><p class="goal">${esc(d[1])}</p><pre id="day${i}">${esc(d[2])}</pre><div class="copyrow"><button class="btn" data-copy="day${i}">copy</button></div>`;
+    daysEl.appendChild(div);
+  });
+
+  $('emailbody').textContent =
+`Subject: This week at ${biz}
+
+Hi —
+
+Quick one. This week at ${biz}: ${hook}.
+
+${around ? `And with ${around}, it's a good week to be out and about.` : `It's a good week to stop by.`}
+
+See you soon,
+${biz}`;
+
+  $('out').style.display = 'block';
+  $('out').scrollIntoView({behavior:'smooth'});
+  $('copyall').onclick = () => {
+    const all = days.map(d => d[0] + "\n" + "-".repeat(30) + "\n" + d[2]).join("\n\n\n")
+      + "\n\n\nEMAIL\n" + "-".repeat(30) + "\n" + $('emailbody').textContent;
+    copy(all);
+  };
+  document.querySelectorAll('[data-copy]').forEach(b => {
+    b.onclick = () => copy(document.getElementById(b.dataset.copy).textContent);
+  });
+}
+function copy(text){
+  const done = () => { const t = $('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none', 1400); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, done);
+  else { const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); }
+}
+$('go').onclick = build;
+</script>
+</body>
+</html>
