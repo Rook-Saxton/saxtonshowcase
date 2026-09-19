@@ -162,7 +162,7 @@ function build(){
     div.className = 'day';
     div.innerHTML = `<h3>${d.name}</h3>` +
       d.events.map(e=>`<p>🕐 ${e.replace(/</g,'&lt;')}</p>`).join('') +
-      `<p class="meal">🍽️ ${d.meal.replace(/</g,'&lt;')}</p>`;
+      `<p class="meal">🍴 ${d.meal.replace(/</g,'&lt;')}</p>`;
     daysEl.appendChild(div);
   });
 
