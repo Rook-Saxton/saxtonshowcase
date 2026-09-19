@@ -1,0 +1,11 @@
+{
+  "identity": {"id": "perrysburg-marketer", "version": "0.2", "owner": "saxton-showcase", "status": "draft", "universal_link": "https://saxtonshowcase.com/apps/perrysburg-marketer/v0.2/"},
+  "access": {"tier": "free", "audience": "Perrysburg-area small businesses", "recurring_job": "weekly local marketing push", "next_step": "managed weekly persona refresh"},
+  "runtime": {"kind": "web", "url": "https://saxtonshowcase.com/apps/perrysburg-marketer/v0.2/", "capabilities": ["google-places-lookup", "form-input", "template-generation", "clipboard-export"], "agent_ready": false, "notes": "v0.2 pulls live Google Places facts (hours, rating, category, top review, photo) at time of use only - no pre-fetch, no warehousing, per Google ToS"},
+  "persona": {"pack": null, "voice": "Amy: warm, blunt, local; generated posts read hand-written"},
+  "safety": {"requested_data": "business name lookup via Google Places; nothing stored", "per_run_consent": "n/a - no external actions", "allowed_actions": ["look up the selected business on Google Places", "generate text locally", "copy to clipboard"], "retention": "none - refresh clears", "signed": false},
+  "changelog": [
+    {"version": "0.1", "date": "2026-09-18", "notes": "first working demo"},
+    {"version": "0.2", "date": "2026-09-18", "notes": "Google Places business lookup wired in; all output copy rewritten in Amy's voice; tone selector dropped"}
+  ]
+}
