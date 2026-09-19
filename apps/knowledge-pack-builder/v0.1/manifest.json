@@ -1,0 +1,8 @@
+{
+  "identity": {"id": "knowledge-pack-builder", "version": "0.1", "owner": "saxton-showcase", "status": "draft", "universal_link": "https://saxtonshowcase.com/apps/knowledge-pack-builder/v0.1/"},
+  "access": {"tier": "free", "audience": "anyone building an assistant that knows their world", "recurring_job": "keeping an agent's instructions current", "next_step": "managed pack maintenance on a cadence"},
+  "runtime": {"kind": "web", "url": "https://saxtonshowcase.com/apps/knowledge-pack-builder/v0.1/", "capabilities": ["form-input", "markdown-assembly", "file-download"], "agent_ready": false, "notes": "v0.1 runs fully client-side; pack output follows the library spec's persona-pack shape"},
+  "persona": {"pack": null},
+  "safety": {"requested_data": "none leaves the browser", "per_run_consent": "n/a - no external actions", "allowed_actions": ["assemble text locally", "download files to the user's device"], "retention": "none - refresh clears", "signed": false},
+  "changelog": [{"version": "0.1", "date": "2026-09-18", "notes": "first working demo"}]
+}
