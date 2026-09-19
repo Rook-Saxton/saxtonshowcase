@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saxton Showcase — apps &amp; demos</title>
+<meta name="description" content="A shelf of small, useful tools. Take one off the shelf, run it with your agent.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧰</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Shantell+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f6f1e3; --ink:#2b2620; --red:#d9402c; --blue:#2b5fce;
+    --green:#2e7d46; --amber:#c98a00; --purple:#7a4bb3;
+    --wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'Shantell Sans', cursive; line-height:1.55;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 34px, rgba(43,38,32,.045) 35px);
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:2.2rem 1.2rem 4rem;}
+  header{margin:1.2rem 0 2.4rem;}
+  h1{font-family:'Caveat', cursive; font-weight:700; font-size:clamp(3rem, 9vw, 4.6rem); margin:0; transform:rotate(-1.5deg);}
+  h1 .hl{box-shadow: inset 0 -0.35em 0 rgba(217,64,44,.35);}
+  .tagline{font-size:1.15rem; max-width:34em; margin:.4rem 0 0; transform:rotate(-.4deg);}
+  .note{
+    display:inline-block; margin-top:1rem; padding:.35rem .8rem;
+    border:2px solid var(--ink); border-radius:var(--wobble);
+    font-size:.95rem; background:#fffdf4; transform:rotate(.8deg);
+  }
+  h2{font-family:'Caveat', cursive; font-size:2.2rem; margin:2.6rem 0 .2rem;}
+  h2 .u{box-shadow: inset 0 -0.3em 0 rgba(43,95,206,.28);}
+  .shelf{display:grid; gap:1.4rem; margin-top:1.2rem;}
+  .card{
+    position:relative; background:#fffdf4; border:2.5px solid var(--ink);
+    border-radius:var(--wobble); padding:1.2rem 1.4rem 1.3rem;
+    box-shadow:4px 5px 0 rgba(43,38,32,.18);
+  }
+  .card:nth-child(odd){transform:rotate(-.7deg);}
+  .card:nth-child(even){transform:rotate(.6deg);}
+  .card::before{ /* tape */
+    content:""; position:absolute; top:-12px; left:50%; width:96px; height:26px;
+    transform:translateX(-50%) rotate(-2deg);
+    background:rgba(224,200,120,.55); border-left:1px dashed rgba(43,38,32,.25);
+    border-right:1px dashed rgba(43,38,32,.25);
+  }
+  .card h3{font-family:'Caveat', cursive; font-size:1.9rem; margin:.1rem 0 .2rem;}
+  .card p{margin:.3rem 0;}
+  .meta{font-size:.88rem; opacity:.85;}
+  .btn{
+    display:inline-block; margin-top:.7rem; padding:.45rem 1.1rem;
+    font-family:'Shantell Sans', cursive; font-weight:600; font-size:1rem;
+    color:var(--ink); background:#fff; border:2.5px solid var(--ink);
+    border-radius:var(--wobble); text-decoration:none; cursor:pointer;
+    box-shadow:2.5px 3px 0 rgba(43,38,32,.25);
+  }
+  .btn:hover{background:#fdf3d8;}
+  .btn.blue{box-shadow:2.5px 3px 0 rgba(43,95,206,.5);}
+  .btn.green{box-shadow:2.5px 3px 0 rgba(46,125,70,.5);}
+  .bench{list-style:none; padding:0; margin:.6rem 0 0;}
+  .bench li{
+    background:#fffdf4; border:2px dashed rgba(43,38,32,.55);
+    border-radius:var(--wobble); padding:.55rem 1rem; margin:.5rem 0;
+  }
+  .bench b{font-family:'Caveat', cursive; font-size:1.3rem; font-weight:700;}
+  footer{margin-top:3rem; font-size:.9rem; opacity:.8; transform:rotate(-.3deg);}
+  a{color:var(--blue);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>The <span class="hl">Saxton Showcase</span></h1>
+    <p class="tagline">A shelf of small, useful tools. Every one is a plain web page that knows its job — take it off the shelf, run it yourself, or point your agent at it and let it drive.</p>
+    <p class="note">📌 How this works: tools live here on the web. New versions get new addresses — nothing you bookmarked ever gets overwritten.</p>
+  </header>
+
+  <h2>On the <span class="u">shelf</span></h2>
+  <div class="shelf">
+    <div class="card">
+      <h3>Perrysburg Marketer</h3>
+      <p>A week of local marketing, planned in one sitting. Tell it your shop, this week's hook, and what's happening around town — it lays out seven days of posts plus an email blurb you can actually send.</p>
+      <p class="meta">v0.1 · runs in your browser · made for Perrysburg-area small businesses</p>
+      <a class="btn blue" href="/apps/perrysburg-marketer/v0.1/">Open the tool →</a>
+    </div>
+    <div class="card">
+      <h3>Knowledge Pack Builder</h3>
+      <p>Turn what you know into a pack an agent can run: the job, the sources, the rules, the examples. It assembles a clean, reviewable pack you can download and hand to any assistant.</p>
+      <p class="meta">v0.1 · runs in your browser · for anyone building a helper that knows their world</p>
+      <a class="btn green" href="/apps/knowledge-pack-builder/v0.1/">Open the tool →</a>
+    </div>
+  </div>
+
+  <h2>On the <span class="u">workbench</span></h2>
+  <ul class="bench">
+    <li><b>Family Week</b> — calendars, meals, school notes and errands pulled into one plan.</li>
+    <li><b>Plain-English Reader</b> — anything rewritten at the reading level you pick, facts linked back to their source.</li>
+    <li><b>Meeting-to-Work</b> — notes in, decisions and owners and follow-ups out.</li>
+  </ul>
+
+  <footer>
+    <p>Built in Ohio. Every tool here is a working demo — new versions arrive as new links, and old links keep working.</p>
+  </footer>
+</div>
+</body>
+</html>
