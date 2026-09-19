@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Week v0.1 — Saxton Showcase</title>
+<meta name="description" content="Dump the week's chaos in. Get one page back: dinners, events, school stuff, errands.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗓️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Shantell+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f6f1e3; --ink:#2b2620; --blue:#2b5fce; --green:#2e7d46; --amber:#c98a00;
+    --wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'Shantell Sans', cursive; line-height:1.55;}
+  .wrap{max-width:780px; margin:0 auto; padding:2rem 1.2rem 4rem;}
+  .crumb{font-size:.95rem;} .crumb a{color:var(--blue);}
+  h1{font-family:'Caveat', cursive; font-weight:700; font-size:clamp(2.6rem,8vw,3.8rem); margin:.3rem 0 .1rem; transform:rotate(-1.2deg);}
+  h1 .hl{box-shadow: inset 0 -0.35em 0 rgba(201,138,0,.4);}
+  .sub{max-width:36em; margin:.2rem 0 1.6rem;}
+  fieldset{border:2.5px solid var(--ink); border-radius:var(--wobble); background:#fffdf4; padding:1rem 1.2rem; margin:0 0 1.2rem;}
+  legend{font-family:'Caveat', cursive; font-size:1.5rem; font-weight:700; padding:0 .5rem;}
+  label{display:block; font-weight:600; margin:.8rem 0 .15rem;}
+  input[type=text], textarea, select{
+    width:100%; font-family:'Shantell Sans', cursive; font-size:1rem; color:var(--ink);
+    background:#fff; border:2px solid var(--ink); border-radius:12px 225px 12px 225px / 225px 12px 225px 12px;
+    padding:.5rem .8rem;
+  }
+  textarea{min-height:4.5em; resize:vertical;}
+  .hint{font-size:.85rem; opacity:.75; margin:.15rem 0 0;}
+  .btn{
+    display:inline-block; margin-top:.4rem; padding:.55rem 1.3rem;
+    font-family:'Shantell Sans', cursive; font-weight:600; font-size:1.05rem;
+    color:var(--ink); background:#fff; border:2.5px solid var(--ink);
+    border-radius:var(--wobble); cursor:pointer; box-shadow:2.5px 3px 0 rgba(43,38,32,.25);
+  }
+  .btn:hover{background:#fdf3d8;}
+  .btn.big{font-size:1.2rem; background:#fdf3d8; box-shadow:3px 4px 0 rgba(201,138,0,.5);}
+  #out{display:none;}
+  .day{
+    position:relative; background:#fffdf4; border:2.5px solid var(--ink); border-radius:var(--wobble);
+    padding:1rem 1.2rem; margin:1.1rem 0; box-shadow:3px 4px 0 rgba(43,38,32,.15);
+  }
+  .day:nth-child(odd){transform:rotate(-.4deg);} .day:nth-child(even){transform:rotate(.5deg);}
+  .day h3{font-family:'Caveat', cursive; font-size:1.7rem; margin:.1rem 0 .3rem;}
+  .day p{margin:.25rem 0;}
+  .day .meal{font-weight:600;}
+  .pin{
+    background:#fdf3d8; border:2.5px dashed var(--ink); border-radius:var(--wobble);
+    padding:1rem 1.2rem; margin:1.1rem 0; transform:rotate(-.5deg);
+  }
+  .pin h3{font-family:'Caveat', cursive; font-size:1.6rem; margin:.1rem 0 .3rem;}
+  #toast{
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%) rotate(-1deg);
+    background:var(--ink); color:var(--paper); padding:.5rem 1.1rem; border-radius:var(--wobble);
+    font-family:'Shantell Sans', cursive; display:none; z-index:9;
+  }
+  .fineprint{font-size:.85rem; opacity:.8; margin-top:2.4rem; border-top:2px dashed rgba(43,38,32,.4); padding-top:.8rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="crumb"><a href="/">← back to the shelf</a></p>
+  <h1>Family <span class="hl">Week</span> <small style="font-size:.45em;">v0.1</small></h1>
+  <p class="sub">Dump the week's chaos in the boxes - practices, the note from school, the errands nobody wants. Get back one page you can stick on the fridge. It stays on your device; nothing goes anywhere.</p>
+
+  <fieldset>
+    <legend>The moving parts</legend>
+    <label for="events">Fixed stuff this week <span class="hint">(one per line, start with the day if you can: "Tue 6pm piano")</span></label>
+    <textarea id="events" placeholder="Tue 6pm piano&#10;Thu 7pm - the game&#10;Sat 10am haircut"></textarea>
+    <label for="school">School notes <span class="hint">(one per line - the stuff that's easy to forget)</span></label>
+    <textarea id="school" placeholder="Wed - library books due&#10;Fri - wear spirit day shirt"></textarea>
+    <label for="errands">Errands pile <span class="hint">(one per line)</span></label>
+    <textarea id="errands" placeholder="Costco run&#10;drop the return at UPS&#10;dog food"></textarea>
+    <label for="cook">How much cooking is realistic this week?</label>
+    <select id="cook">
+      <option value="mix">A mix - some real dinners, some survival mode</option>
+      <option value="easy">Keep it easy all week, nobody's winning awards</option>
+      <option value="real">We actually cook - give me real dinners</option>
+    </select>
+    <div style="text-align:center; margin-top:1rem;">
+      <button class="btn big" id="go">Sort my week 🗓️</button>
+    </div>
+  </fieldset>
+
+  <div id="out">
+    <h2 style="font-family:'Caveat',cursive; font-size:2.1rem; margin:0;">One page. Whole week.</h2>
+    <div id="pinschool"></div>
+    <div id="days"></div>
+    <div id="pinerrands"></div>
+    <div style="text-align:center; margin-top:1.4rem;">
+      <button class="btn big" id="copyall">Copy the whole plan 📋</button>
+    </div>
+    <p class="hint" style="text-align:center;">Lives only on this page - a refresh starts over. Copy it or screenshot it.</p>
+  </div>
+
+  <p class="fineprint">Made for households running on sticky notes and hope. The job: Sunday-night "what IS this week." Next step up: a family agent that already knows the calendar, the picky eater, and which kid has gym shoes day - and just hands you this page. Contract record: <a href="manifest.json">manifest.json</a> (v0.1, unsigned draft).</p>
+</div>
+<div id="toast">copied ✔</div>
+<script>
+const $ = id => document.getElementById(id);
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const DAYKEYS = {mon:0, tue:1, wed:2, thu:3, fri:4, sat:5, sun:6};
+
+const MEALS = {
+  fast: ["breakfast for dinner - pancakes count as a vegetable-adjacent", "frozen pizza and a bagged salad, no shame", "grilled cheese + tomato soup", "rotisserie chicken + microwave rice + whatever veg survives", "quesadillas, ten minutes, done"],
+  real: ["sheet-pan chicken and potatoes", "taco night - set it all out, let them build", "big pot of chili, leftovers tomorrow", "pasta with actual sauce, garlic bread if you're feeling generous", "stir fry - clears out the crisper drawer"],
+  wildcard: ["clean-out-the-fridge night - everything must go", "crockpot something. Future you says thanks", "leftovers, and that's a plan not a failure"]
+};
+
+function dayOf(line){
+  const m = line.toLowerCase().match(/\b(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)/);
+  return m ? DAYKEYS[m[1].slice(0,3)] : -1;
+}
+function lines(id){ return $(id).value.split('\n').map(s=>s.trim()).filter(Boolean); }
+let usedMeals = [];
+function pickMeal(kind){
+  const pool = MEALS[kind].filter(m => !usedMeals.includes(m));
+  const src = pool.length ? pool : MEALS[kind];
+  const m = src[Math.floor(Math.random()*src.length)];
+  usedMeals.push(m);
+  return m;
+}
+
+function build(){
+  usedMeals = [];
+  const events = lines('events'), school = lines('school'), errands = lines('errands');
+  const cook = $('cook').value;
+
+  const byDay = DAYS.map(()=>[]);
+  const floating = [];
+  events.forEach(e => { const d = dayOf(e); (d >= 0 ? byDay[d] : floating).push(e); });
+
+  const busy = byDay.map(list => list.length > 0);
+  const errandDay = (() => {
+    const order = [5,6,0,1,2,3,4]; // weekend first
+    return DAYS[order.find(d => !busy[d]) ?? 0];
+  })();
+
+  const plan = DAYS.map((name, i) => {
+    let meal;
+    if (name === 'Friday' && cook !== 'real') meal = "pizza. You were never cooking Friday. Accept it.";
+    else if (name === 'Sunday') meal = pickMeal('wildcard');
+    else if (busy[i]) meal = pickMeal('fast');
+    else meal = pickMeal(cook === 'easy' ? 'fast' : 'real');
+    return {name, events: byDay[i], meal};
+  });
+
+  // school pinned note
+  const ps = $('pinschool');
+  ps.innerHTML = '';
+  if (school.length){
+    ps.innerHTML = `<div class="pin"><h3>📌 Don't forget (school)</h3>${school.map(s=>`<p>• ${s.replace(/</g,'&lt;')}</p>`).join('')}</div>`;
+  }
+
+  const daysEl = $('days'); daysEl.innerHTML = '';
+  plan.forEach(d => {
+    const div = document.createElement('div');
+    div.className = 'day';
+    div.innerHTML = `<h3>${d.name}</h3>` +
+      d.events.map(e=>`<p>🕐 ${e.replace(/</g,'&lt;')}</p>`).join('') +
+      `<p class="meal">🍽️ ${d.meal.replace(/</g,'&lt;')}</p>`;
+    daysEl.appendChild(div);
+  });
+
+  const pe = $('pinerrands');
+  pe.innerHTML = '';
+  if (errands.length || floating.length){
+    let html = '';
+    if (errands.length) html += `<div class="pin"><h3>🛒 One run, not five - ${errandDay}</h3>${errands.map(s=>`<p>• ${s.replace(/</g,'&lt;')}</p>`).join('')}<p class="hint">Batch them. Future you, midweek, will be glad.</p></div>`;
+    if (floating.length) html += `<div class="pin"><h3>🗓️ No day attached - slot these yourself</h3>${floating.map(s=>`<p>• ${s.replace(/</g,'&lt;')}</p>`).join('')}</div>`;
+    pe.innerHTML = html;
+  }
+
+  $('out').style.display = 'block';
+  $('out').scrollIntoView({behavior:'smooth'});
+  $('copyall').onclick = () => {
+    let txt = 'THE WEEK\n' + '='.repeat(30) + '\n';
+    if (school.length) txt += '\nDON\u2019T FORGET (SCHOOL)\n' + school.map(s=>'- '+s).join('\n') + '\n';
+    txt += '\n' + plan.map(d => d.name.toUpperCase() + '\n' + d.events.map(e=>'  '+e).join('\n') + (d.events.length?'\n':'') + '  Dinner: ' + d.meal).join('\n\n');
+    if (errands.length) txt += '\n\nERRAND RUN - ' + errandDay.toUpperCase() + '\n' + errands.map(s=>'- '+s).join('\n');
+    if (floating.length) txt += '\n\nUNSCHEDULED\n' + floating.map(s=>'- '+s).join('\n');
+    copy(txt);
+  };
+}
+function copy(text){
+  const done = () => { const t = $('toast'); t.style.display='block'; setTimeout(()=>t.style.display='none', 1400); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, done);
+  else { const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); }
+}
+$('go').onclick = build;
+</script>
+</body>
+</html>
