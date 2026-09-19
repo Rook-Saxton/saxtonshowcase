@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Knowledge Pack Builder v0.1 — Saxton Showcase</title>
+<meta name="description" content="Turn what you know into a pack an agent can run: the job, the sources, the rules, the examples. Download a clean, reviewable pack.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Shantell+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f6f1e3; --ink:#2b2620; --green:#2e7d46; --blue:#2b5fce; --purple:#7a4bb3;
+    --wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'Shantell Sans', cursive; line-height:1.55;}
+  .wrap{max-width:780px; margin:0 auto; padding:2rem 1.2rem 4rem;}
+  .crumb{font-size:.95rem;} .crumb a{color:var(--blue);}
+  h1{font-family:'Caveat', cursive; font-weight:700; font-size:clamp(2.5rem,8vw,3.6rem); margin:.3rem 0 .1rem; transform:rotate(-1deg);}
+  h1 .hl{box-shadow: inset 0 -0.35em 0 rgba(46,125,70,.32);}
+  .sub{max-width:38em; margin:.2rem 0 1.4rem;}
+  fieldset{border:2.5px solid var(--ink); border-radius:var(--wobble); background:#fffdf4; padding:1rem 1.2rem; margin:0 0 1.2rem;}
+  legend{font-family:'Caveat', cursive; font-size:1.5rem; font-weight:700; padding:0 .5rem;}
+  label{display:block; font-weight:600; margin:.8rem 0 .15rem;}
+  input[type=text], textarea, select{
+    width:100%; font-family:'Shantell Sans', cursive; font-size:1rem; color:var(--ink);
+    background:#fff; border:2px solid var(--ink); border-radius:12px 225px 12px 225px / 225px 12px 225px 12px;
+    padding:.5rem .8rem;
+  }
+  textarea{min-height:4.5em; resize:vertical;}
+  .hint{font-size:.85rem; opacity:.75; margin:.15rem 0 0;}
+  .btn{
+    display:inline-block; margin-top:.4rem; padding:.55rem 1.3rem;
+    font-family:'Shantell Sans', cursive; font-weight:600; font-size:1.05rem;
+    color:var(--ink); background:#fff; border:2.5px solid var(--ink);
+    border-radius:var(--wobble); cursor:pointer; box-shadow:2.5px 3px 0 rgba(43,38,32,.25);
+  }
+  .btn:hover{background:#eef6ec;}
+  .btn.big{font-size:1.2rem; background:#eef6ec; box-shadow:3px 4px 0 rgba(46,125,70,.45);}
+  #out{display:none;}
+  .sheet{
+    position:relative; background:#fffdf4; border:2.5px solid var(--ink); border-radius:var(--wobble);
+    padding:1rem 1.2rem; margin:1.1rem 0; box-shadow:3px 4px 0 rgba(43,38,32,.15); transform:rotate(-.4deg);
+  }
+  .sheet pre{
+    white-space:pre-wrap; word-wrap:break-word; font-family:'Shantell Sans', cursive; font-size:.92rem;
+    background:#fff; border:2px dashed rgba(43,38,32,.4); border-radius:12px; padding:.7rem .9rem; margin:.4rem 0;
+    max-height:420px; overflow:auto;
+  }
+  .fineprint{font-size:.85rem; opacity:.8; margin-top:2.4rem; border-top:2px dashed rgba(43,38,32,.4); padding-top:.8rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="crumb"><a href="/">← back to the shelf</a></p>
+  <h1>Knowledge Pack <span class="hl">Builder</span> <small style="font-size:.45em;">v0.1</small></h1>
+  <p class="sub">An agent is only as useful as what it's been handed. This builds the handoff: what job the pack does, which sources it may trust, the house rules, and real examples of good output. Fill it in, review the pack, download it as Markdown + JSON. Everything stays in your browser.</p>
+
+  <fieldset>
+    <legend>The pack</legend>
+    <label for="pname">Pack name</label>
+    <input type="text" id="pname" placeholder="e.g. Front Desk Helper">
+    <label for="job">The job it does (one sentence)</label>
+    <input type="text" id="job" placeholder="e.g. Drafts friendly replies to common customer questions">
+    <label for="audience">Who it serves</label>
+    <input type="text" id="audience" placeholder="e.g. our front-desk team">
+    <label for="cadence">How often should it be refreshed?</label>
+    <select id="cadence">
+      <option value="weekly">weekly</option>
+      <option value="monthly" selected>monthly</option>
+      <option value="quarterly">quarterly</option>
+      <option value="when something changes">only when something changes</option>
+    </select>
+  </fieldset>
+
+  <fieldset>
+    <legend>What it may use</legend>
+    <label for="sources">Approved sources <span class="hint">(one per line — pages, docs, price lists, policies)</span></label>
+    <textarea id="sources" placeholder="our current price sheet&#10;the FAQ page on our website&#10;this year's handbook"></textarea>
+    <label for="rules">House rules <span class="hint">(one per line — tone, no-go topics, what to never promise)</span></label>
+    <textarea id="rules" placeholder="always warm, never salesy&#10;never quote a price not on the current sheet&#10;refunds go to a human, every time"></textarea>
+    <label for="examples">Examples of good output <span class="hint">(one per line — paste real ones if you have them)</span></label>
+    <textarea id="examples" placeholder="Q: do you take walk-ins? A: we do ..."></textarea>
+    <label for="guardrails">Safety limits <span class="hint">(one per line — what must always be confirmed by a person)</span></label>
+    <textarea id="guardrails" placeholder="anything that spends money&#10;anything sent to a customer list&#10;schedule changes"></textarea>
+    <div style="text-align:center; margin-top:1rem;">
+      <button class="btn big" id="go">Assemble my pack 📦</button>
+    </div>
+  </fieldset>
+
+  <div id="out">
+    <h2 style="font-family:'Caveat',cursive; font-size:2.1rem; margin:0;">Your pack, ready for review.</h2>
+    <div class="sheet">
+      <pre id="packmd"></pre>
+    </div>
+    <div style="text-align:center; margin-top:1rem;">
+      <button class="btn big" id="dlmd">Download .md</button>
+      <button class="btn big" id="dljson">Download pack.json</button>
+    </div>
+    <p class="hint" style="text-align:center;">Files save to your device. Nothing is uploaded; a refresh starts over.</p>
+  </div>
+
+  <p class="fineprint">Named audience: anyone building an assistant that knows their world. Recurring job: keeping an agent's instructions current. Next step: we maintain the pack for you on a cadence — that's the managed tier. Tool contract record: <a href="manifest.json">manifest.json</a> (v0.1, unsigned draft).</p>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const lines = id => $(id).value.split('\n').map(s=>s.trim()).filter(Boolean);
+const val = (id, fb) => ($(id).value.trim() || fb);
+
+let lastJson = null;
+
+function build(){
+  const name = val('pname','Untitled Pack');
+  const job = val('job','(job not stated)');
+  const audience = val('audience','(audience not stated)');
+  const cadence = $('cadence').value;
+  const sources = lines('sources'), rules = lines('rules'), examples = lines('examples'), guardrails = lines('guardrails');
+  const today = new Date().toISOString().slice(0,10);
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'pack';
+
+  const list = arr => arr.length ? arr.map(s=>'- '+s).join('\n') : '- (none yet)';
+  const md =
+`# Knowledge Pack: ${name}
+Version 0.1 · assembled ${today} · Saxton Showcase Knowledge Pack Builder
+
+## Job
+${job}
+
+## Serves
+${audience}
+
+## Refresh cadence
+${cadence}
+
+## Approved sources
+${list(sources)}
+
+## House rules
+${list(rules)}
+
+## Examples of good output
+${list(examples)}
+
+## Safety limits (a human confirms these, always)
+${list(guardrails)}
+
+---
+Review before use. This pack is instructions for an assistant; it acts only where a person has approved it to act.`;
+
+  lastJson = {
+    identity: {id: slug, version: "0.1", owner: "self-built", status: "draft", assembled: today},
+    persona: {name, job, audience, refresh_cadence: cadence},
+    approved_sources: sources,
+    house_rules: rules,
+    examples,
+    safety_limits: guardrails,
+    signed: false
+  };
+
+  $('packmd').textContent = md;
+  $('out').style.display = 'block';
+  $('out').scrollIntoView({behavior:'smooth'});
+}
+
+function dl(name, text, type){
+  const blob = new Blob([text], {type});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+
+$('go').onclick = build;
+$('dlmd').onclick = () => dl((lastJson?lastJson.identity.id:'pack') + '-v0.1.md', $('packmd').textContent, 'text/markdown');
+$('dljson').onclick = () => dl((lastJson?lastJson.identity.id:'pack') + '-v0.1.json', JSON.stringify(lastJson, null, 2), 'application/json');
+</script>
+</body>
+</html>
