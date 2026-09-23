@@ -1,0 +1,249 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Deck Check - Saxton Showcase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Atkinson+Hyperlegible:wght@400;700&family=Martian+Mono:wght@400&display=swap">
+<style>
+/* Daylight: lilac paper, candy pieces with ink outlines like stickers. Same language as the front door. */
+:root{
+  color-scheme:light;
+  --night:#F7F4FF; --panel:#FFFFFF; --edge:#DDD4F5; --ink:#1A1540; --tray:#ECE5FF;
+  --text:#1A1540; --muted:#524A78; --lav:#6B4FD8;
+  --tomato:#FF4F6D; --marigold:#FFE066; --grass:#C6F432; --pool:#22D3C5; --grape:#B45CF0; --bubble:#FF7AC8;
+  --display:"Unbounded","Arial Black","Helvetica Neue",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Martian Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{background:var(--night)}
+body{background:var(--night);color:var(--text);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:20px;margin:0;overflow-x:clip}
+.wrap{max-width:780px;margin:0 auto}
+a{color:inherit}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--lav);outline-offset:3px;border-radius:8px}
+h1,h2{font-family:var(--display);margin:0;text-wrap:balance}
+.date{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.lbl{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em}
+.crooked .w{display:inline-block;white-space:nowrap}
+.crooked .ch{display:inline-block}
+
+nav{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-block:20px}
+nav a{text-decoration:none}
+nav a:hover{color:var(--lav)}
+.word{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.01em}
+.mark{width:26px;height:26px;border-radius:7px;background:var(--grape);border:2px solid var(--ink);transform:rotate(-8deg);box-shadow:3px 3px 0 rgba(26,21,64,.18)}
+
+.hero{padding-block:44px 8px}
+.hero h1{font-weight:800;font-size:clamp(38px,8vw,72px);line-height:1;letter-spacing:-.02em}
+.hero .lede{font-size:20px;color:var(--muted);margin:18px 0 0;max-width:36ch}
+.hero .lede b{color:var(--text)}
+.pips{display:flex;gap:14px;margin-top:26px}
+.pips .mana{transform:rotate(var(--r))}
+
+.mana{display:grid;place-items:center;width:46px;height:46px;border-radius:50%;font-family:var(--display);font-weight:800;font-size:17px;border:2px solid var(--ink);box-shadow:3px 3px 0 rgba(26,21,64,.18);user-select:none}
+.mana.w{background:#FFFBD5;color:var(--ink)}
+.mana.u{background:#0E68AB;color:#FFF}
+.mana.b{background:#150B00;color:#FFF}
+.mana.r{background:#D3202A;color:#FFF}
+.mana.g{background:#00733E;color:#FFF}
+.mana.c{background:#CBC2BF;color:var(--ink)}
+
+form{margin-block:36px 20px}
+fieldset{border:0;margin:0 0 30px;padding:0}
+legend,.q{font-family:var(--display);font-weight:700;font-size:20px;letter-spacing:-.01em;padding:0;margin:0 0 4px}
+.hint{margin:0 0 14px;color:var(--muted);font-size:15px}
+.opts{display:flex;gap:8px;flex-wrap:wrap}
+.opt input,.pip input{position:absolute;opacity:0;width:1px;height:1px;overflow:hidden}
+.opt span{display:inline-block;font-family:var(--display);font-weight:700;font-size:13px;padding:9px 14px;border-radius:999px;border:1px solid var(--edge);background:var(--panel);cursor:pointer;transition:transform .15s,background .15s,color .15s}
+.opt span:hover{transform:translateY(-1px)}
+.opt input:checked+span{background:var(--text);color:var(--night);border-color:var(--text)}
+.opt input:focus-visible+span,.pip input:focus-visible+.mana{outline:2px solid var(--lav);outline-offset:3px}
+.pip{display:inline-block;margin:0 12px 12px 0}
+.pip .mana{cursor:pointer;transition:transform .15s,box-shadow .15s}
+.pip input:checked+.mana{transform:rotate(-6deg) scale(1.12);box-shadow:0 0 0 3px var(--night),0 0 0 6px var(--ink),3px 3px 0 rgba(26,21,64,.18)}
+.colornames{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;color:var(--muted);font-size:13px}
+.colornames span{min-width:46px;text-align:center}
+
+#otherWrap{display:none;margin-top:10px}
+#otherWrap.show{display:block}
+input[type=text],textarea{font:inherit;font-size:16px;width:100%;padding:10px 14px;border:2px solid var(--ink);border-radius:12px;background:var(--panel);color:var(--ink)}
+textarea{min-height:130px;resize:vertical}
+input[type=text]:focus-visible,textarea:focus-visible{outline:2px solid var(--lav);outline-offset:2px}
+.who{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.who label{display:grid;gap:6px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em}
+@media (max-width:620px){.who{grid-template-columns:1fr}}
+
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.btn{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;text-decoration:none;padding:13px 18px;border-radius:12px;border:1px solid var(--text);background:var(--text);color:var(--night);cursor:pointer;display:inline-block}
+.btn:hover{transform:translateY(-1px)}
+.btn:disabled{opacity:.6;cursor:default;transform:none}
+#msg{margin:10px 0 0;font-weight:700;min-height:1.5em}
+#msg.ok{color:#1E6B3A}
+#msg.err{color:#A31E3A}
+
+.next{background:var(--marigold);color:var(--ink);border-radius:22px;padding:26px 24px;margin-block:8px 40px}
+.next h2{font-weight:800;font-size:clamp(20px,3.4vw,28px);letter-spacing:-.02em}
+.next p{color:#3A335F;margin:10px 0 0;max-width:52ch}
+
+footer{border-top:1px solid var(--edge);padding-block:28px 48px;color:var(--muted);font-size:15px}
+footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
+</style>
+
+<div class="wrap">
+  <nav>
+    <span class="word"><span class="mark" aria-hidden="true"></span><span class="crooked">SAXTON SHOWCASE</span></span>
+    <span class="date">Unlisted page</span>
+  </nav>
+
+  <header class="hero">
+    <h1 class="crooked" data-amp="1.4" data-rot="3">How do you like to win?</h1>
+    <p class="lede">Joe, this page is yours - nobody else has the link. Before the deck-builder touches a card list, it needs to know how you actually play. <b>Two minutes here beats twenty texts back and forth.</b></p>
+    <div class="pips" aria-hidden="true">
+      <span class="mana w" style="--r:-7deg">W</span><span class="mana u" style="--r:4deg">U</span><span class="mana b" style="--r:-3deg">B</span><span class="mana r" style="--r:6deg">R</span><span class="mana g" style="--r:-5deg">G</span>
+    </div>
+  </header>
+
+  <form id="deckForm" action="/api/deck-preferences" method="post">
+    <fieldset>
+      <legend>The format</legend>
+      <p class="hint">Pick the one this deck is for.</p>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="format" value="Commander"><span>Commander</span></label>
+        <label class="opt"><input type="radio" name="format" value="Standard"><span>Standard</span></label>
+        <label class="opt"><input type="radio" name="format" value="Modern"><span>Modern</span></label>
+        <label class="opt"><input type="radio" name="format" value="Pioneer"><span>Pioneer</span></label>
+        <label class="opt"><input type="radio" name="format" value="Legacy"><span>Legacy</span></label>
+        <label class="opt"><input type="radio" name="format" value="Pauper"><span>Pauper</span></label>
+        <label class="opt"><input type="radio" name="format" value="Draft / Sealed"><span>Draft &amp; sealed</span></label>
+        <label class="opt"><input type="radio" name="format" value="Other" id="fmtOther"><span>Something else</span></label>
+      </div>
+      <div id="otherWrap"><input type="text" name="format_other" maxlength="100" placeholder="What do you play, then?"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Your colors</legend>
+      <p class="hint">The ones you love, not the ones you tolerate. Pick any, or skip for colorless.</p>
+      <div>
+        <label class="pip"><input type="checkbox" name="colors" value="White"><span class="mana w">W</span></label>
+        <label class="pip"><input type="checkbox" name="colors" value="Blue"><span class="mana u">U</span></label>
+        <label class="pip"><input type="checkbox" name="colors" value="Black"><span class="mana b">B</span></label>
+        <label class="pip"><input type="checkbox" name="colors" value="Red"><span class="mana r">R</span></label>
+        <label class="pip"><input type="checkbox" name="colors" value="Green"><span class="mana g">G</span></label>
+        <label class="pip"><input type="checkbox" name="colors" value="Colorless"><span class="mana c">C</span></label>
+      </div>
+      <div class="colornames"><span>White</span><span>Blue</span><span>Black</span><span>Red</span><span>Green</span><span>Colorless</span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Budget per deck</legend>
+      <p class="hint">Total for the 99 (or 60). Lands count.</p>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="budget" value="Under $50"><span>Under $50</span></label>
+        <label class="opt"><input type="radio" name="budget" value="$50-150"><span>$50-150</span></label>
+        <label class="opt"><input type="radio" name="budget" value="$150-300"><span>$150-300</span></label>
+        <label class="opt"><input type="radio" name="budget" value="$300-500"><span>$300-500</span></label>
+        <label class="opt"><input type="radio" name="budget" value="Whatever it takes"><span>Whatever it takes</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Power level</legend>
+      <p class="hint">Honest answers only. Nobody's impressed by a 7.</p>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="power" value="Kitchen table (1-3)"><span>Kitchen table, 1-3</span></label>
+        <label class="opt"><input type="radio" name="power" value="Casual (4-6)"><span>Casual, 4-6</span></label>
+        <label class="opt"><input type="radio" name="power" value="High power (7-8)"><span>High power, 7-8</span></label>
+        <label class="opt"><input type="radio" name="power" value="cEDH (9-10)"><span>cEDH, 9-10</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>How you like to win</legend>
+      <p class="hint">Pick every one that makes you smile.</p>
+      <div class="opts">
+        <label class="opt"><input type="checkbox" name="win" value="Swinging with creatures"><span>Swinging with creatures</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Combo"><span>Combo</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Burn"><span>Burn</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Mill"><span>Mill</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Drain and sacrifice"><span>Drain &amp; sacrifice</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Tokens everywhere"><span>Tokens everywhere</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="One giant commander"><span>One giant commander</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Grind them out"><span>Grind them out</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Weird alt win-cons"><span>Weird alt win-cons</span></label>
+        <label class="opt"><input type="checkbox" name="win" value="Chaos"><span>Chaos</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>The ramble</legend>
+      <p class="hint">Anything else. Pet cards you refuse to cut, commanders you've always wanted to build, strategies you hate losing to, house rules, how your table actually plays.</p>
+      <textarea name="ramble" maxlength="4000" placeholder="Talk deck. Nobody's grading this."></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>Who's brewing</legend>
+      <div class="who">
+        <label>Your name<input type="text" name="name" maxlength="100" autocomplete="name"></label>
+        <label>Where the list comes back to<input type="text" name="contact" maxlength="200" autocomplete="email" placeholder="Email or phone, either works"></label>
+      </div>
+    </fieldset>
+
+    <label class="hp" aria-hidden="true">Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+    <button class="btn" type="submit">Send it to the workbench</button>
+    <p id="msg" role="status" aria-live="polite"></p>
+  </form>
+
+  <div class="next">
+    <h2>What happens next</h2>
+    <p>Your picks land straight in Amelia's inbox and the workbench's. The builder drafts a list around exactly what you set - your colors, your budget, your kind of win - and it comes back to you. Change your mind later? Just send the form again; the newest one wins.</p>
+  </div>
+
+  <footer>
+    <div class="word"><span class="mark" aria-hidden="true" style="background:var(--pool)"></span><span class="crooked">SAXTON SHOWCASE</span></div>
+    <p style="margin:0">Made at home by Justin and Amelia.<br>Unlisted page - only Joe has this link.</p>
+  </footer>
+</div>
+
+<script>
+// Crooked letters, like the board pieces on the front door.
+(function(){
+  document.querySelectorAll(".crooked").forEach(function(el){
+    var text=el.textContent;el.textContent="";
+    var words=text.split(" ");
+    words.forEach(function(word,wi){
+      var w=document.createElement("span");w.className="w";
+      var rot=parseFloat(el.dataset.rot||3),amp=parseFloat(el.dataset.amp||1);
+      word.split("").forEach(function(c,i){
+        var s=document.createElement("span");s.className="ch";s.textContent=c;
+        s.style.transform="rotate("+(Math.sin(i*1.7+wi*2.3)*rot).toFixed(2)+"deg) translateY("+(Math.sin(i*1.3)*amp).toFixed(2)+"px)";
+        w.appendChild(s);
+      });
+      el.appendChild(w);
+      if(wi<words.length-1)el.appendChild(document.createTextNode(" "));
+    });
+  });
+})();
+
+// "Something else" reveals the free-text box.
+(function(){
+  var other=document.getElementById("fmtOther"),wrap=document.getElementById("otherWrap");
+  document.querySelectorAll('input[name="format"]').forEach(function(r){
+    r.addEventListener("change",function(){wrap.classList.toggle("show",other.checked);});
+  });
+})();
+
+// Send without leaving the page.
+(function(){
+  var form=document.getElementById("deckForm"),msg=document.getElementById("msg");
+  form.addEventListener("submit",function(ev){
+    ev.preventDefault();
+    var btn=form.querySelector("button[type=submit]");btn.disabled=true;msg.className="";msg.textContent="Sending\u2026";
+    fetch("/api/deck-preferences",{method:"POST",body:new FormData(form)}).then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(res){
+      if(res.ok&&res.j.ok){form.reset();document.getElementById("otherWrap").classList.remove("show");msg.className="ok";msg.textContent="Got it - that's the builder's homework. The list comes back to you.";}
+      else{msg.className="err";msg.textContent="That didn't send. Try again in a minute?";}
+    }).catch(function(){msg.className="err";msg.textContent="That didn't send. Try again in a minute?";}).finally(function(){btn.disabled=false;});
+  });
+})();
+</script>
