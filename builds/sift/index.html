@@ -1,0 +1,1003 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sift, a diff bench that never leaves the page</title>
+<!--
+  SIFT, a diff bench that never leaves the page.
+  Built 2026-08-29 for playground/. Self-contained, offline, no dependencies, no network calls.
+
+  WHAT IT DOES
+  Paste two versions of anything into the two panes and get a real diff: side by side or unified,
+  line level with word level highlighting inside the lines that changed, with unchanged stretches
+  folded away until you click them. Copy the unified patch out. Every byte stays in the tab, which
+  is the entire point: the usual way to compare two versions of a private document is to paste both
+  of them into somebody else's website.
+
+  The difference engine is Myers' algorithm, written here rather than pulled from a library, and
+  you can switch between its two forms while watching what each one costs:
+
+    GREEDY   the basic O(ND) search from section 2 of the paper. It saves the whole frontier once
+             per edit distance and walks the saved trace backwards to recover the script. Simple,
+             and its memory grows with the square of how different the two texts are.
+    LINEAR   section 4b. A forward search and a reverse search run at each other until they touch,
+             which finds one snake guaranteed to be on some shortest path; the problem splits there
+             and recurses. Same answer, memory that grows with the size of the input instead.
+
+  WHAT I LEARNED BUILDING IT
+  1. The greedy algorithm is about six lines and all six of them are the interesting ones. The rule
+     for which diagonal you step from, "take the one that got further, and take the down move at
+     the edges", is the whole thing, and it is what makes the search follow the frontier of a
+     shortest path rather than exploring a grid.
+  2. The identity D = N + M - 2L, edit distance against longest common subsequence, is the check
+     worth having. It is exact rather than approximate, and it lets a completely different
+     algorithm (an O(NM) dynamic programme) grade the fast one. Every property in the checker that
+     actually caught something came from comparing two unrelated methods, never from re-running the
+     same one.
+  3. The linear space version's overlap test depends on the parity of delta = N - M, and the two
+     halves are not symmetric: with delta odd you look for the overlap while running the forward
+     sweep, with delta even you look for it while running the reverse sweep. I predicted before
+     building that this would be the thing I got backwards. It was. See point 5.
+  4. The prediction I was most confident about was the one that was wrong, and it was wrong in the
+     interesting direction. A minimal diff is famously not a readable diff: when a block could be
+     deleted from several equally short positions nothing in the algorithm's DEFINITION prefers
+     one, so real differs run a compaction pass that slides each block down. I built that pass,
+     put it in the toolbar, and predicted it would visibly move a hunk on 3 of 12 samples. It
+     moved nothing, on those 12 or on 400 generated cases. THIS formulation already emits the
+     latest legal placement: the snake consumes matching lines before any edit is charged, and the
+     step rule breaks ties with a strict less-than that resolves toward consuming the old text. So
+     the switch came out and the claim went in, as an assertion the checker runs over every case.
+     A pass that provably does nothing is worth more as a tested property than as a button.
+  5. The overlap parity in the linear engine is the trap I predicted for myself and walked into
+     anyway, and it does not look like a bug from the outside. Guard on k + delta instead of
+     k - delta and the reverse sweep reads off the end of the forward vector, where every
+     comparison against undefined is false. Here it happened to fail loudly, but the same family
+     of mistake usually produces a diff that applies perfectly and is merely one or two edits
+     longer than it needs to be. Patch-application testing says PASS to that. Comparing the two
+     engines says PASS too, if you only compare what the scripts DO. Only the edit distance
+     identity in point 2 sees it, which is why the prediction file named three separate properties
+     instead of one.
+  6. The worst bug in this build was not in the algorithm at all, and every algorithm test passed
+     straight through it. Lines are interned to integers before diffing, for speed. The first
+     version interned each pane with its own fresh map, so line 1 of the before text and line 1 of
+     the after text were both id 0 and therefore "equal" no matter what they said. The engine
+     suite never saw it, because those tests hand the engine raw arrays and never come through the
+     interner. The one check that asked the finished page for a patch and tried to replay it
+     caught it immediately. Parts-checks prove the parts.
+
+  WHY I BUILT IT
+  Five builds in this folder in a row were a simulation on a canvas, and the log asked, twice, for
+  a small useful tool instead: something that solves a real problem rather than demonstrating one.
+  This is that. The real problem is narrow and it is ours: comparing two versions of something
+  private, without handing either version to a website. It is also the first build here whose value
+  survives you not caring how it works.
+
+  HOW IT IS CHECKED
+  _verify/check_sift.js drives the engine over hundreds of generated cases and grades three
+  independent properties: the script applies to produce the target exactly, both engines agree on
+  the distance, and the distance matches an independent dynamic programming LCS. Negative controls
+  confirm the checker fails on a broken engine. _verify/check_sift_ui.js drives the real page
+  through real typing, clicks and keystrokes. Predictions were written first, in
+  _verify/PREDICTIONS_sift.md, and graded afterwards in _verify/RESULTS.md.
+
+  Every piece of text in this file, both samples included, is invented for the demo. No real
+  document, no household detail, nothing employer owned.
+-->
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b24; --panel-2: #1c2430; --line: #2a3441;
+    --ink: #e6edf3; --dim: #8b98a8; --accent: #5fd3c4;
+    --del-bg: #3a1d24; --del-ink: #ffb4be; --del-mark: #7d2233;
+    --ins-bg: #16302a; --ins-ink: #8ce8c4; --ins-mark: #1f6b4f;
+    --gutter: #111823;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px; line-height: 1.55;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 72px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 22px; }
+  h1 { font-size: 27px; margin: 0 0 6px; letter-spacing: -0.015em; }
+  h1 span { color: var(--accent); }
+  header p { color: var(--dim); margin: 0; max-width: 78ch; font-size: 14px; }
+
+  .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .pane h2 {
+    margin: 0; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--dim); padding: 9px 12px; background: var(--panel-2);
+    border-bottom: 1px solid var(--line); display: flex; justify-content: space-between;
+  }
+  .pane h2 em { font-style: normal; text-transform: none; letter-spacing: 0; }
+  textarea {
+    width: 100%; height: 190px; resize: vertical; border: 0; outline: 0;
+    background: transparent; color: var(--ink); font-family: var(--mono);
+    font-size: 12.5px; line-height: 1.6; padding: 10px 12px; display: block;
+  }
+  textarea:focus { background: #121a24; }
+
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 14px; margin-bottom: 14px;
+  }
+  .toolbar .grp { display: flex; gap: 7px; align-items: center; }
+  .toolbar label.tt { color: var(--dim); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+  button, select {
+    font: inherit; font-size: 13px; color: var(--ink); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[aria-pressed="true"] { background: #1d3b3a; border-color: var(--accent); color: var(--accent); }
+  .spacer { flex: 1 1 auto; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+  .chip {
+    font-family: var(--mono); font-size: 12px; padding: 4px 9px; border-radius: 6px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--dim);
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip.add b { color: var(--ins-ink); }
+  .chip.del b { color: var(--del-ink); }
+
+  .out {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+  }
+  table.diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  table.diff td { vertical-align: top; padding: 0; }
+  td.num {
+    width: 52px; min-width: 52px; text-align: right; padding: 0 9px 0 6px;
+    color: #5a6675; background: var(--gutter); user-select: none;
+    border-right: 1px solid var(--line);
+  }
+  td.txt { padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  tr.del td.txt { background: var(--del-bg); color: var(--del-ink); }
+  tr.ins td.txt { background: var(--ins-bg); color: var(--ins-ink); }
+  td.txt.del { background: var(--del-bg); color: var(--del-ink); }
+  td.txt.ins { background: var(--ins-bg); color: var(--ins-ink); }
+  td.txt.blank { background: #10161f; }
+  mark.d { background: var(--del-mark); color: #ffe3e7; border-radius: 3px; padding: 0 1px; }
+  mark.i { background: var(--ins-mark); color: #d9fff0; border-radius: 3px; padding: 0 1px; }
+  tr.fold td {
+    background: var(--panel-2); color: var(--dim); padding: 5px 12px; cursor: pointer;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: center;
+    font-size: 11.5px; letter-spacing: 0.03em;
+  }
+  tr.fold td:hover { color: var(--accent); }
+  tr.hunk td {
+    background: #101a26; color: #7f8fa3; padding: 3px 12px;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .empty { padding: 26px 16px; color: var(--dim); text-align: center; font-family: inherit; }
+
+  footer { margin-top: 22px; color: var(--dim); font-size: 12.5px; max-width: 80ch; }
+  footer code { font-family: var(--mono); color: #b9c6d4; }
+  .toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: var(--panel-2); border: 1px solid var(--accent); color: var(--accent);
+    padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0;
+    transition: opacity .18s; pointer-events: none;
+  }
+  .toast.on { opacity: 1; }
+
+  /* Preview mode: the storybook card shows the diff itself and nothing else. */
+  html.preview body { overflow: hidden; }
+  html.preview .wrap { padding: 14px 16px; max-width: none; }
+  html.preview header, html.preview .panes, html.preview .toolbar, html.preview footer { display: none; }
+  html.preview .out { max-height: none; font-size: 17px; line-height: 1.92; }
+  html.preview .stats { margin-bottom: 10px; }
+  html.preview .chip { font-size: 14px; padding: 5px 11px; }
+  html.preview td.num { width: 62px; min-width: 62px; }
+  /* The card is a fixed 2:1 window. At the editing font size the config diff
+   * filled about two thirds of it and the rest was empty ground, so the
+   * preview scales itself up to fill the frame. Measured, not guessed: the
+   * suite asserts nothing spills off the side. */
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Sift <span>/</span> a diff bench that never leaves the page</h1>
+    <p>Two versions in, one difference out. Myers' algorithm, written from the paper, running in
+       this tab. Nothing is uploaded, nothing is stored, and closing the tab is the delete button.</p>
+  </header>
+
+  <div class="panes">
+    <div class="pane">
+      <h2><span>Before</span><em id="aMeta">0 lines</em></h2>
+      <textarea id="a" spellcheck="false" aria-label="Before text"></textarea>
+    </div>
+    <div class="pane">
+      <h2><span>After</span><em id="bMeta">0 lines</em></h2>
+      <textarea id="b" spellcheck="false" aria-label="After text"></textarea>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="grp">
+      <label class="tt" for="view">View</label>
+      <select id="view">
+        <option value="split">Side by side</option>
+        <option value="unified">Unified</option>
+      </select>
+    </div>
+    <div class="grp">
+      <label class="tt" for="engine">Engine</label>
+      <select id="engine">
+        <option value="greedy">Greedy O(ND)</option>
+        <option value="linear">Linear space</option>
+      </select>
+    </div>
+    <div class="grp">
+      <button id="tWs" aria-pressed="false" title="Collapse runs of whitespace and ignore leading and trailing space">Ignore whitespace</button>
+      <button id="tCase" aria-pressed="false" title="Compare lines without regard to letter case">Ignore case</button>
+      <button id="tWord" aria-pressed="true" title="Highlight the words that changed inside a changed line">Word detail</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="grp">
+      <button id="sample1">Sample: notes</button>
+      <button id="sample2">Sample: config</button>
+      <button id="swap" title="Swap the two panes">Swap</button>
+      <button id="copy" title="Copy the unified patch to the clipboard">Copy patch</button>
+      <button id="clear">Clear</button>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div class="out" id="out"></div>
+
+  <footer>
+    <p>Keys: <code>Ctrl</code>+<code>Enter</code> re-runs, <code>Ctrl</code>+<code>U</code> toggles
+       unified, <code>Ctrl</code>+<code>Shift</code>+<code>C</code> copies the patch. Folded
+       stretches expand on click. <code>D</code> is the edit distance, the number of single line
+       insertions and deletions in the shortest script; <code>LCS</code> is how many lines the two
+       texts have in common, in order. The two always satisfy
+       <code>D = before + after - 2 x LCS</code>, which is how the checker grades this engine
+       against a completely different one.</p>
+    <p>One measured thing worth knowing, because it is the opposite of what the folklore says.
+       Real differs run a compaction pass afterwards to push each block of changes as low as it
+       will legally go, on the grounds that a shortest edit script does not care where the block
+       sits. This search already puts it there: over 400 generated cases and 12 hand built ones,
+       sliding found nothing to move. The snake eats matching lines before any edit is charged,
+       and the tie-break leans toward consuming the old text, and between them the block lands
+       as late as it can.</p>
+  </footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * 1. The difference engines
+ * ------------------------------------------------------------------ */
+
+/* Myers, section 2: the greedy O(ND) search.
+ *
+ * V[k] is the furthest x reached on diagonal k = x - y. One round per edit
+ * distance d, touching only the diagonals of the right parity. The step rule
+ * is the whole algorithm: at the left edge, or wherever the diagonal above
+ * got further, move DOWN (which consumes a line of `b`, an insertion);
+ * otherwise move RIGHT (consuming a line of `a`, a deletion). Then run the
+ * snake: slide along the diagonal for as long as the two agree.
+ *
+ * The V array is saved once per round so the script can be recovered by
+ * walking the trace backwards. That trace is the memory cost this version
+ * pays and the linear one does not. */
+function myersGreedy(a, b) {
+  const N = a.length, M = b.length, MAX = N + M;
+  const off = MAX;
+  const V = new Int32Array(2 * MAX + 2);
+  const trace = [];
+  let visited = 0;
+
+  for (let d = 0; d <= MAX; d++) {
+    trace.push(V.slice());
+    for (let k = -d; k <= d; k += 2) {
+      let x;
+      if (k === -d || (k !== d && V[off + k - 1] < V[off + k + 1])) x = V[off + k + 1];
+      else x = V[off + k - 1] + 1;
+      let y = x - k;
+      while (x < N && y < M && a[x] === b[y]) { x++; y++; }
+      V[off + k] = x;
+      visited++;
+      if (x >= N && y >= M) {
+        return { ops: backtrack(a, b, trace, d, off), D: d, visited, snapshots: trace.length };
+      }
+    }
+  }
+  /* Unreachable: d = N + M always terminates, since deleting everything and
+   * inserting everything is a valid script. Fail loudly rather than return a
+   * plausible empty answer. */
+  throw new Error("myersGreedy: no path found, which is impossible");
+}
+
+function backtrack(a, b, trace, D, off) {
+  const ops = [];
+  let x = a.length, y = b.length;
+  for (let d = D; d > 0; d--) {
+    const V = trace[d];
+    const k = x - y;
+    let prevK;
+    if (k === -d || (k !== d && V[off + k - 1] < V[off + k + 1])) prevK = k + 1;
+    else prevK = k - 1;
+    const prevX = V[off + prevK];
+    const prevY = prevX - prevK;
+    while (x > prevX && y > prevY) { ops.push({ t: "eq", ai: x - 1, bi: y - 1 }); x--; y--; }
+    if (prevK === k + 1) ops.push({ t: "ins", ai: prevX, bi: prevY });
+    else ops.push({ t: "del", ai: prevX, bi: prevY });
+    x = prevX; y = prevY;
+  }
+  while (x > 0 && y > 0) { ops.push({ t: "eq", ai: x - 1, bi: y - 1 }); x--; y--; }
+  ops.reverse();
+  return ops;
+}
+
+/* Myers, section 4b: linear space, by divide and conquer.
+ *
+ * A forward search from the top left and a reverse search from the bottom
+ * right are advanced one round each. The moment they overlap, the snake that
+ * caused the overlap is known to lie on SOME shortest path, so the problem
+ * splits there and each half recurses. Only two frontier vectors are ever
+ * live, so memory is O(N + M) rather than O(D^2).
+ *
+ * The parity is the trap, and it is asymmetric on purpose. With delta odd the
+ * forward sweep of round d can already have reached a reverse path from round
+ * d - 1, so the overlap is tested in the forward loop. With delta even it
+ * cannot, and the test belongs in the reverse loop. Swapping those two gives
+ * an engine that produces a perfectly valid script one or two edits longer
+ * than the shortest one, on roughly half of all inputs, and no amount of
+ * applying the patch will reveal it. */
+function myersLinear(a, b) {
+  const counter = { visited: 0, maxLive: 0, depth: 0, maxDepth: 0 };
+  const ops = [];
+  rec(0, a.length, 0, b.length);
+  return { ops, D: countD(ops), visited: counter.visited, snapshots: counter.maxLive,
+           maxDepth: counter.maxDepth };
+
+  function countD(o) { let d = 0; for (const p of o) if (p.t !== "eq") d++; return d; }
+
+  function rec(alo, ahi, blo, bhi) {
+    counter.depth++;
+    if (counter.depth > counter.maxDepth) counter.maxDepth = counter.depth;
+    const N = ahi - alo, M = bhi - blo;
+    if (N > 0 && M > 0) {
+      const ms = middleSnake(alo, ahi, blo, bhi);
+      if (ms.D > 1) {
+        rec(alo, alo + ms.x1, blo, blo + ms.y1);
+        for (let i = 0; i < ms.x2 - ms.x1; i++)
+          ops.push({ t: "eq", ai: alo + ms.x1 + i, bi: blo + ms.y1 + i });
+        rec(alo + ms.x2, ahi, blo + ms.y2, bhi);
+      } else {
+        trivial(alo, ahi, blo, bhi, ms.D);
+      }
+    } else if (N > 0) {
+      for (let i = alo; i < ahi; i++) ops.push({ t: "del", ai: i, bi: blo });
+    } else if (M > 0) {
+      for (let j = blo; j < bhi; j++) ops.push({ t: "ins", ai: alo, bi: j });
+    }
+    counter.depth--;
+  }
+
+  /* D is 0 or 1 here, so the two runs differ by at most one line. Emit it
+   * directly instead of recursing forever on a problem that cannot shrink. */
+  function trivial(alo, ahi, blo, bhi, D) {
+    const N = ahi - alo, M = bhi - blo;
+    if (D === 0) {
+      for (let i = 0; i < N; i++) ops.push({ t: "eq", ai: alo + i, bi: blo + i });
+      return;
+    }
+    let p = 0;
+    while (p < Math.min(N, M) && a[alo + p] === b[blo + p]) p++;
+    for (let i = 0; i < p; i++) ops.push({ t: "eq", ai: alo + i, bi: blo + i });
+    if (N > M) {
+      ops.push({ t: "del", ai: alo + p, bi: blo + p });
+      for (let i = p; i < M; i++) ops.push({ t: "eq", ai: alo + i + 1, bi: blo + i });
+    } else {
+      ops.push({ t: "ins", ai: alo + p, bi: blo + p });
+      for (let i = p; i < N; i++) ops.push({ t: "eq", ai: alo + i, bi: blo + i + 1 });
+    }
+  }
+
+  function middleSnake(alo, ahi, blo, bhi) {
+    const N = ahi - alo, M = bhi - blo;
+    const delta = N - M;
+    const odd = (delta % 2) !== 0;
+    const maxD = Math.ceil((N + M) / 2);
+    const size = 2 * (maxD + 1) + 2;
+    const off = maxD + 1;
+    const Vf = new Int32Array(size), Vr = new Int32Array(size);
+    counter.maxLive = Math.max(counter.maxLive, 2);
+    Vf[off + 1] = 0;
+    Vr[off + 1] = 0;
+
+    for (let d = 0; d <= maxD; d++) {
+      for (let k = -d; k <= d; k += 2) {
+        let x;
+        if (k === -d || (k !== d && Vf[off + k - 1] < Vf[off + k + 1])) x = Vf[off + k + 1];
+        else x = Vf[off + k - 1] + 1;
+        let y = x - k;
+        const sx = x, sy = y;
+        while (x < N && y < M && a[alo + x] === b[blo + y]) { x++; y++; }
+        Vf[off + k] = x;
+        counter.visited++;
+        if (odd && k - delta >= -(d - 1) && k - delta <= d - 1) {
+          if (x + Vr[off + delta - k] >= N) {
+            return { x1: sx, y1: sy, x2: x, y2: y, D: 2 * d - 1 };
+          }
+        }
+      }
+      for (let k = -d; k <= d; k += 2) {
+        let x;
+        if (k === -d || (k !== d && Vr[off + k - 1] < Vr[off + k + 1])) x = Vr[off + k + 1];
+        else x = Vr[off + k - 1] + 1;
+        let y = x - k;
+        const sx = x, sy = y;
+        while (x < N && y < M && a[ahi - 1 - x] === b[bhi - 1 - y]) { x++; y++; }
+        Vr[off + k] = x;
+        counter.visited++;
+        /* The forward sweep has covered forward diagonals -d through d. This
+         * reverse diagonal k sits on forward diagonal delta - k, so the test
+         * is only meaningful, and Vf is only in range, while delta - k is
+         * inside that band. Guarding on k + delta instead of k - delta is the
+         * mistake this build was predicted to make and duly made: it reads
+         * off the end of Vf, every comparison against undefined comes back
+         * false, and the search runs out of rounds having found nothing. */
+        if (!odd && k - delta >= -d && k - delta <= d) {
+          if (x + Vf[off + delta - k] >= N) {
+            /* Reverse coordinates count back from the far corner. Flip them
+             * into the same frame as everything else before returning. */
+            return { x1: N - x, y1: M - y, x2: N - sx, y2: M - sy, D: 2 * d };
+          }
+        }
+      }
+    }
+    throw new Error("middleSnake: no overlap, which is impossible");
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. Making a minimal diff readable
+ * ------------------------------------------------------------------ */
+
+/* THIS IS AN INSTRUMENT, NOT A FEATURE, and the story of why is the most
+ * interesting thing in this file.
+ *
+ * Myers returns A shortest script, not THE shortest script. When a block of
+ * lines could be removed from more than one place for the same cost, nothing
+ * in the algorithm's definition prefers one. Real differs therefore run a
+ * compaction pass that slides each pure block of changes down for as long as
+ * sliding leaves the output byte for byte identical, which is what turns
+ * "deleted a closing brace and added a different one" into "deleted the
+ * function". I built that pass, shipped it as a switch in the toolbar, and
+ * predicted it would visibly move a hunk on 3 of 12 code shaped samples.
+ *
+ * It moved nothing. Not on the 12 samples, and not on any of 400 generated
+ * cases either, including the ones built out of a three symbol alphabet
+ * specifically to be full of ties.
+ *
+ * The reason is that THIS formulation already emits the latest legal
+ * placement. Two things do it. The snake runs as far along the diagonal as it
+ * can before any edit is charged, so matching lines are consumed before a
+ * change is admitted rather than after; and the step rule breaks its ties
+ * with a strict less-than, taking the right move, so a tie resolves toward
+ * consuming the old text rather than the new. Between them, a block of
+ * changes comes out sitting as low as it can legally sit.
+ *
+ * So the switch came out of the toolbar and the function stayed, as the thing
+ * that measures the claim: check_sift.js runs it over every case and asserts
+ * it finds zero slides. A pass that provably does nothing is worth more as a
+ * tested property than as a button. Returns the number of single line slides,
+ * which had better be zero. */
+function slideHunks(ops, a, b) {
+  let slides = 0;
+  for (const spec of [{ t: "del", seq: a, key: "ai" }, { t: "ins", seq: b, key: "bi" }]) {
+    let i = 0;
+    while (i < ops.length) {
+      if (ops[i].t !== spec.t) { i++; continue; }
+      let j = i;
+      while (j < ops.length && ops[j].t === spec.t) j++;
+      while (j < ops.length && ops[j].t === "eq" &&
+             spec.seq[ops[i][spec.key]] === spec.seq[ops[j][spec.key]]) {
+        const moved = ops[j];
+        const blockStart = ops[i][spec.key];
+        for (let m = i; m < j; m++) ops[m][spec.key]++;
+        moved[spec.key] = blockStart;
+        ops.splice(j, 1);
+        ops.splice(i, 0, moved);
+        slides++;
+        i++; j++;
+      }
+      i = j;
+    }
+  }
+  return slides;
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. Normalisation, tokenising, word level detail
+ * ------------------------------------------------------------------ */
+
+function normalise(line, opts) {
+  let s = line;
+  if (opts.ws) s = s.replace(/\s+/g, " ").trim();
+  if (opts.icase) s = s.toLowerCase();
+  return s;
+}
+
+/* Diffing interned integers rather than strings: one hash per line instead of
+ * one string comparison per visited point, which is most of the difference
+ * between a snappy 2000 line diff and a slow one.
+ *
+ * BOTH sides have to be interned through ONE map, and this took a bug to
+ * learn. The first version was intern(lines, opts), called twice, so each pane
+ * numbered its own lines from zero in its own private vocabulary. Line 1 of
+ * the before text and line 1 of the after text were both id 0 and therefore
+ * "equal", whatever they actually said. The engine was fine. Every engine test
+ * passed, because those tests hand the engine raw arrays and never come
+ * through here. Only the end to end check, which asked for a patch and tried
+ * to replay it, saw anything wrong. */
+function internPair(aLines, bLines, opts) {
+  const map = new Map();
+  const encode = lines => {
+    const out = new Int32Array(lines.length);
+    for (let i = 0; i < lines.length; i++) {
+      const key = normalise(lines[i], opts);
+      let id = map.get(key);
+      if (id === undefined) { id = map.size; map.set(key, id); }
+      out[i] = id;
+    }
+    return out;
+  };
+  const ia = encode(aLines), ib = encode(bLines);
+  return { ia, ib, vocabulary: map.size };
+}
+
+/* Words plus the whitespace between them, kept as separate tokens so the
+ * highlight lands on the word and not on the space in front of it. */
+function tokenise(s) {
+  return s.match(/\s+|[A-Za-z0-9_]+|[^\sA-Za-z0-9_]/g) || [];
+}
+
+function wordSpans(oldLine, newLine) {
+  const at = tokenise(oldLine), bt = tokenise(newLine);
+  const { ops } = myersGreedy(at, bt);
+  const left = [], right = [];
+  for (const op of ops) {
+    if (op.t === "eq") { left.push({ s: at[op.ai], m: false }); right.push({ s: bt[op.bi], m: false }); }
+    else if (op.t === "del") left.push({ s: at[op.ai], m: true });
+    else right.push({ s: bt[op.bi], m: true });
+  }
+  return { left: merge(left), right: merge(right) };
+  function merge(xs) {
+    const out = [];
+    for (const x of xs) {
+      if (out.length && out[out.length - 1].m === x.m) out[out.length - 1].s += x.s;
+      else out.push({ s: x.s, m: x.m });
+    }
+    return out;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. Turning an edit script into rows
+ * ------------------------------------------------------------------ */
+
+function toBlocks(ops) {
+  const blocks = [];
+  for (const op of ops) {
+    const last = blocks[blocks.length - 1];
+    if (last && last.t === op.t) last.items.push(op);
+    else blocks.push({ t: op.t, items: [op] });
+  }
+  /* A deletion block immediately followed by an insertion block is one change,
+   * and side by side wants them on the same rows. Pair them up here. */
+  const paired = [];
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].t === "del" && blocks[i + 1] && blocks[i + 1].t === "ins") {
+      paired.push({ t: "change", del: blocks[i].items, ins: blocks[i + 1].items });
+      i++;
+    } else if (blocks[i].t === "ins" && blocks[i + 1] && blocks[i + 1].t === "del") {
+      paired.push({ t: "change", del: blocks[i + 1].items, ins: blocks[i].items });
+      i++;
+    } else if (blocks[i].t === "del") {
+      paired.push({ t: "change", del: blocks[i].items, ins: [] });
+    } else if (blocks[i].t === "ins") {
+      paired.push({ t: "change", del: [], ins: blocks[i].items });
+    } else {
+      paired.push({ t: "eq", items: blocks[i].items });
+    }
+  }
+  return paired;
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. The page
+ * ------------------------------------------------------------------ */
+
+const CONTEXT = 3;
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const SAMPLES = {
+  notes: {
+    a: [
+      "Saturday plan, first draft",
+      "",
+      "Leave at nine, the drive is about forty minutes.",
+      "Pick up the cake on the way, it is paid for already.",
+      "Bring the folding chairs. There are six of them in the garage.",
+      "Somebody needs to remember the speaker, last time nobody did.",
+      "",
+      "Food",
+      "- two trays of sandwiches",
+      "- fruit",
+      "- the good crisps, not the cheap ones",
+      "",
+      "If it rains we move into the hall and lose an hour setting up."
+    ].join("\n"),
+    b: [
+      "Saturday plan, second draft",
+      "",
+      "Leave at half eight, the drive is about forty minutes and parking fills up.",
+      "Pick up the cake on the way, it is paid for already.",
+      "Bring the folding chairs. There are six of them in the garage.",
+      "Somebody needs to remember the speaker, last time nobody did.",
+      "Charge the speaker on Friday night.",
+      "",
+      "Food",
+      "- two trays of sandwiches",
+      "- fruit",
+      "- the good crisps, not the cheap ones",
+      "- something without nuts in it",
+      "",
+      "If it rains we move into the hall and lose an hour setting up.",
+      "Ask about the hall key before Friday."
+    ].join("\n")
+  },
+  config: {
+    a: [
+      "service:",
+      "  name: reader",
+      "  port: 8080",
+      "  workers: 2",
+      "",
+      "cache:",
+      "  enabled: false",
+      "  ttl_seconds: 60",
+      "",
+      "logging:",
+      "  level: info",
+      "  format: text"
+    ].join("\n"),
+    b: [
+      "service:",
+      "  name: reader",
+      "  port: 8080",
+      "  workers: 4",
+      "  timeout_seconds: 30",
+      "",
+      "cache:",
+      "  enabled: true",
+      "  ttl_seconds: 300",
+      "  max_entries: 5000",
+      "",
+      "logging:",
+      "  level: debug",
+      "  format: json"
+    ].join("\n")
+  }
+};
+
+const state = {
+  view: "split", engine: "greedy",
+  ws: false, icase: false, word: true,
+  expanded: new Set()
+};
+
+function splitLines(s) {
+  if (s === "") return [];
+  const lines = s.split("\n");
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+function run() {
+  const aRaw = $("a").value, bRaw = $("b").value;
+  const A = splitLines(aRaw), B = splitLines(bRaw);
+  $("aMeta").textContent = A.length + (A.length === 1 ? " line" : " lines");
+  $("bMeta").textContent = B.length + (B.length === 1 ? " line" : " lines");
+
+  const opts = { ws: state.ws, icase: state.icase };
+  const { ia, ib } = internPair(A, B, opts);
+
+  const t0 = performance.now();
+  const res = state.engine === "greedy" ? myersGreedy(ia, ib) : myersLinear(ia, ib);
+  const ms = performance.now() - t0;
+
+  let adds = 0, dels = 0, eqs = 0;
+  for (const op of res.ops) {
+    if (op.t === "ins") adds++; else if (op.t === "del") dels++; else eqs++;
+  }
+
+  const last = { A, B, ops: res.ops, D: res.D, visited: res.visited,
+                 snapshots: res.snapshots, adds, dels, eqs, ms };
+  window.__sift.last = last;
+
+  renderStats(last);
+  renderDiff(last);
+  return last;
+}
+
+function renderStats(d) {
+  const bound = ((d.D + 1) * (d.D + 2)) / 2;
+  const chips = [
+    `<span class="chip add">+<b>${d.adds}</b></span>`,
+    `<span class="chip del">-<b>${d.dels}</b></span>`,
+    `<span class="chip">D <b>${d.D}</b></span>`,
+    `<span class="chip">LCS <b>${d.eqs}</b></span>`,
+    `<span class="chip">points <b>${d.visited}</b> of ${bound}</span>`,
+    `<span class="chip">${d.ms < 1 ? "under 1" : d.ms.toFixed(1)} ms</span>`
+  ];
+  if (state.engine === "greedy") chips.push(`<span class="chip">frontiers kept <b>${d.snapshots}</b></span>`);
+  else chips.push(`<span class="chip">frontiers live <b>${d.snapshots}</b></span>`);
+  $("stats").innerHTML = chips.join("");
+}
+
+function renderDiff(d) {
+  const out = $("out");
+  if (!d.A.length && !d.B.length) {
+    out.innerHTML = `<div class="empty">Paste something into both panes, or load a sample.</div>`;
+    return;
+  }
+  if (d.D === 0) {
+    out.innerHTML = `<div class="empty">No differences. ${d.eqs} identical line${d.eqs === 1 ? "" : "s"}.</div>`;
+    return;
+  }
+  out.innerHTML = state.view === "split" ? splitTable(d) : unifiedTable(d);
+  for (const el of out.querySelectorAll("tr.fold")) {
+    el.addEventListener("click", () => {
+      state.expanded.add(el.dataset.key);
+      renderDiff(window.__sift.last);
+    });
+  }
+}
+
+/* Long unchanged stretches are folded to a clickable band. The rows either
+ * side of a change stay visible, which is the only reason a diff of a large
+ * file is readable at all. */
+function foldPlan(blocks) {
+  const plan = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const blk = blocks[i];
+    if (blk.t !== "eq") { plan.push({ kind: "change", blk }); continue; }
+    const n = blk.items.length;
+    const head = i === 0 ? 0 : CONTEXT;
+    const tail = i === blocks.length - 1 ? 0 : CONTEXT;
+    const key = "f" + i;
+    if (n <= head + tail + 1 || state.expanded.has(key)) {
+      plan.push({ kind: "eq", items: blk.items });
+    } else {
+      if (head) plan.push({ kind: "eq", items: blk.items.slice(0, head) });
+      plan.push({ kind: "fold", key, n: n - head - tail });
+      if (tail) plan.push({ kind: "eq", items: blk.items.slice(n - tail) });
+    }
+  }
+  return plan;
+}
+
+function splitTable(d) {
+  const rows = [];
+  const push = (an, at, ac, bn, bt, bc) => rows.push(
+    `<tr><td class="num">${an}</td><td class="txt ${ac}">${at}</td>` +
+    `<td class="num">${bn}</td><td class="txt ${bc}">${bt}</td></tr>`);
+
+  for (const step of foldPlan(toBlocks(d.ops))) {
+    if (step.kind === "fold") {
+      rows.push(`<tr class="fold" data-key="${step.key}"><td colspan="4">` +
+                `${step.n} unchanged line${step.n === 1 ? "" : "s"}, click to show</td></tr>`);
+      continue;
+    }
+    if (step.kind === "eq") {
+      for (const op of step.items)
+        push(op.ai + 1, esc(d.A[op.ai]), "", op.bi + 1, esc(d.B[op.bi]), "");
+      continue;
+    }
+    const { del, ins } = step.blk;
+    const n = Math.max(del.length, ins.length);
+    for (let i = 0; i < n; i++) {
+      const dOp = del[i], iOp = ins[i];
+      let lTxt = "", rTxt = "";
+      if (dOp && iOp && state.word) {
+        const sp = wordSpans(d.A[dOp.ai], d.B[iOp.bi]);
+        lTxt = sp.left.map(p => p.m ? `<mark class="d">${esc(p.s)}</mark>` : esc(p.s)).join("");
+        rTxt = sp.right.map(p => p.m ? `<mark class="i">${esc(p.s)}</mark>` : esc(p.s)).join("");
+      } else {
+        lTxt = dOp ? esc(d.A[dOp.ai]) : "";
+        rTxt = iOp ? esc(d.B[iOp.bi]) : "";
+      }
+      push(dOp ? dOp.ai + 1 : "", lTxt, dOp ? "del" : "blank",
+           iOp ? iOp.bi + 1 : "", rTxt, iOp ? "ins" : "blank");
+    }
+  }
+  return `<table class="diff">${rows.join("")}</table>`;
+}
+
+/* Two gutters, not one, and this was a defect nobody's assertion caught.
+ * The first version printed a single line number per row: the before number
+ * for context and removed lines, the after number for added ones. Perfectly
+ * defensible per row, and down the column it read 11, 13, 12, 13, 16, which
+ * looks like a rendering bug because it is one. A removed line does not exist
+ * in the after text and an added one does not exist in the before text, so
+ * each needs its own column with a hole in it. Found by looking at a
+ * screenshot, which is now the third time in this folder. */
+function unifiedTable(d) {
+  const rows = [];
+  const line = (an, bn, cls, txt) =>
+    `<tr class="${cls}"><td class="num">${an}</td><td class="num">${bn}</td>` +
+    `<td class="txt" colspan="2">${txt}</td></tr>`;
+  for (const step of foldPlan(toBlocks(d.ops))) {
+    if (step.kind === "fold") {
+      rows.push(`<tr class="fold" data-key="${step.key}"><td colspan="4">` +
+                `${step.n} unchanged line${step.n === 1 ? "" : "s"}, click to show</td></tr>`);
+      continue;
+    }
+    if (step.kind === "eq") {
+      for (const op of step.items) rows.push(line(op.ai + 1, op.bi + 1, "", "&nbsp;" + esc(d.A[op.ai])));
+      continue;
+    }
+    for (const op of step.blk.del) rows.push(line(op.ai + 1, "", "del", "-" + esc(d.A[op.ai])));
+    for (const op of step.blk.ins) rows.push(line("", op.bi + 1, "ins", "+" + esc(d.B[op.bi])));
+  }
+  return `<table class="diff">${rows.join("")}</table>`;
+}
+
+/* A unified patch with real hunk headers, which is the form anything else
+ * knows how to read. */
+function unifiedText(d) {
+  const blocks = toBlocks(d.ops);
+  const lines = [];
+  const rows = [];
+  for (const blk of blocks) {
+    if (blk.t === "eq") for (const op of blk.items) rows.push({ c: " ", a: op.ai, b: op.bi });
+    else {
+      for (const op of blk.del) rows.push({ c: "-", a: op.ai, b: null });
+      for (const op of blk.ins) rows.push({ c: "+", a: null, b: op.bi });
+    }
+  }
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].c === " ") { i++; continue; }
+    let s = Math.max(0, i - CONTEXT);
+    let e = i;
+    while (e < rows.length) {
+      if (rows[e].c !== " ") { e++; continue; }
+      let run = e;
+      while (run < rows.length && rows[run].c === " ") run++;
+      if (run - e > CONTEXT * 2 || run === rows.length) { e = Math.min(rows.length, e + CONTEXT); break; }
+      e = run;
+    }
+    const seg = rows.slice(s, e);
+    const aStart = firstOf(seg, "a"), bStart = firstOf(seg, "b");
+    const aCount = seg.filter(r => r.c !== "+").length;
+    const bCount = seg.filter(r => r.c !== "-").length;
+    lines.push(`@@ -${aStart + 1},${aCount} +${bStart + 1},${bCount} @@`);
+    for (const r of seg) lines.push(r.c + (r.c === "+" ? d.B[r.b] : d.A[r.a]));
+    i = e;
+  }
+  return lines.join("\n") + (lines.length ? "\n" : "");
+  function firstOf(seg, k) {
+    for (const r of seg) if (r[k] !== null) return r[k];
+    return 0;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 6. Wiring
+ * ------------------------------------------------------------------ */
+
+let toastTimer = null;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("on"), 1500);
+}
+
+function toggle(id, key) {
+  $(id).addEventListener("click", () => {
+    state[key] = !state[key];
+    $(id).setAttribute("aria-pressed", String(state[key]));
+    state.expanded.clear();
+    run();
+  });
+}
+
+function loadSample(name) {
+  $("a").value = SAMPLES[name].a;
+  $("b").value = SAMPLES[name].b;
+  state.expanded.clear();
+  run();
+}
+
+function boot() {
+  window.__sift = {
+    myersGreedy, myersLinear, slideHunks, internPair, splitLines, tokenise,
+    wordSpans, unifiedText, toBlocks, SAMPLES, state, run, last: null
+  };
+
+  let debounce = null;
+  for (const id of ["a", "b"]) {
+    $(id).addEventListener("input", () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => { state.expanded.clear(); run(); }, 140);
+    });
+  }
+  $("view").addEventListener("change", e => { state.view = e.target.value; renderDiff(window.__sift.last); });
+  $("engine").addEventListener("change", e => { state.engine = e.target.value; run(); });
+  toggle("tWs", "ws"); toggle("tCase", "icase"); toggle("tWord", "word");
+
+  $("sample1").addEventListener("click", () => loadSample("notes"));
+  $("sample2").addEventListener("click", () => loadSample("config"));
+  $("swap").addEventListener("click", () => {
+    const t = $("a").value; $("a").value = $("b").value; $("b").value = t;
+    state.expanded.clear(); run();
+  });
+  $("clear").addEventListener("click", () => {
+    $("a").value = ""; $("b").value = ""; state.expanded.clear(); run();
+  });
+  $("copy").addEventListener("click", copyPatch);
+
+  document.addEventListener("keydown", e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === "enter") { e.preventDefault(); run(); toast("Re-run"); }
+    else if (k === "u") {
+      e.preventDefault();
+      state.view = state.view === "split" ? "unified" : "split";
+      $("view").value = state.view;
+      renderDiff(window.__sift.last);
+    } else if (k === "c" && e.shiftKey) { e.preventDefault(); copyPatch(); }
+  });
+
+  function copyPatch() {
+    const d = window.__sift.last;
+    if (!d || d.D === 0) { toast("Nothing to copy"); return; }
+    const text = unifiedText(d);
+    window.__sift.lastPatch = text;
+    /* clipboard.writeText is unavailable on file:// in some browsers, so fall
+     * back to the old selection trick rather than failing silently. */
+    const done = () => toast("Patch copied, " + text.split("\n").length + " lines");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => { legacy(text); done(); });
+    } else { legacy(text); done(); }
+  }
+  function legacy(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (err) { /* nothing else to try */ }
+    document.body.removeChild(ta);
+  }
+
+  const params = new URLSearchParams(location.search);
+  if (params.has("preview")) {
+    document.documentElement.classList.add("preview");
+    const which = params.get("preview");
+    loadSample(SAMPLES[which] ? which : "config");
+  } else {
+    loadSample("notes");
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

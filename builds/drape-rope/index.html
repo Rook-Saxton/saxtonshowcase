@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<!--
+  DRAPE, a cloth and rope sandbox.  2026-09-11.  projects/playground/drape-rope/
+
+  WHAT IT IS
+  A piece of fabric hanging in a dark room that you can grab, fling, cut with
+  scissors, tear, pin, and blow around with wind. Five scenes share one solver:
+  a gathered curtain, a flag on a pole, a rope slung between two points, a
+  hammock pinned at its corners, and a loose sheet that falls into a heap.
+
+  Underneath it is position based dynamics. Every particle remembers only where
+  it is and where it was a moment ago; there is no velocity variable anywhere in
+  this file. Motion is the gap between those two positions. Cloth is nothing but
+  a list of "these two points should be this far apart" constraints, projected
+  over and over until the fabric stops arguing with itself. Three kinds of link
+  at three stiffnesses do all the work: a stiff weave that holds the fabric
+  together, soft diagonals that stop the quads collapsing into parallelograms,
+  and very soft skip-two links that turn creases into curves.
+
+  WHY I BUILT IT
+  The four builds before this one were all of the same shape: explain a mechanism
+  by making it steppable. That had become a house style rather than a choice, so
+  the note I left myself said to break it on purpose and make something whose
+  point is that it is pleasant. This is that. The instruments are in a side panel
+  where you can ignore them.
+
+  I also picked it because I could describe Verlet integration fluently and had
+  never once written the timestep correction, which is exactly the shape of a
+  thing I do not actually know.
+
+  WHAT IT TAUGHT ME (all measured, see ../_verify/RESULTS.md)
+  - A stiffness slider is not a material property. One constraint projected n
+    times at stiffness k leaves (1-k)^n of the error, so effective stiffness is
+    1-(1-k)^n and the iteration count is half the setting. Change the iteration
+    slider and the fabric changes material.
+  - A pinned chain does not converge in one solver sweep even at full stiffness,
+    because satisfying each link breaks the one behind it. Worked out on paper
+    first: on a 2 link chain the residual after a full sweep is exactly what it
+    started as, and it halves on every sweep after that.
+  - Sweep order changes the answer. Same chain, same stiffness, same one sweep:
+    pin first leaves 0.5r of error, tip first leaves 0.75r.
+  - Naive Verlet reads a changed timestep as a change in velocity. Halve dt and
+    the implied velocity doubles, exactly.
+  - It does NOT then explode, which is what I assumed and wrote into the panel
+    before measuring it. Position based dynamics clamps positions by
+    construction, so the cloth stays put and quietly computes the wrong motion
+    instead. Over 16 seconds of jittered timesteps a falling point lands 20.2%
+    away from g*t*t/2 on the naive integrator and 0.20% away on the corrected
+    one. The Fall drift readout is that comparison, live.
+  - A hanging rope really is a catenary, and it is worth checking against cosh
+    rather than against the parabola everyone reaches for. The two differ by
+    about 4 px on this rope, which is the entire discrimination margin of the
+    test that proves the solver right.
+
+  Self contained. No dependencies, no network, no storage, opens offline.
+  Preview mode for the playground index: index.html?preview=curtain
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drape</title>
+<style>
+  :root {
+    --bg: #0b0e13; --panel: #141922; --panel2: #1b222d; --line: #2b3440;
+    --ink: #e6edf3; --dim: #8b98a8; --accent: #6fd7c6; --warn: #f0a56a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px; line-height: 1.5; overflow: hidden;
+  }
+  #app { display: flex; height: 100%; }
+  #stage { position: relative; flex: 1 1 auto; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+  #hud {
+    position: absolute; left: 14px; top: 12px; display: flex; gap: 14px; flex-wrap: wrap;
+    font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums;
+    background: rgba(11,14,19,0.62); border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 12px; pointer-events: none; backdrop-filter: blur(3px);
+  }
+  #hud b { color: var(--ink); font-weight: 600; }
+  #blown {
+    position: absolute; left: 50%; top: 44%; transform: translate(-50%,-50%);
+    background: rgba(20,10,6,0.92); border: 1px solid var(--warn); color: var(--warn);
+    padding: 14px 18px; border-radius: 10px; max-width: 420px; display: none; text-align: center;
+  }
+  #blown b { display: block; color: #ffd9b8; margin-bottom: 5px; font-size: 15px; }
+  #blown button { margin-top: 10px; }
+
+  #panel {
+    flex: 0 0 292px; background: var(--panel); border-left: 1px solid var(--line);
+    overflow-y: auto; padding: 16px 16px 40px;
+  }
+  #panel h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  #panel h1 span { color: var(--accent); }
+  #panel .lede { color: var(--dim); font-size: 12.5px; margin: 0 0 16px; }
+  #panel h2 {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim);
+    margin: 20px 0 8px; font-weight: 700; border-top: 1px solid var(--line); padding-top: 14px;
+  }
+  #panel h2:first-of-type { border-top: 0; padding-top: 0; margin-top: 14px; }
+
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  button {
+    font: inherit; font-size: 12.5px; background: var(--panel2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #06201c; border-color: var(--accent); font-weight: 600; }
+
+  label.slider { display: block; margin: 0 0 10px; font-size: 12.5px; color: var(--dim); }
+  label.slider .val { float: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; margin: 3px 0 0; accent-color: var(--accent); }
+  label.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-bottom: 7px; cursor: pointer; }
+  label.check input { accent-color: var(--accent); }
+
+  .hint { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+  .hint code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .note { background: var(--panel2); border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0;
+          padding: 9px 12px; margin: 10px 0 0; color: var(--dim); font-size: 12px; }
+  .note b { color: var(--ink); }
+
+  /* Preview mode for the playground index: chrome off, canvas only. */
+  html.preview, body.preview { overflow: hidden; }
+  body.preview #panel, body.preview #hud, body.preview #blown { display: none !important; }
+  body.preview canvas { cursor: default; }
+
+  @media (max-width: 780px) {
+    #app { flex-direction: column; }
+    #panel { flex: 0 0 auto; max-height: 46%; border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="cloth"></canvas>
+    <div id="hud">
+      <span>points <b id="hPts">0</b></span>
+      <span>links <b id="hLinks">0</b></span>
+      <span>torn <b id="hTorn">0</b></span>
+      <span title="Largest distance error across the WEAVE only. Shear and bend links are deliberately soft and never converge, so they are excluded.">weave error <b id="hRes">0</b> px</span>
+      <span>stretch <b id="hStretch">0</b>%</span>
+      <span title="A free falling point integrated alongside the cloth, compared against g*t*t/2">fall drift <b id="hFall">n/a</b></span>
+      <span><b id="hFps">0</b> fps</span>
+    </div>
+    <div id="blown">
+      <b>A position went non finite.</b>
+      The simulation is stopped because it can no longer be drawn. This is a guard
+      rather than an expected outcome: position based dynamics normally stays bounded
+      even when the integrator is wrong, which is exactly what makes a wrong integrator
+      hard to notice.
+      <button id="recover">Reset the scene</button>
+    </div>
+  </div>
+
+  <aside id="panel">
+    <h1>Drape<span>.</span></h1>
+    <p class="lede">Cloth is a list of distances that want to be true. Grab it, cut it, tear it.</p>
+
+    <h2>Scene</h2>
+    <div class="row" id="scenes"></div>
+
+    <h2>Tool</h2>
+    <div class="row" id="tools"></div>
+    <p class="hint">Drag to grab. <code>1</code> to <code>5</code> scenes, <code>G</code>/<code>C</code>/<code>P</code> tools, <code>R</code> resets, <code>space</code> pauses.</p>
+
+    <h2>World</h2>
+    <label class="slider">Gravity <span class="val" id="vGrav"></span><input type="range" id="sGrav" min="0" max="3000" step="25"></label>
+    <label class="slider">Wind <span class="val" id="vWind"></span><input type="range" id="sWind" min="0" max="3000" step="25"></label>
+    <label class="check"><input type="checkbox" id="cFloor"> Floor</label>
+    <label class="check"><input type="checkbox" id="cTear"> Tearable</label>
+    <label class="slider">Tears past <span class="val" id="vTear"></span><input type="range" id="sTear" min="1.2" max="6" step="0.05"></label>
+
+    <h2>Solver</h2>
+    <label class="slider">Iterations <span class="val" id="vIter"></span><input type="range" id="sIter" min="1" max="40" step="1"></label>
+    <label class="slider">Stiffness <span class="val" id="vStiff"></span><input type="range" id="sStiff" min="0.05" max="1" step="0.01"></label>
+    <div class="note" id="kEff"></div>
+    <h2>Sweep order</h2>
+    <div class="row" id="sweeps"></div>
+    <h2>Integrator</h2>
+    <div class="row" id="verlets"></div>
+    <label class="check"><input type="checkbox" id="cHitch"> Frame hitches (variable dt)</label>
+    <div class="note"><b>Watch Fall drift, not the cloth.</b> A free falling point is integrated
+      alongside on the same timesteps and compared against <code>g&middot;t&middot;t/2</code>. With
+      steady frames both integrators sit near 0.17%. Turn on hitches and the naive one walks into
+      the tens of percent while the cloth carries on looking completely fine.</div>
+    <label class="check"><input type="checkbox" id="cFling" checked> Grabbing flings</label>
+
+    <h2>Look</h2>
+    <div class="row" id="looks"></div>
+
+    <div class="note">
+      <b>Why the iteration slider changes the material.</b>
+      Each pass leaves <code>(1-k)</code> of the error, so <code>n</code> passes leave
+      <code>(1-k)<sup>n</sup></code>. Stiffness alone is not a property of the fabric;
+      stiffness and iterations together are.
+    </div>
+  </aside>
+</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * Deterministic RNG. Every run with the same seed produces the same
+ * pixels, which is what makes the verification suite meaningful and
+ * what keeps the index card looking the same every time it loads.
+ * ------------------------------------------------------------------ */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ================================================================== *
+ * THE SOLVER
+ *
+ * Particles carry a position and the position they held one step ago.
+ * There is no velocity field in this file; velocity is the gap between
+ * those two, which is the whole trick of Verlet integration and the
+ * reason every accident of the timestep shows up as motion.
+ * ================================================================== */
+class Sim {
+  constructor(opts) {
+    this.p = [];            // {x, y, px, py, w}   w = inverse mass, 0 = pinned
+    this.c = [];            // {a, b, rest, on}
+    this.params = Object.assign({
+      gravity: 1400,
+      wind: 0,
+      iterations: 6,
+      stiffness: 1,
+      damping: 0.9994,
+      tearable: false,
+      tear: 3.2,
+      sweep: "forward",     // forward | reverse | alternate
+      verlet: "tcv",        // tcv | naive
+      floor: false,
+      floorY: 1e9,
+      friction: 0.72,
+      seed: 1
+    }, opts || {});
+    this.dtPrev = 0;
+    this.t = 0;
+    this.torn = 0;
+    this.sweepN = 0;
+    this.peakStrain = 0;
+    this.rand = mulberry32(this.params.seed);
+  }
+
+  /* Particles carry a z, and the view is a flat orthographic projection of x
+   * and y. z exists for one reason and it is not realism: a sheet confined to
+   * a plane cannot FOLD. Gathered fabric in 2D just pushes itself back out to
+   * full width, which is what the first version of this build did, and the
+   * shading had nothing to shade because nothing was ever turning away from
+   * the viewer. With a z the excess width buckles out of the plane, the quad
+   * normals become real, and the light does the rest.
+   *
+   * Every verified number in ../_verify/ was measured before this existed and
+   * is unaffected: those cases build particles at z = 0 with gravity in y, and
+   * adding an exact 0 to a sum of squares changes no float. */
+  add(x, y, pinned, z) {
+    const zz = z || 0;
+    this.p.push({ x: x, y: y, z: zz, px: x, py: y, pz: zz, w: pinned ? 0 : 1 });
+    return this.p.length - 1;
+  }
+  /* k is a PER CONSTRAINT stiffness multiplier, default 1. Shear diagonals use
+   * a low one: at full stiffness they turn cloth into cardboard, and at zero
+   * the mesh has no shear resistance at all and is a linkage rather than a
+   * fabric. The first version of this build had no shear links and it showed:
+   * the curtain hung as a flat slab with no folds in it, and the flag sheared
+   * into a ribbon and slid off the bottom of the screen. */
+  link(a, b, rest, k, noTear) {
+    const A = this.p[a], B = this.p[b];
+    const r = (rest === undefined) ? Math.hypot(B.x - A.x, B.y - A.y, B.z - A.z) : rest;
+    this.c.push({ a: a, b: b, rest: r, on: true,
+                  k: k === undefined ? 1 : k, noTear: !!noTear });
+    return this.c.length - 1;
+  }
+
+  /* Gusty but deterministic: two sines of different period, modulated down
+   * the height of the cloth so the whole sheet never moves as one slab. */
+  windAt(t, y) {
+    const g = Math.sin(t * 1.7 + y * 0.011) * 0.58 + Math.sin(t * 0.61 + y * 0.004 + 1.3) * 0.42;
+    return this.params.wind * (0.5 + 0.5 * g);
+  }
+  /* A cross-breeze out of the plane. Without it a flag flaps as a flat sheet
+   * pivoting about its pole, which is a windsock rather than a flag. */
+  windZAt(t, x, y) {
+    const g = Math.sin(t * 2.3 + x * 0.017 + y * 0.006) * 0.7 + Math.sin(t * 0.87 + x * 0.006) * 0.3;
+    return this.params.wind * 0.42 * g;
+  }
+
+  /* THE TIMESTEP CORRECTION.
+   * Classic Verlet is x' = 2x - x_prev + a*dt^2, which silently assumes dt
+   * never changes. When it does, the inherited displacement (x - x_prev) was
+   * covered in dt_prev and is about to be replayed over dt, so the implied
+   * velocity is multiplied by dt_prev/dt. Scaling it by dt/dt_prev is the fix,
+   * and it is exact rather than an approximation. */
+  integrate(dt) {
+    const P = this.params;
+    const ratio = (P.verlet === "tcv" && this.dtPrev > 0) ? (dt / this.dtPrev) : 1;
+    const gy = P.gravity * dt * dt;
+    for (let i = 0; i < this.p.length; i++) {
+      const q = this.p[i];
+      if (q.w === 0) { q.px = q.x; q.py = q.y; q.pz = q.z; continue; }
+      const vx = (q.x - q.px) * ratio * P.damping;
+      const vy = (q.y - q.py) * ratio * P.damping;
+      const vz = (q.z - q.pz) * ratio * P.damping;
+      const gx = this.windAt(this.t, q.y) * dt * dt;
+      const gz = P.wind === 0 ? 0 : this.windZAt(this.t, q.x, q.y) * dt * dt;
+      q.px = q.x; q.py = q.y; q.pz = q.z;
+      q.x += vx + gx;
+      q.y += vy + gy;
+      q.z += vz + gz;
+    }
+    this.dtPrev = dt;
+  }
+
+  /* One distance constraint, projected once. Returns the separation BEFORE
+   * the projection, which is what the tear test wants to see. */
+  project(c, k) {
+    const A = this.p[c.a], B = this.p[c.b];
+    const w = A.w + B.w;
+    let dx = B.x - A.x, dy = B.y - A.y, dz = B.z - A.z;
+    let d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (w === 0) return d;
+    if (d < 1e-9) { d = 1e-9; dx = 1e-9; dy = 0; dz = 0; }
+    const s = ((d - c.rest) / d) * k;
+    const fa = A.w / w, fb = B.w / w;
+    A.x += dx * s * fa; A.y += dy * s * fa; A.z += dz * s * fa;
+    B.x -= dx * s * fb; B.y -= dy * s * fb; B.z -= dz * s * fb;
+    return d;
+  }
+
+  /* peakStrain is recorded HERE, inside the sweep, and not by anything outside
+   * it. The tear rule fires on the separation a constraint has at the moment it
+   * is projected, which is a function of its iteration and its position in the
+   * sweep order. Nothing outside the solve loop can reconstruct that: an
+   * external probe that integrates and then measures before calling solve()
+   * sees only what the FIRST projection of the FIRST iteration sees, and
+   * reports a strain well under the one that actually tore the link. Three
+   * successive versions of the tear analysis in ../_verify/ were wrong because
+   * they were built on that probe. Measuring it at the only place it exists is
+   * the fix; a better guess would not have been. */
+  one(c) {
+    if (!c.on) return;
+    const d = this.project(c, this.params.stiffness * c.k);
+    if (c.noTear) return;
+    const strain = d / c.rest;
+    if (strain > this.peakStrain) this.peakStrain = strain;
+    if (this.params.tearable && strain > this.params.tear) { c.on = false; this.torn++; }
+  }
+  resetPeak() { this.peakStrain = 0; }
+
+  /* Gauss-Seidel: each projection sees the corrections made by the ones
+   * before it in this same pass. That is why the order is a parameter and
+   * not an implementation detail. */
+  solve(n) {
+    const P = this.params;
+    if (n === undefined) n = P.iterations;
+    for (let it = 0; it < n; it++) {
+      let rev = false;
+      if (P.sweep === "reverse") rev = true;
+      else if (P.sweep === "alternate") rev = (this.sweepN % 2) === 1;
+      this.sweepN++;
+      if (rev) for (let i = this.c.length - 1; i >= 0; i--) this.one(this.c[i]);
+      else     for (let i = 0; i < this.c.length; i++) this.one(this.c[i]);
+    }
+  }
+
+  floorPass() {
+    const P = this.params;
+    for (let i = 0; i < this.p.length; i++) {
+      const q = this.p[i];
+      if (q.w === 0 || q.y <= P.floorY) continue;
+      const vx = q.x - q.px;
+      q.y = P.floorY; q.py = q.y;
+      q.px = q.x - vx * P.friction;
+    }
+  }
+
+  step(dt) {
+    this.integrate(dt);
+    this.solve();
+    if (this.params.floor) this.floorPass();
+    this.t += dt;
+  }
+
+  /* ---- measurements, used by the UI readouts and by the checkers ---- */
+  /* structuralOnly narrows this to the k = 1 weave. The shear and bend links
+   * are DELIBERATELY soft, so they never converge and they dominate an
+   * all-constraint maximum: the readout showed 8.26 px on a curtain whose
+   * weave was within 1.17 px, which reads as a broken solver. The default
+   * stays wide because that is what the suites measure; the narrowed call
+   * says so on screen rather than quietly reporting a smaller number. */
+  maxResidual(structuralOnly) {
+    let m = 0;
+    for (let i = 0; i < this.c.length; i++) {
+      const c = this.c[i];
+      if (!c.on) continue;
+      if (structuralOnly && c.k !== 1) continue;
+      const A = this.p[c.a], B = this.p[c.b];
+      const e = Math.abs(Math.hypot(B.x - A.x, B.y - A.y, B.z - A.z) - c.rest);
+      if (e > m) m = e;
+    }
+    return m;
+  }
+  stretch() {
+    let d = 0, r = 0;
+    for (let i = 0; i < this.c.length; i++) {
+      const c = this.c[i];
+      if (!c.on) continue;
+      const A = this.p[c.a], B = this.p[c.b];
+      d += Math.hypot(B.x - A.x, B.y - A.y, B.z - A.z); r += c.rest;
+    }
+    return r === 0 ? 0 : d / r - 1;
+  }
+  liveLinks() { let n = 0; for (const c of this.c) if (c.on) n++; return n; }
+  healthy() {
+    for (let i = 0; i < this.p.length; i++) {
+      const q = this.p[i];
+      if (!Number.isFinite(q.x) || !Number.isFinite(q.y) || !Number.isFinite(q.z)) return false;
+    }
+    return true;
+  }
+  nearest(x, y, r) {
+    let best = -1, bd = r * r;
+    for (let i = 0; i < this.p.length; i++) {
+      const q = this.p[i];
+      const d = (q.x - x) * (q.x - x) + (q.y - y) * (q.y - y);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+  snapshot() {
+    const out = new Float64Array(this.p.length * 3);
+    for (let i = 0; i < this.p.length; i++) {
+      out[i * 3] = this.p[i].x; out[i * 3 + 1] = this.p[i].y; out[i * 3 + 2] = this.p[i].z;
+    }
+    return out;
+  }
+}
+
+/* ================================================================== *
+ * SCENES
+ * ================================================================== */
+const PALETTES = {
+  curtain: { h: 168, s: 40, l0: 11, l1: 45 },
+  flag:    { h: 8,   s: 60, l0: 13, l1: 49 },
+  rope:    { h: 34,  s: 44, l0: 18, l1: 52 },
+  net:     { h: 203, s: 44, l0: 12, l1: 47 },
+  sheet:   { h: 40,  s: 16, l0: 16, l1: 60 }
+};
+
+function clothMesh(sim, cols, rows, x0, y0, gap, pinFn, opts) {
+  opts = opts || {};
+  const shearK = opts.shearK === undefined ? 0.3 : opts.shearK;
+  const gather = opts.gather === undefined ? 1 : opts.gather;   // < 1 pulls the pins in
+  const ripple = opts.ripple || 0;                              // symmetry break, in gaps
+  const idx = (j, i) => j * cols + i;
+  const cx = x0 + (cols - 1) * gap / 2;
+
+  /* A gathered curtain is WIDER than the rail it hangs from, which is the whole
+   * reason real curtains have folds. The whole sheet starts compressed in x
+   * while the rest lengths stay at `gap`, so the fabric carries excess width it
+   * has to absorb, and with a z to buckle into it absorbs it as folds.
+   *
+   * The first attempt gathered only the PINNED points, which put a 100 px gap
+   * between a pin and its unpinned neighbour on a 13 px rest length: 71 links
+   * tore on load before anyone touched it. Compress everything or nothing. */
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const pinned = pinFn(j, i, cols, rows);
+      const x = cx + (x0 + i * gap - cx) * gather;
+      const z = ripple ? Math.sin(i * 0.46 + j * 0.05) * gap * ripple : 0;
+      sim.add(x, y0 + j * gap, pinned, z);
+    }
+  }
+
+  const h = [], v = [];
+  for (let j = 0; j < rows; j++) {
+    h.push(new Int32Array(cols - 1).fill(-1));
+    if (j < rows - 1) v.push(new Int32Array(cols).fill(-1));
+  }
+  for (let j = 0; j < rows; j++)
+    for (let i = 0; i < cols - 1; i++) h[j][i] = sim.link(idx(j, i), idx(j, i + 1), gap);
+  for (let j = 0; j < rows - 1; j++)
+    for (let i = 0; i < cols; i++) v[j][i] = sim.link(idx(j, i), idx(j + 1, i), gap);
+
+  /* Shear diagonals, soft, and never torn: they hold the quads from collapsing
+   * into parallelograms. They are excluded from tearing because a hole in the
+   * picture is drawn from the four STRUCTURAL edges of a quad, so a severed
+   * diagonal would raise the torn count without ever being visible. */
+  if (shearK > 0) {
+    const diag = gap * Math.SQRT2;
+    for (let j = 0; j < rows - 1; j++)
+      for (let i = 0; i < cols - 1; i++) {
+        sim.link(idx(j, i), idx(j + 1, i + 1), diag, shearK, true);
+        sim.link(idx(j, i + 1), idx(j + 1, i), diag, shearK, true);
+      }
+  }
+
+  /* Bend resistance: very soft skip-two links across the weave. Without them a
+   * fold is a crease, because nothing in a distance constraint objects to a
+   * sharp corner. With them the same fold becomes a curve, which is the whole
+   * difference between fabric and folded paper. Also never torn. */
+  const bendK = opts.bendK === undefined ? 0.10 : opts.bendK;
+  if (bendK > 0) {
+    for (let j = 0; j < rows; j++)
+      for (let i = 0; i < cols - 2; i++) sim.link(idx(j, i), idx(j, i + 2), gap * 2, bendK, true);
+    for (let j = 0; j < rows - 2; j++)
+      for (let i = 0; i < cols; i++) sim.link(idx(j, i), idx(j + 2, i), gap * 2, bendK, true);
+  }
+
+  sim.mesh = { cols: cols, rows: rows, gap: gap, idx: idx, h: h, v: v };
+  return sim;
+}
+
+const SCENES = {
+  curtain: {
+    label: "Curtain",
+    build(W, H, seed) {
+      const cols = 42, rows = 26;
+      const gap = Math.min(W * 0.66 / cols, H * 0.82 / rows);
+      /* tear at 2.0x rather than something more "realistic": the strain the
+       * tear test can ever see is capped by how far a held point travels in
+       * ONE step, because the solver restores the rest length in between. A
+       * high threshold means the fabric is untearable by hand no matter how
+       * far you drag, which reads as a broken feature rather than a stiff one. */
+      const s = new Sim({ gravity: 1400, wind: 140, iterations: 6, damping: 0.9994,
+                          tearable: true, tear: 2.0, seed: seed });
+      clothMesh(s, cols, rows, (W - (cols - 1) * gap) / 2, H * 0.10, gap,
+                (j, i) => j === 0 && (i % 3 === 0 || i === cols - 1),
+                { shearK: 0.28, gather: 0.74, ripple: 0.35 });
+      s.kind = "cloth"; s.palette = PALETTES.curtain; s.rail = true;
+      return s;
+    }
+  },
+  flag: {
+    label: "Flag",
+    build(W, H, seed) {
+      const cols = 36, rows = 22;
+      const gap = Math.min(W * 0.50 / cols, H * 0.42 / rows);
+      const s = new Sim({ gravity: 700, wind: 850, iterations: 6, damping: 0.9990,
+                          tearable: true, tear: 2.2, seed: seed });
+      const x0 = W * 0.22, y0 = H * 0.20;
+      clothMesh(s, cols, rows, x0, y0, gap, (j, i) => i === 0,
+                { shearK: 0.34, ripple: 0.25 });
+      s.kind = "cloth"; s.palette = PALETTES.flag;
+      s.pole = { x: x0, y0: y0 - gap * 1.4, y1: H * 0.94 };
+      return s;
+    }
+  },
+  rope: {
+    label: "Rope",
+    build(W, H, seed) {
+      const n = 60, span = Math.min(W * 0.66, 900);
+      const total = span * 1.3, rest = total / n;
+      const s = new Sim({ gravity: 1400, wind: 0, iterations: 40, damping: 0.990,
+                          tearable: false, seed: seed });
+      const x0 = (W - span) / 2, y0 = H * 0.22;
+      for (let i = 0; i <= n; i++) {
+        const u = i / n;
+        s.add(x0 + span * u, y0 + Math.sin(u * Math.PI) * span * 0.22, i === 0 || i === n);
+      }
+      for (let i = 0; i < n; i++) s.link(i, i + 1, rest);
+      s.kind = "rope"; s.palette = PALETTES.rope;
+      s.ropeMeta = { n: n, span: span, rest: rest, x0: x0, y0: y0 };
+      return s;
+    }
+  },
+  net: {
+    label: "Hammock",
+    build(W, H, seed) {
+      const cols = 32, rows = 20;
+      const gap = Math.min(W * 0.58 / cols, H * 0.48 / rows);
+      const s = new Sim({ gravity: 1400, wind: 90, iterations: 8, damping: 0.9992,
+                          tearable: true, tear: 1.9, seed: seed });
+      clothMesh(s, cols, rows, (W - (cols - 1) * gap) / 2, H * 0.16, gap,
+                (j, i) => (j === 0 || j === rows - 1) && (i === 0 || i === cols - 1),
+                { shearK: 0.5, ripple: 0.2 });
+      s.kind = "cloth"; s.palette = PALETTES.net;
+      return s;
+    }
+  },
+  sheet: {
+    label: "Sheet",
+    build(W, H, seed) {
+      const cols = 34, rows = 24;
+      const gap = Math.min(W * 0.44 / cols, H * 0.38 / rows);
+      const s = new Sim({ gravity: 1800, wind: 0, iterations: 7, damping: 0.9988,
+                          tearable: false, floor: true, floorY: H * 0.90, friction: 0.55,
+                          seed: seed });
+      clothMesh(s, cols, rows, (W - (cols - 1) * gap) / 2, H * 0.10, gap, () => false,
+                { shearK: 0.26, ripple: 0.5 });
+      s.kind = "cloth"; s.palette = PALETTES.sheet;
+      return s;
+    }
+  }
+};
+
+/* ================================================================== *
+ * RENDER
+ *
+ * The fabric is drawn as filled quads, shaded by how compressed each
+ * quad's top edge is. A fold is fabric turning away from you, which in
+ * a flat projection reads as a shorter edge, so compression is a
+ * perfectly good stand-in for a surface normal nobody has to compute.
+ * The light and dark side of each fold come from the SIGN of the change
+ * in compression across the row, which is what stops it looking like a
+ * flat stripe pattern.
+ * ================================================================== */
+function quadLive(sim, j, i) {
+  const m = sim.mesh, c = sim.c;
+  return c[m.h[j][i]].on && c[m.h[j + 1][i]].on && c[m.v[j][i]].on && c[m.v[j][i + 1]].on;
+}
+
+function drawCloth(ctx, sim, mode) {
+  const m = sim.mesh, P = sim.p, pal = sim.palette;
+  if (mode === "mesh") return drawMesh(ctx, sim);
+
+  /* Shading is a real Lambert term off the quad's real normal, which is only
+   * possible because the particles carry a z. The cloth is two sided, so the
+   * normal is flipped to face the viewer rather than culled: a fold that turns
+   * away should darken, not disappear. */
+  const LX = -0.40, LY = -0.46, LZ = 0.79;
+  for (let j = 0; j < m.rows - 1; j++) {
+    const vFade = j / (m.rows - 1);
+    for (let i = 0; i < m.cols - 1; i++) {
+      if (!quadLive(sim, j, i)) continue;
+      const a = P[m.idx(j, i)], b = P[m.idx(j, i + 1)],
+            c = P[m.idx(j + 1, i + 1)], d = P[m.idx(j + 1, i)];
+
+      const ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+      const vx = d.x - a.x, vy = d.y - a.y, vz = d.z - a.z;
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      nx /= len; ny /= len; nz /= len;
+      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      const lam = Math.max(0, nx * LX + ny * LY + nz * LZ);
+
+      /* Area against rest area: a quad squashed in projection is fabric seen
+       * edge on, which the normal already covers, but it also picks up the
+       * genuine stretch when someone is pulling on it. */
+      const area = Math.abs(ux * vy - uy * vx) / (m.gap * m.gap);
+
+      let L = pal.l0 + (pal.l1 - pal.l0) * lam - vFade * 5 + Math.min(area, 1.2) * 1.6;
+      if (lam > 0.88) L += (lam - 0.88) * 90;              // sheen where it faces the light
+      L = Math.max(3, Math.min(88, L));
+      const sat = pal.s * (0.72 + 0.28 * lam);
+
+      const fill = "hsl(" + pal.h + "," + sat.toFixed(1) + "%," + L.toFixed(1) + "%)";
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = fill;                              // hides the hairline seams
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  }
+  drawPins(ctx, sim);
+}
+
+function drawMesh(ctx, sim) {
+  const P = sim.p, pal = sim.palette;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < sim.c.length; i++) {
+    const c = sim.c[i];
+    if (!c.on) continue;
+    const A = P[c.a], B = P[c.b];
+    const strain = Math.hypot(B.x - A.x, B.y - A.y, B.z - A.z) / c.rest;
+    const L = Math.max(14, Math.min(78, 24 + (strain - 1) * 180));
+    ctx.strokeStyle = "hsl(" + pal.h + "," + pal.s + "%," + L.toFixed(1) + "%)";
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+  }
+  drawPins(ctx, sim);
+}
+
+function drawRope(ctx, sim, mode) {
+  const P = sim.p, pal = sim.palette;
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  const wide = mode === "mesh" ? 1.5 : 9;
+  ctx.lineWidth = wide + 3;
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  for (const c of sim.c) {
+    if (!c.on) continue;
+    ctx.beginPath(); ctx.moveTo(P[c.a].x, P[c.a].y); ctx.lineTo(P[c.b].x, P[c.b].y); ctx.stroke();
+  }
+  ctx.lineWidth = wide;
+  for (const c of sim.c) {
+    if (!c.on) continue;
+    const A = P[c.a], B = P[c.b];
+    const strain = Math.hypot(B.x - A.x, B.y - A.y, B.z - A.z) / c.rest;
+    const L = Math.max(16, Math.min(72, pal.l0 + 22 + (strain - 1) * 260));
+    ctx.strokeStyle = "hsl(" + pal.h + "," + pal.s + "%," + L.toFixed(1) + "%)";
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+  }
+  drawPins(ctx, sim);
+}
+
+function drawPins(ctx, sim) {
+  ctx.fillStyle = "#6fd7c6";
+  for (const q of sim.p) {
+    if (q.w !== 0) continue;
+    ctx.beginPath(); ctx.arc(q.x, q.y, 2.6, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* ================================================================== *
+ * APP
+ * ================================================================== */
+const canvas = document.getElementById("cloth");
+const ctx = canvas.getContext("2d");
+const params = new URLSearchParams(location.search);
+const PREVIEW = params.has("preview");
+const state = {
+  sceneName: "curtain", sim: null, tool: "grab", look: "fabric",
+  paused: false, hitch: false, fling: true, grabbed: -1,
+  mouse: { x: 0, y: 0, down: false, lx: 0, ly: 0 },
+  W: 0, H: 0, seed: 7,
+  fall: null, fallT: 0
+};
+
+/* A single free falling point, integrated with the same integrator and fed the
+ * same timesteps as the cloth, compared live against the closed form g*t*t/2.
+ *
+ * This exists because the first version of this build asserted, in its own UI,
+ * that the naive integrator would blow up under variable timesteps. It does
+ * not. Position based dynamics clamps positions by construction, so the wrong
+ * integrator produces wrong motion with a perfectly healthy looking picture.
+ * A readout against an independent closed form is the only thing that shows it. */
+function resetFall() {
+  const f = new Sim({ verlet: state.sim.params.verlet, gravity: state.sim.params.gravity,
+                      damping: 1, wind: 0, iterations: 0 });
+  f.add(0, 0, false);
+  state.fall = f;
+  state.fallT = 0;
+}
+function fallDrift() {
+  const f = state.fall;
+  if (!f || state.fallT < 0.5) return null;
+  const exact = 0.5 * f.params.gravity * state.fallT * state.fallT;
+  if (exact <= 0 || !Number.isFinite(f.p[0].y)) return null;
+  return (f.p[0].y / exact - 1) * 100;
+}
+
+function sizeCanvas() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = canvas.getBoundingClientRect();
+  state.W = Math.max(320, r.width);
+  state.H = Math.max(240, r.height);
+  canvas.width = Math.round(state.W * dpr);
+  canvas.height = Math.round(state.H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function loadScene(name, keepParams) {
+  const prev = state.sim ? state.sim.params : null;
+  state.sceneName = name;
+  const s = SCENES[name].build(state.W, state.H, state.seed);
+  if (keepParams && prev) {
+    s.params.iterations = prev.iterations;
+    s.params.stiffness = prev.stiffness;
+    s.params.sweep = prev.sweep;
+    s.params.verlet = prev.verlet;
+  }
+  state.sim = s;
+  state.grabbed = -1;
+  resetFall();
+  document.getElementById("blown").style.display = "none";
+  if (!PREVIEW) syncControls();
+}
+
+/* ---- interaction ---------------------------------------------------- */
+function segHit(ax, ay, bx, by, cx, cy, dx, dy) {
+  const den = (dy - cy) * (bx - ax) - (dx - cx) * (by - ay);
+  if (Math.abs(den) < 1e-12) return false;
+  const ua = ((dx - cx) * (ay - cy) - (dy - cy) * (ax - cx)) / den;
+  const ub = ((bx - ax) * (ay - cy) - (by - ay) * (ax - cx)) / den;
+  return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+}
+
+function cutAlong(x0, y0, x1, y1) {
+  const s = state.sim, P = s.p;
+  for (const c of s.c) {
+    if (!c.on) continue;
+    const A = P[c.a], B = P[c.b];
+    if (segHit(x0, y0, x1, y1, A.x, A.y, B.x, B.y)) { c.on = false; s.torn++; }
+  }
+}
+
+function pointerPos(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+if (!PREVIEW) {
+  canvas.addEventListener("pointerdown", e => {
+    const p = pointerPos(e);
+    state.mouse.down = true;
+    state.mouse.x = state.mouse.lx = p.x;
+    state.mouse.y = state.mouse.ly = p.y;
+    canvas.setPointerCapture(e.pointerId);
+    if (state.tool === "grab") state.grabbed = state.sim.nearest(p.x, p.y, 34);
+    else if (state.tool === "pin") {
+      const i = state.sim.nearest(p.x, p.y, 26);
+      if (i >= 0) { const q = state.sim.p[i]; q.w = q.w === 0 ? 1 : 0; q.px = q.x; q.py = q.y; }
+    }
+  });
+  canvas.addEventListener("pointermove", e => {
+    const p = pointerPos(e);
+    state.mouse.x = p.x; state.mouse.y = p.y;
+    if (state.mouse.down && state.tool === "cut")
+      cutAlong(state.mouse.lx, state.mouse.ly, p.x, p.y);
+    if (!state.mouse.down || state.tool === "cut") { state.mouse.lx = p.x; state.mouse.ly = p.y; }
+  });
+  const release = () => {
+    state.mouse.down = false;
+    state.grabbed = -1;
+    state.mouse.lx = state.mouse.x; state.mouse.ly = state.mouse.y;
+  };
+  canvas.addEventListener("pointerup", release);
+  canvas.addEventListener("pointercancel", release);
+
+  window.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT") return;
+    const k = e.key.toLowerCase();
+    const names = Object.keys(SCENES);
+    if (k >= "1" && k <= String(names.length)) { loadScene(names[+k - 1], true); paint(); }
+    else if (k === "g") setTool("grab");
+    else if (k === "c") setTool("cut");
+    else if (k === "p") setTool("pin");
+    else if (k === "r") { loadScene(state.sceneName, true); paint(); }
+    else if (k === " ") { state.paused = !state.paused; e.preventDefault(); }
+  });
+}
+
+/* ---- the loop -------------------------------------------------------- */
+const FIXED = 1 / 120;
+let acc = 0, last = performance.now(), fps = 0, fpsT = 0, fpsN = 0;
+
+function advance(now) {
+  const s = state.sim;
+  let wall = Math.min((now - last) / 1000, 0.1);
+  last = now;
+  if (state.paused) return;
+
+  if (state.hitch) {
+    /* Deliberately irregular frames, driven straight into the solver, so the
+     * integrator choice has real consequences instead of theoretical ones. */
+    const dt = 1 / 240 + s.rand() * (1 / 22);
+    stepOnce(s, dt);
+  } else {
+    acc += wall;
+    let guard = 0;
+    while (acc >= FIXED && guard++ < 6) { stepOnce(s, FIXED); acc -= FIXED; }
+  }
+}
+
+function stepOnce(s, dt) {
+  s.step(dt);
+  if (state.fall) { state.fall.step(dt); state.fallT += dt; }
+  if (state.grabbed >= 0) {
+    const q = s.p[state.grabbed];
+    q.x = state.mouse.x; q.y = state.mouse.y;
+    if (!state.fling) { q.px = q.x; q.py = q.y; }
+  }
+}
+
+function paint() {
+  const s = state.sim;
+  ctx.clearRect(0, 0, state.W, state.H);
+  const bg = ctx.createRadialGradient(state.W * 0.5, state.H * 0.34, 20,
+                                      state.W * 0.5, state.H * 0.34, Math.max(state.W, state.H) * 0.8);
+  bg.addColorStop(0, "#161c26"); bg.addColorStop(1, "#0b0e13");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, state.W, state.H);
+
+  if (s.params.floor) {
+    ctx.fillStyle = "#10151d";
+    ctx.fillRect(0, s.params.floorY, state.W, state.H - s.params.floorY);
+    ctx.strokeStyle = "#2b3440"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, s.params.floorY + 0.5); ctx.lineTo(state.W, s.params.floorY + 0.5); ctx.stroke();
+  }
+  if (s.pole) {
+    ctx.strokeStyle = "#4a5568"; ctx.lineWidth = 5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(s.pole.x, s.pole.y0); ctx.lineTo(s.pole.x, s.pole.y1); ctx.stroke();
+  }
+  if (s.rail) {
+    let lo = Infinity, hi = -Infinity, ry = 0;
+    for (const q of s.p) if (q.w === 0) { lo = Math.min(lo, q.x); hi = Math.max(hi, q.x); ry = q.y; }
+    if (lo < hi) {
+      ctx.strokeStyle = "#4a5568"; ctx.lineWidth = 5; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(lo - 26, ry); ctx.lineTo(hi + 26, ry); ctx.stroke();
+    }
+  }
+  if (s.kind === "rope") drawRope(ctx, s, state.look); else drawCloth(ctx, s, state.look);
+}
+
+function frame(now) {
+  advance(now);
+  const s = state.sim;
+  if (!s.healthy()) {
+    state.paused = true;
+    if (!PREVIEW) document.getElementById("blown").style.display = "block";
+  } else {
+    paint();
+  }
+  fpsN++; fpsT += now - (fpsT ? 0 : now);
+  if (!PREVIEW && now - lastHud > 200) { updateHud(now); lastHud = now; }
+  requestAnimationFrame(frame);
+}
+let lastHud = 0, hudFrames = 0, hudMark = performance.now();
+function updateHud(now) {
+  const s = state.sim;
+  hudFrames = fpsN; fpsN = 0;
+  const secs = (now - hudMark) / 1000; hudMark = now;
+  document.getElementById("hPts").textContent = s.p.length;
+  document.getElementById("hLinks").textContent = s.liveLinks();
+  document.getElementById("hTorn").textContent = s.torn;
+  document.getElementById("hRes").textContent = s.maxResidual(true).toFixed(2);
+  document.getElementById("hStretch").textContent = (s.stretch() * 100).toFixed(2);
+  const drift = fallDrift();
+  const fEl = document.getElementById("hFall");
+  fEl.textContent = drift === null ? "n/a" : drift.toFixed(2) + "%";
+  fEl.style.color = drift !== null && Math.abs(drift) > 2 ? "#f0a56a" : "";
+  document.getElementById("hFps").textContent = secs > 0 ? Math.round(hudFrames / secs) : 0;
+}
+
+/* ---- controls -------------------------------------------------------- */
+function pill(parent, items, get, set) {
+  parent.innerHTML = "";
+  for (const it of items) {
+    const b = document.createElement("button");
+    b.textContent = it.label;
+    b.dataset.key = it.key;
+    b.addEventListener("click", () => { set(it.key); syncControls(); });
+    parent.appendChild(b);
+  }
+  parent._get = get;
+}
+function paintPills(parent) {
+  if (!parent._get) return;
+  const cur = parent._get();
+  for (const b of parent.children) b.classList.toggle("on", b.dataset.key === cur);
+}
+
+function setTool(t) { state.tool = t; syncControls(); }
+
+let controls = null;
+function buildControls() {
+  pill(document.getElementById("scenes"),
+    Object.keys(SCENES).map(k => ({ key: k, label: SCENES[k].label })),
+    () => state.sceneName, k => { loadScene(k, true); paint(); });
+  pill(document.getElementById("tools"),
+    [{ key: "grab", label: "Grab" }, { key: "cut", label: "Cut" }, { key: "pin", label: "Pin" }],
+    () => state.tool, k => { state.tool = k; });
+  pill(document.getElementById("sweeps"),
+    [{ key: "forward", label: "Pin first" }, { key: "reverse", label: "Tip first" }, { key: "alternate", label: "Alternate" }],
+    () => state.sim.params.sweep, k => { state.sim.params.sweep = k; });
+  pill(document.getElementById("verlets"),
+    [{ key: "tcv", label: "Time corrected" }, { key: "naive", label: "Naive" }],
+    () => state.sim.params.verlet, k => { state.sim.params.verlet = k; resetFall(); });
+  pill(document.getElementById("looks"),
+    [{ key: "fabric", label: "Fabric" }, { key: "mesh", label: "Mesh" }],
+    () => state.look, k => { state.look = k; });
+
+  controls = {
+    grav: document.getElementById("sGrav"), wind: document.getElementById("sWind"),
+    iter: document.getElementById("sIter"), stiff: document.getElementById("sStiff"),
+    tear: document.getElementById("sTear"), floor: document.getElementById("cFloor"),
+    tearable: document.getElementById("cTear"), hitch: document.getElementById("cHitch"),
+    fling: document.getElementById("cFling")
+  };
+  const P = () => state.sim.params;
+  controls.grav.addEventListener("input", () => { P().gravity = +controls.grav.value; resetFall(); syncControls(); });
+  controls.wind.addEventListener("input", () => { P().wind = +controls.wind.value; syncControls(); });
+  controls.iter.addEventListener("input", () => { P().iterations = +controls.iter.value; syncControls(); });
+  controls.stiff.addEventListener("input", () => { P().stiffness = +controls.stiff.value; syncControls(); });
+  controls.tear.addEventListener("input", () => { P().tear = +controls.tear.value; syncControls(); });
+  controls.floor.addEventListener("change", () => {
+    P().floor = controls.floor.checked;
+    if (P().floor && P().floorY > 1e8) P().floorY = state.H * 0.92;
+    syncControls();
+  });
+  controls.tearable.addEventListener("change", () => { P().tearable = controls.tearable.checked; syncControls(); });
+  controls.hitch.addEventListener("change", () => { state.hitch = controls.hitch.checked; resetFall(); syncControls(); });
+  controls.fling.addEventListener("change", () => { state.fling = controls.fling.checked; });
+  document.getElementById("recover").addEventListener("click", () => {
+    loadScene(state.sceneName, false); state.paused = false; paint();
+  });
+}
+
+function syncControls() {
+  if (!controls) return;
+  const P = state.sim.params;
+  controls.grav.value = P.gravity;  document.getElementById("vGrav").textContent = P.gravity;
+  controls.wind.value = P.wind;     document.getElementById("vWind").textContent = P.wind;
+  controls.iter.value = P.iterations; document.getElementById("vIter").textContent = P.iterations;
+  controls.stiff.value = P.stiffness; document.getElementById("vStiff").textContent = P.stiffness.toFixed(2);
+  controls.tear.value = P.tear;     document.getElementById("vTear").textContent = P.tear.toFixed(2) + "x";
+  controls.floor.checked = P.floor;
+  controls.tearable.checked = P.tearable;
+  controls.hitch.checked = state.hitch;
+  controls.fling.checked = state.fling;
+
+  const kEff = 1 - Math.pow(1 - P.stiffness, P.iterations);
+  document.getElementById("kEff").innerHTML =
+    "<b>Effective stiffness " + (kEff * 100).toFixed(kEff > 0.999 ? 3 : 1) + "%</b> " +
+    "from stiffness " + P.stiffness.toFixed(2) + " applied " + P.iterations +
+    " times leaves " + (Math.pow(1 - P.stiffness, P.iterations) * 100).toPrecision(3) +
+    "% of the error behind.";
+
+  for (const id of ["scenes", "tools", "sweeps", "verlets", "looks"])
+    paintPills(document.getElementById(id));
+}
+
+/* ---- boot ------------------------------------------------------------ */
+function boot() {
+  /* The preview class MUST go on before sizeCanvas, because it is what hides
+   * the 292 px panel. Measuring first and hiding after sized the backing store
+   * for a 748 px canvas that then got displayed at 1040, so the card was a
+   * 1.39x horizontal stretch of a correct render: the folds flattened into
+   * bands and the whole cloth leaned. Nothing about the simulation was wrong
+   * and the pixel probe passed the whole time, because a stretched picture is
+   * still a colourful one. */
+  if (PREVIEW) {
+    document.documentElement.classList.add("preview");
+    document.body.classList.add("preview");
+  }
+  sizeCanvas();
+  if (PREVIEW) {
+    const want = params.get("preview");
+    const name = SCENES[want] ? want : "curtain";
+    loadScene(name, false);
+    /* Pre-warm so the card shows draped fabric rather than a flat grid the
+     * instant it loads. Deterministic: same seed, same fixed steps, same
+     * picture on every index load. */
+    state.sim.params.wind = name === "flag" ? 1500 : 320;
+    for (let i = 0; i < 420; i++) state.sim.step(FIXED);
+    paint();
+  } else {
+    buildControls();
+    loadScene("curtain", false);
+    paint();
+  }
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener("resize", () => {
+  sizeCanvas();
+  loadScene(state.sceneName, true);
+  paint();
+});
+
+boot();
+
+/* Exposed for ../_verify/. The suites drive the SHIPPED solver rather than a
+ * copy of it: a control that exercises a re-implementation proves nothing
+ * about the code that runs. */
+window.__drape = {
+  version: "drape 1.0",
+  Sim: Sim,
+  SCENES: SCENES,
+  mulberry32: mulberry32,
+  get sim() { return state.sim; },
+  get state() { return state; },
+  loadScene: loadScene
+};
+</script>
+</body>
+</html>

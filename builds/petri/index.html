@@ -1,0 +1,1103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Petri, a reaction diffusion dish</title>
+<!--
+  PETRI, a reaction diffusion dish.
+  Built 2026-09-05 for playground/. Self-contained, offline, no dependencies.
+
+  WHAT IT DOES
+  A dish of two imaginary chemicals that you paint into with a finger or a mouse. One chemical
+  is fed in everywhere and the other eats it, and because the eater also spreads, the two of
+  them settle into patterns rather than into a puddle: coral, fingerprints, dividing cells,
+  drifting spots. Nothing here is drawn. Every shape on screen is the same six line rule
+  applied to every pixel about a thousand times a second.
+
+  The whole simulation lives on the graphics card. The state of the dish is a floating point
+  texture, two numbers per pixel, and one step is a single fragment shader that reads the whole
+  texture and writes a new one. There are two textures and they swap roles every step, which is
+  the only way a shader can update something it is also reading. That trick is called ping pong
+  and it is the thing I actually wanted to learn.
+
+  WHY THIS ONE
+  The four builds before this were all "explain a mechanism by making it steppable", which had
+  quietly become a house style rather than a lane. This one has no step button, no panel of
+  intermediate values and nothing to read. It is meant to be pleasant. The mechanism is in this
+  comment and in the receipts, where it belongs, and not in front of the person using it.
+
+  WHAT I LEARNED BUILDING IT
+  1. Ping pong is forced, not chosen. A fragment shader cannot read and write the same texture
+     in one pass. The result is not an error, it is undefined: whichever pixels happen to have
+     been written when a neighbour is read. So the state has to live in two textures that trade
+     places, and every uniform, framebuffer binding and viewport call has to be paired with the
+     right one. The whole discipline of GPGPU on the web is bookkeeping around that one fact.
+  2. A float texture is not automatically a float render target, and the two capabilities are
+     separate extensions. WebGL2 gives you RGBA32F storage for free but writing to it needs
+     EXT_color_buffer_float, and sampling it smoothly needs OES_texture_float_linear on top.
+     Asking for the extension is not optional even when the context reports version 2.0. This
+     build asks for both, checks the framebuffer really is complete, and falls back to half
+     precision rather than rendering nothing.
+  3. THE ONE THAT COST THE MOST, and it was visible rather than numeric. A Laplacian stencil
+     and its diffusion constants are a matched pair, and I mismatched them. This stencil has a
+     centre weight of -1 rather than the textbook -4, so it carries a hidden factor of a
+     quarter, and the constants have to be about four times larger to compensate. I started at
+     Du = 0.16. Every correctness check passed. The dish still ran, still conserved what it
+     should, never produced a NaN, and drew perfect SQUARES with square holes in them, because
+     the pattern wavelength had collapsed to roughly one cell and at that scale the square
+     lattice is the only thing left to see. The fix was rendering the same presets at Du 0.16,
+     0.5 and 1.0 and putting the three side by side. Nothing in the numbers said anything was
+     wrong; I had to look.
+  4. The stability limit of the diffusion half has a closed form and I derived it before
+     measuring: the stencil's Fourier symbol bottoms out at -1.6, so explicit Euler survives
+     while dt < 2 / (Du * 1.6). The limit therefore moved with the fix above, from 7.8125 at
+     Du = 0.16 down to 1.25 at Du = 1.0, and the shipped timestep of 1.0 sits inside a margin
+     that used to be enormous and is now thin. What I could not derive at all was the limit for
+     the FULL system with the reaction terms in it. That one is measured by bisection in the
+     checker, in both worlds, and graded against the guess I wrote down first.
+  5. Clamping the state to a sane range would have been the obvious defensive move and it would
+     have been wrong. A clamp turns a divergence into a picture that merely looks odd, which is
+     a silent fallback in the one place I most want a loud failure. Nothing is clamped in the
+     simulation. The display pass clamps, because that is a question about colour and not about
+     truth, and the reachable range of both sliders is swept in the checker instead.
+  6. The preset names were the part most likely to be invented, so none of them was written
+     until the parameters had been rendered and looked at. Twelve candidates went onto one
+     contact sheet, eight survived, and three were dropped for dying outright. A name here
+     describes what came out of this build at those numbers, not what the literature calls that
+     region.
+
+  HOW TO PLAY WITH IT
+  Drag on the dish to seed. Hold shift, or use the right mouse button, to wipe instead.
+  Space pauses, C clears, R reseeds, P cycles the palette, and 1 to 8 pick a preset.
+  The two sliders are the feed rate and the kill rate, and they are the whole parameter space.
+  Small moves matter far more than large ones.
+
+  The dish is a torus, so it wraps at every edge and tiles seamlessly across a wide screen.
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #07080c;
+    --panel: rgba(14, 16, 24, 0.82);
+    --line: rgba(150, 170, 220, 0.16);
+    --ink: #e6ebf6;
+    --dim: #93a0bd;
+    --accent: #7fd4ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--ink);
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+  #stage { position: fixed; inset: 0; }
+  #gl { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+  /* Chrome. All of it hides in preview mode. */
+  #bar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--panel);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    border-top: 1px solid var(--line);
+    z-index: 5;
+  }
+  #title {
+    font-weight: 600; letter-spacing: 0.02em; margin-right: 2px; white-space: nowrap;
+  }
+  #title small { color: var(--dim); font-weight: 400; letter-spacing: 0; }
+  .group { display: flex; align-items: center; gap: 6px; }
+  .group > label { color: var(--dim); white-space: nowrap; }
+  button, select {
+    font: inherit; color: var(--ink);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 5px 10px; cursor: pointer;
+    transition: background 120ms, border-color 120ms;
+  }
+  button:hover, select:hover { background: rgba(255,255,255,0.10); border-color: rgba(150,170,220,0.34); }
+  button:active { background: rgba(127,212,255,0.18); }
+  button[aria-pressed="true"] {
+    background: rgba(127,212,255,0.16);
+    border-color: rgba(127,212,255,0.45);
+    color: #d7f1ff;
+  }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  #presets { display: flex; flex-wrap: wrap; gap: 5px; }
+  #presets button { padding: 5px 9px; font-size: 12px; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 108px; height: 20px; background: transparent; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 3px; border-radius: 3px; background: rgba(150,170,220,0.30);
+  }
+  input[type=range]::-moz-range-track {
+    height: 3px; border-radius: 3px; background: rgba(150,170,220,0.30);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); border: none; margin-top: -5px;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); border: none;
+  }
+  .val { font-variant-numeric: tabular-nums; color: var(--dim); min-width: 48px; }
+  #hint {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    padding: 7px 14px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line);
+    color: var(--dim); z-index: 5; white-space: nowrap;
+    transition: opacity 700ms; pointer-events: none;
+  }
+  #hint.gone { opacity: 0; }
+  #fail {
+    position: fixed; inset: 0; display: none; place-items: center;
+    padding: 32px; text-align: center; color: var(--dim); z-index: 9;
+    background: var(--bg);
+  }
+  #fail.on { display: grid; }
+  #fail b { color: var(--ink); display: block; margin-bottom: 8px; font-size: 15px; }
+
+  html.preview #bar, html.preview #hint { display: none; }
+  html.preview #gl { cursor: default; }
+
+  @media (max-width: 660px) {
+    #title small, .wide { display: none; }
+    input[type=range] { width: 84px; }
+    #bar { gap: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="gl"></canvas></div>
+
+<div id="hint">Drag to seed. Shift drag to wipe.</div>
+
+<div id="bar">
+  <span id="title">Petri <small>a reaction diffusion dish</small></span>
+
+  <div id="presets" role="group" aria-label="Presets"></div>
+
+  <div class="group">
+    <label for="feed">feed</label>
+    <input id="feed" type="range" min="0.010" max="0.075" step="0.0005" value="0.0545">
+    <span class="val" id="feedv">0.0545</span>
+  </div>
+
+  <div class="group">
+    <label for="kill">kill</label>
+    <input id="kill" type="range" min="0.040" max="0.070" step="0.0005" value="0.0620">
+    <span class="val" id="killv">0.0620</span>
+  </div>
+
+  <div class="group wide">
+    <label for="brush">brush</label>
+    <input id="brush" type="range" min="4" max="90" step="1" value="22">
+  </div>
+
+  <div class="group">
+    <label for="palette">colour</label>
+    <select id="palette"></select>
+  </div>
+
+  <button id="pause" aria-pressed="false" title="Space">Pause</button>
+  <button id="reseed" title="R">Reseed</button>
+  <button id="clear" title="C">Clear</button>
+  <button id="save" class="wide">Save PNG</button>
+</div>
+
+<div id="fail"><div>
+  <b>This dish needs WebGL2 with float render targets.</b>
+  <span id="failwhy"></span>
+</div></div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * Petri. Gray-Scott reaction diffusion on the GPU.
+ *
+ *   du/dt = Du * lap(u) - u*v*v + F*(1 - u)
+ *   dv/dt = Dv * lap(v) + u*v*v - (F + k)*v
+ *
+ * u is fed in everywhere at rate F and v is removed at rate F + k. The
+ * reaction u + 2v -> 3v converts one into the other, so v is autocatalytic:
+ * it needs itself to make more of itself. Both diffuse, u twice as fast as
+ * v, and that difference in speed is the entire reason patterns exist here
+ * rather than a uniform wash. Turing's 1952 point, in six lines.
+ *
+ * State lives in an RGBA32F texture: red is u, green is v, blue and alpha
+ * unused. Nothing is clamped in the simulation on purpose, see the header.
+ * ------------------------------------------------------------------ */
+
+const GRID = 512;                 // simulation is a fixed square torus
+const STENCIL = { c: -1.0, ortho: 0.2, diag: 0.05 };   // sums to exactly zero
+
+/* Du and Dv are NOT free numbers, they are tied to how the stencil above is
+ * normalised, and getting that wrong is the real bug this build paid for. The
+ * stencil has a centre weight of -1 rather than -4, so it already carries a
+ * factor of 1/4 relative to the textbook five point Laplacian, and the
+ * diffusion constants have to be about four times larger to compensate. Run it
+ * with Du = 0.16 and the pattern wavelength collapses to roughly one cell, at
+ * which point the square lattice wins and every spot comes out as a literal
+ * square with a square hole in it. Measured, not reasoned: the same eight
+ * presets were rendered at Du 0.16, 0.5 and 1.0 and looked at. */
+const MODEL = { Du: 1.0, Dv: 0.5, dt: 1.0 };
+
+/* Presets.
+ *
+ * Twelve candidate pairs were rendered to 7000 steps and put on one contact
+ * sheet, and these eight are the ones that were worth keeping. Every name was
+ * written afterwards, from the picture. None of them is a claim about what the
+ * literature calls that region of the parameter space, and three candidates
+ * were dropped for dying outright: (0.0140, 0.0450), (0.0220, 0.0610) and
+ * (0.0780, 0.0610) all decay to a bare fed dish, v = 0 everywhere. */
+const PRESETS = [
+  { key: "1", name: "Coral",       F: 0.0545, k: 0.0620 },  // fat pale ribbons, 53% cover
+  { key: "2", name: "Fingerprint", F: 0.0460, k: 0.0630 },  // slender meandering ridges
+  { key: "3", name: "Labyrinth",   F: 0.0290, k: 0.0570 },  // thinner maze, wide dark gaps
+  { key: "4", name: "Mitosis",     F: 0.0367, k: 0.0649 },  // discrete spots that divide
+  { key: "5", name: "Shoal",       F: 0.0300, k: 0.0620 },  // dots and dashes, dense
+  { key: "6", name: "Spots",       F: 0.0250, k: 0.0600 },  // the tidiest dot lattice
+  { key: "7", name: "Foam",        F: 0.0620, k: 0.0610 },  // inverted: dark walls, 86% cover
+  { key: "8", name: "Unrest",      F: 0.0180, k: 0.0510 },  // never settles, warm fringes
+];
+
+/* Cosine gradient palettes, col = a + b*cos(2pi*(c*t + d)). Four numbers a
+ * piece and they never band.
+ *
+ * The frequency c is 0.5 in every channel on purpose, and getting that wrong
+ * was the first real bug in this build. With c = 1 the cosine completes a full
+ * turn across the ramp, so t = 0 and t = 1 land on the SAME colour and the
+ * empty dish comes out as bright as the pattern. My first set did exactly
+ * that and rendered an olive green background. At c = 0.5 the argument sweeps
+ * half a turn, so with the phase d near 0.5 the ramp runs from a - b at the
+ * empty end to a + b at the dense end, which is dark to bright once. The per
+ * channel offsets on d are the hue. */
+const PALETTES = [
+  { name: "Ink",    a: [0.30, 0.38, 0.46], b: [0.32, 0.38, 0.44], c: [0.5, 0.5, 0.5], d: [0.50, 0.46, 0.42] },
+  { name: "Ember",  a: [0.42, 0.30, 0.22], b: [0.44, 0.34, 0.26], c: [0.5, 0.5, 0.5], d: [0.42, 0.50, 0.56] },
+  { name: "Jade",   a: [0.26, 0.40, 0.34], b: [0.28, 0.40, 0.34], c: [0.5, 0.5, 0.5], d: [0.54, 0.48, 0.44] },
+  { name: "Bone",   a: [0.44, 0.43, 0.41], b: [0.45, 0.44, 0.42], c: [0.5, 0.5, 0.5], d: [0.50, 0.50, 0.50] },
+  { name: "Orchid", a: [0.38, 0.26, 0.42], b: [0.40, 0.28, 0.44], c: [0.5, 0.5, 0.5], d: [0.48, 0.54, 0.52] },
+];
+
+/* ------------------------------ shaders ------------------------------ */
+
+/* One fullscreen triangle, not two triangles making a quad. Cheaper, and it
+ * has no diagonal seam where the two halves meet. */
+const VERT = `#version 300 es
+in vec2 aPos;
+out vec2 vTex;
+void main() {
+  vTex = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}`;
+
+/* The simulation step. VARIANT_* defines exist so the checker can build a
+ * deliberately broken version of THIS shader rather than a separate copy of
+ * the logic; a negative control that exercises a different code path proves
+ * nothing about the code path that shipped. */
+function simSource(variant) {
+  const defs = [];
+  if (variant === "no-laplacian") defs.push("#define VARIANT_NO_LAPLACIAN 1");
+  if (variant === "flip-reaction") defs.push("#define VARIANT_FLIP_REACTION 1");
+  return `#version 300 es
+precision highp float;
+${defs.join("\n")}
+uniform sampler2D uState;
+uniform vec2  uTexel;
+uniform float uF, uK, uDu, uDv, uDt;
+in  vec2 vTex;
+out vec4 outState;
+
+vec2 at(vec2 off) { return texture(uState, vTex + off * uTexel).xy; }
+
+void main() {
+  vec2 c = at(vec2(0.0));
+
+  vec2 lap =
+      (at(vec2( 1.0, 0.0)) + at(vec2(-1.0, 0.0)) +
+       at(vec2( 0.0, 1.0)) + at(vec2( 0.0,-1.0))) * ${STENCIL.ortho.toFixed(6)}
+    + (at(vec2( 1.0, 1.0)) + at(vec2(-1.0, 1.0)) +
+       at(vec2( 1.0,-1.0)) + at(vec2(-1.0,-1.0))) * ${STENCIL.diag.toFixed(6)}
+    + c * (${STENCIL.c.toFixed(6)});
+
+#ifdef VARIANT_NO_LAPLACIAN
+  lap = vec2(0.0);
+#endif
+
+  float u = c.x, v = c.y;
+  float reaction = u * v * v;
+
+#ifdef VARIANT_FLIP_REACTION
+  float du = uDu * lap.x + reaction + uF * (1.0 - u);
+#else
+  float du = uDu * lap.x - reaction + uF * (1.0 - u);
+#endif
+  float dv = uDv * lap.y + reaction - (uF + uK) * v;
+
+  // Deliberately unclamped. See the header comment: a clamp here would turn a
+  // divergence into a merely strange picture.
+  outState = vec4(u + uDt * du, v + uDt * dv, 0.0, 1.0);
+}`;
+}
+
+/* Painting is its own pass so that the simulation step stays a pure function
+ * of the previous state. That is what makes it comparable, step for step,
+ * against an independent implementation on the CPU. */
+const PAINT = `#version 300 es
+precision highp float;
+uniform sampler2D uState;
+uniform vec2  uBrush;      // centre, texture space
+uniform float uRadius;     // texture space
+uniform float uErase;      // 0 seed, 1 wipe
+in  vec2 vTex;
+out vec4 outState;
+
+void main() {
+  vec2 s = texture(uState, vTex).xy;
+
+  // Distance on a torus: the short way round, on both axes.
+  vec2 d = abs(vTex - uBrush);
+  d = min(d, 1.0 - d);
+  float w = 1.0 - smoothstep(uRadius * 0.45, uRadius, length(d));
+
+  vec2 target = (uErase > 0.5) ? vec2(1.0, 0.0) : vec2(0.50, 0.25);
+  outState = vec4(mix(s, target, w), 0.0, 1.0);
+}`;
+
+const DISPLAY = `#version 300 es
+precision highp float;
+uniform sampler2D uState;
+uniform vec2  uTexel;
+uniform vec2  uTile;       // how many copies of the dish fit on screen
+uniform vec3  uPalA, uPalB, uPalC, uPalD;
+in  vec2 vTex;
+out vec4 fragColour;
+
+vec3 palette(float t) {
+  return uPalA + uPalB * cos(6.283185307 * (uPalC * t + uPalD));
+}
+
+void main() {
+  // Centred tiling. The dish is a torus so the repeats are seamless.
+  vec2 uv = (vTex - 0.5) * uTile + 0.5;
+  vec2 s  = texture(uState, uv).xy;
+
+  float v = clamp(s.y, 0.0, 1.0);
+  float t = smoothstep(0.02, 0.34, v);
+
+  // A little rim light along the gradient of v, so structure reads at a
+  // glance instead of only in the flat colour.
+  float vx = texture(uState, uv + vec2(uTexel.x, 0.0)).y
+           - texture(uState, uv - vec2(uTexel.x, 0.0)).y;
+  float vy = texture(uState, uv + vec2(0.0, uTexel.y)).y
+           - texture(uState, uv - vec2(0.0, uTexel.y)).y;
+  float edge = clamp(length(vec2(vx, vy)) * 7.0, 0.0, 1.0);
+
+  vec3 col = palette(t);
+  col += vec3(0.16, 0.19, 0.22) * edge * (0.35 + 0.65 * t);
+
+  // Gentle vignette. Purely cosmetic.
+  vec2 q = vTex - 0.5;
+  col *= 1.0 - 0.35 * dot(q, q);
+
+  fragColour = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+/* ------------------------------ engine ------------------------------ */
+
+const canvas = document.getElementById("gl");
+let gl = null;
+
+function fatal(why) {
+  document.getElementById("failwhy").textContent = why;
+  document.getElementById("fail").classList.add("on");
+  window.__petriFatal = why;
+}
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
+  }
+  return s;
+}
+
+function program(fragSrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fragSrc));
+  gl.bindAttribLocation(p, 0, "aPos");
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    throw new Error(gl.getProgramInfoLog(p));
+  }
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(p, i);
+    u[info.name] = gl.getUniformLocation(p, info.name);
+  }
+  return { prog: p, u };
+}
+
+const Sim = {
+  size: GRID,
+  fmt: null,            // { internal, format, type, name }
+  tex: [null, null],
+  fbo: [null, null],
+  front: 0,             // index of the texture holding current state
+  progSim: null,
+  progPaint: null,
+  progDisplay: null,
+  variant: null,
+  params: { F: PRESETS[0].F, k: PRESETS[0].k, Du: MODEL.Du, Dv: MODEL.Dv, dt: MODEL.dt },
+  steps: 0,
+};
+
+function pickFormat() {
+  // RGBA32F first, half precision second. The state values live in roughly
+  // [0, 1.3] so half precision is visually fine, but it is a fallback and the
+  // build says so rather than pretending the two are the same.
+  const tries = [];
+  if (gl.getExtension("EXT_color_buffer_float")) {
+    tries.push({ name: "RGBA32F", internal: gl.RGBA32F, format: gl.RGBA, type: gl.FLOAT });
+    tries.push({ name: "RGBA16F", internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT });
+  }
+  if (gl.getExtension("EXT_color_buffer_half_float")) {
+    tries.push({ name: "RGBA16F", internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT });
+  }
+  for (const f of tries) {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, f.internal, 8, 8, 0, f.format, f.type, null);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.deleteFramebuffer(fb);
+    gl.deleteTexture(t);
+    if (ok) return f;
+  }
+  return null;
+}
+
+function makeTarget(size, fmt, linear) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, fmt.internal, size, size, 0, fmt.format, fmt.type, null);
+  const filt = linear ? gl.LINEAR : gl.NEAREST;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
+  // REPEAT is what makes the dish a torus. WebGL2 allows it on any size,
+  // including non powers of two, which WebGL1 did not.
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+    throw new Error("framebuffer incomplete for " + fmt.name + " at " + size);
+  }
+  return { tex: t, fbo: fb };
+}
+
+let linearOk = false;
+
+function allocate(size) {
+  for (let i = 0; i < 2; i++) {
+    if (Sim.tex[i]) { gl.deleteTexture(Sim.tex[i]); gl.deleteFramebuffer(Sim.fbo[i]); }
+    const t = makeTarget(size, Sim.fmt, linearOk);
+    Sim.tex[i] = t.tex;
+    Sim.fbo[i] = t.fbo;
+  }
+  Sim.size = size;
+  Sim.front = 0;
+}
+
+function buildSimProgram(variant) {
+  if (Sim.progSim) gl.deleteProgram(Sim.progSim.prog);
+  Sim.progSim = program(simSource(variant));
+  Sim.variant = variant || null;
+}
+
+function initGL() {
+  gl = canvas.getContext("webgl2", {
+    antialias: false,
+    depth: false,
+    stencil: false,
+    alpha: false,
+    // Needed so a screenshot, or any readback after compositing, sees the
+    // frame that was actually drawn instead of a cleared buffer.
+    preserveDrawingBuffer: true,
+    powerPreference: "high-performance",
+  });
+  if (!gl) { fatal("This browser did not give the page a WebGL2 context."); return false; }
+
+  Sim.fmt = pickFormat();
+  if (!Sim.fmt) {
+    fatal("WebGL2 is present but no floating point colour buffer is renderable, so the " +
+          "simulation has nowhere to write its state.");
+    return false;
+  }
+  linearOk = !!gl.getExtension("OES_texture_float_linear") || Sim.fmt.name === "RGBA16F";
+
+  // One fullscreen triangle, shared by all three programs.
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  try {
+    buildSimProgram(null);
+    Sim.progPaint = program(PAINT);
+    Sim.progDisplay = program(DISPLAY);
+    allocate(GRID);
+  } catch (e) {
+    fatal(String(e.message || e));
+    return false;
+  }
+
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.BLEND);
+  return true;
+}
+
+function draw() { gl.drawArrays(gl.TRIANGLES, 0, 3); }
+
+/* Bind the current state as input, the other texture as output, draw, swap.
+ * This is ping pong and everything else in the file is decoration. */
+function pass(p, setUniforms) {
+  const src = Sim.front, dst = 1 - Sim.front;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, Sim.fbo[dst]);
+  gl.viewport(0, 0, Sim.size, Sim.size);
+  gl.useProgram(p.prog);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, Sim.tex[src]);
+  if (p.u.uState) gl.uniform1i(p.u.uState, 0);
+  if (p.u.uTexel) gl.uniform2f(p.u.uTexel, 1 / Sim.size, 1 / Sim.size);
+  if (setUniforms) setUniforms(p.u);
+  draw();
+  Sim.front = dst;
+}
+
+function step(n) {
+  const q = Sim.params;
+  for (let i = 0; i < n; i++) {
+    pass(Sim.progSim, (u) => {
+      gl.uniform1f(u.uF, q.F);
+      gl.uniform1f(u.uK, q.k);
+      gl.uniform1f(u.uDu, q.Du);
+      gl.uniform1f(u.uDv, q.Dv);
+      gl.uniform1f(u.uDt, q.dt);
+    });
+    Sim.steps++;
+  }
+}
+
+function paint(bx, by, radius, erase) {
+  pass(Sim.progPaint, (u) => {
+    gl.uniform2f(u.uBrush, bx, by);
+    gl.uniform1f(u.uRadius, radius);
+    gl.uniform1f(u.uErase, erase ? 1 : 0);
+  });
+}
+
+/* Write a whole field directly. Used to clear, to seed, and by the checker to
+ * put the GPU and the CPU reference into an identical starting state. */
+function upload(u32, v32) {
+  const n = Sim.size * Sim.size;
+  const data = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) { data[i * 4] = u32[i]; data[i * 4 + 1] = v32[i]; data[i * 4 + 3] = 1; }
+  gl.bindTexture(gl.TEXTURE_2D, Sim.tex[Sim.front]);
+  // FLOAT source data is legal for both RGBA32F and RGBA16F destinations, so
+  // one call covers the fallback format too; the driver narrows on the way in.
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, Sim.size, Sim.size, gl.RGBA, gl.FLOAT, data);
+}
+
+function readField() {
+  const n = Sim.size * Sim.size;
+  const px = new Float32Array(n * 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, Sim.fbo[Sim.front]);
+  gl.readPixels(0, 0, Sim.size, Sim.size, gl.RGBA, gl.FLOAT, px);
+  const u = new Float32Array(n), v = new Float32Array(n);
+  for (let i = 0; i < n; i++) { u[i] = px[i * 4]; v[i] = px[i * 4 + 1]; }
+  return { u, v };
+}
+
+/* ------------------------------ seeding ------------------------------ */
+
+// Small deterministic hash, so a named seed always makes the same dish.
+function hashSeed(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+function rngFrom(seedInt) {
+  let s = (seedInt || 1) >>> 0;
+  return function () {
+    s ^= s << 13; s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;  s >>>= 0;
+    return s / 4294967296;
+  };
+}
+
+function clearField() {
+  const n = Sim.size * Sim.size;
+  const u = new Float32Array(n).fill(1), v = new Float32Array(n);
+  upload(u, v);
+  Sim.steps = 0;
+}
+
+function seedField(seedText, blobs) {
+  clearField();
+  const rnd = rngFrom(hashSeed(seedText));
+  const count = blobs === undefined ? 14 : blobs;
+  for (let i = 0; i < count; i++) {
+    paint(rnd(), rnd(), 0.020 + rnd() * 0.045, false);
+  }
+}
+
+/* ------------------------------ display ------------------------------ */
+
+let tileX = 1, tileY = 1;
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+  const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  // Fit the square dish to the shorter side, tile across the longer one.
+  const m = Math.min(w, h);
+  tileX = w / m;
+  tileY = h / m;
+}
+
+function render() {
+  resize();
+  const pal = PALETTES[palIndex];
+  const p = Sim.progDisplay;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(p.prog);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, Sim.tex[Sim.front]);
+  gl.uniform1i(p.u.uState, 0);
+  gl.uniform2f(p.u.uTexel, 1 / Sim.size, 1 / Sim.size);
+  gl.uniform2f(p.u.uTile, tileX, tileY);
+  gl.uniform3fv(p.u.uPalA, pal.a);
+  gl.uniform3fv(p.u.uPalB, pal.b);
+  gl.uniform3fv(p.u.uPalC, pal.c);
+  gl.uniform3fv(p.u.uPalD, pal.d);
+  draw();
+}
+
+/* ------------------------------ interaction ------------------------------ */
+
+let palIndex = 0;
+let paused = false;
+let stepsPerFrame = 14;
+let brushPx = 22;
+let presetIndex = 0;
+
+const el = (id) => document.getElementById(id);
+
+function screenToDish(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  const fx = (clientX - r.left) / r.width;
+  const fy = 1 - (clientY - r.top) / r.height;      // GL texture origin is bottom left
+  let x = (fx - 0.5) * tileX + 0.5;
+  let y = (fy - 0.5) * tileY + 0.5;
+  x -= Math.floor(x);                                // wrap onto the torus
+  y -= Math.floor(y);
+  return { x, y };
+}
+
+function brushRadius() {
+  // Brush is set in screen pixels and converted to dish units, so it feels the
+  // same size whatever the window is doing.
+  const r = canvas.getBoundingClientRect();
+  const m = Math.min(r.width, r.height);
+  return Math.max(0.004, (brushPx / Math.max(m, 1)) * Math.max(tileX, tileY));
+}
+
+let pointerDown = false, eraseMode = false, hintGone = false;
+
+function dismissHint() {
+  if (hintGone) return;
+  hintGone = true;
+  const h = el("hint");
+  if (h) { h.classList.add("gone"); setTimeout(() => h.remove(), 800); }
+}
+
+function onPointer(e, isStart) {
+  if (!gl) return;
+  if (isStart) {
+    pointerDown = true;
+    eraseMode = e.shiftKey || e.button === 2 || e.buttons === 2;
+    canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
+    dismissHint();
+  }
+  if (!pointerDown) return;
+  const p = screenToDish(e.clientX, e.clientY);
+  paint(p.x, p.y, brushRadius(), eraseMode);
+  e.preventDefault();
+}
+
+function wireUI() {
+  // presets
+  const holder = el("presets");
+  PRESETS.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.textContent = p.name;
+    b.title = "Press " + p.key;
+    b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+    b.addEventListener("click", () => { applyPreset(i); dismissHint(); });
+    holder.appendChild(b);
+  });
+
+  // palettes
+  const sel = el("palette");
+  PALETTES.forEach((p, i) => {
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = p.name;
+    sel.appendChild(o);
+  });
+  sel.addEventListener("change", () => { palIndex = +sel.value; if (paused) render(); });
+
+  el("feed").addEventListener("input", (e) => {
+    Sim.params.F = +e.target.value;
+    el("feedv").textContent = Sim.params.F.toFixed(4);
+    markCustomPreset();
+  });
+  el("kill").addEventListener("input", (e) => {
+    Sim.params.k = +e.target.value;
+    el("killv").textContent = Sim.params.k.toFixed(4);
+    markCustomPreset();
+  });
+  el("brush").addEventListener("input", (e) => { brushPx = +e.target.value; });
+
+  el("pause").addEventListener("click", togglePause);
+  el("reseed").addEventListener("click", () => { seedField("dish-" + Date.now()); dismissHint(); });
+  el("clear").addEventListener("click", () => { clearField(); dismissHint(); });
+  el("save").addEventListener("click", savePNG);
+
+  canvas.addEventListener("pointerdown", (e) => onPointer(e, true));
+  canvas.addEventListener("pointermove", (e) => onPointer(e, false));
+  canvas.addEventListener("pointerup", () => { pointerDown = false; });
+  canvas.addEventListener("pointercancel", () => { pointerDown = false; });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  window.addEventListener("keydown", (e) => {
+    if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    const k = e.key.toLowerCase();
+    if (e.code === "Space") { togglePause(); e.preventDefault(); return; }
+    if (k === "c") { clearField(); dismissHint(); }
+    else if (k === "r") { seedField("dish-" + Date.now()); dismissHint(); }
+    else if (k === "p") { palIndex = (palIndex + 1) % PALETTES.length; el("palette").value = String(palIndex); if (paused) render(); }
+    else if (k >= "1" && k <= String(PRESETS.length)) { applyPreset(+k - 1); dismissHint(); }
+  });
+
+  window.addEventListener("resize", () => { if (paused) render(); });
+}
+
+function markCustomPreset() {
+  const buttons = el("presets").querySelectorAll("button");
+  let match = -1;
+  PRESETS.forEach((p, i) => {
+    if (Math.abs(p.F - Sim.params.F) < 1e-9 && Math.abs(p.k - Sim.params.k) < 1e-9) match = i;
+  });
+  presetIndex = match;
+  buttons.forEach((b, i) => b.setAttribute("aria-pressed", i === match ? "true" : "false"));
+}
+
+function applyPreset(i) {
+  const p = PRESETS[i];
+  if (!p) return;
+  Sim.params.F = p.F;
+  Sim.params.k = p.k;
+  el("feed").value = String(p.F);
+  el("kill").value = String(p.k);
+  el("feedv").textContent = p.F.toFixed(4);
+  el("killv").textContent = p.k.toFixed(4);
+  markCustomPreset();
+  // Deliberately does NOT dismiss the opening hint. Boot calls this to set the
+  // starting preset, so dismissing here destroyed the hint before anyone could
+  // read it, on every single load. Caught by the interface suite; a screenshot
+  // had already shown it and I talked myself out of it as a timing artefact.
+  // Dismissal belongs on the actual user gesture, below.
+}
+
+function togglePause() {
+  paused = !paused;
+  const b = el("pause");
+  b.textContent = paused ? "Play" : "Pause";
+  b.setAttribute("aria-pressed", paused ? "true" : "false");
+}
+
+function savePNG() {
+  render();   // guarantee the buffer holds the current frame
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "petri-" + PALETTES[palIndex].name.toLowerCase() + "-" +
+                 (presetIndex >= 0 ? PRESETS[presetIndex].name.toLowerCase() : "custom") + ".png";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, "image/png");
+}
+
+/* ------------------------------ boot ------------------------------ */
+
+const qs = new URLSearchParams(location.search);
+const previewMode = qs.has("preview");
+
+function boot() {
+  if (!initGL()) return;
+
+  if (previewMode) {
+    document.documentElement.classList.add("preview");
+    const want = qs.get("preview");
+    const idx = PRESETS.findIndex((p) => p.name.toLowerCase() === String(want).toLowerCase());
+    presetIndex = idx >= 0 ? idx : 0;
+    Sim.params.F = PRESETS[presetIndex].F;
+    Sim.params.k = PRESETS[presetIndex].k;
+    palIndex = Math.max(0, PALETTES.findIndex(
+      (p) => p.name.toLowerCase() === String(qs.get("palette") || "ink").toLowerCase()));
+
+    const grid = Math.min(512, Math.max(32, parseInt(qs.get("grid") || "192", 10) || 192));
+    if (grid !== Sim.size) allocate(grid);
+    const total = Math.min(12000, Math.max(0, parseInt(qs.get("steps") || "4200", 10) || 4200));
+
+    seedField(qs.get("seed") || "thumbnail", 11);
+    render();                       // paint the seeded dish immediately
+
+    // Develop in chunks rather than in one blocking burst, then STOP. Two
+    // reasons, and the second is the one that would have bitten: an index page
+    // holds several of these in iframes at once and none of them should hold a
+    // GPU for ten seconds, and a checker that screenshots after half a second
+    // would otherwise photograph a blank frame and report on nothing.
+    let done = 0;
+    const chunk = Math.max(1, Math.round(total / 40));
+    window.__petriReady = false;
+    (function burst() {
+      const n = Math.min(chunk, total - done);
+      if (n <= 0) { render(); window.__petriReady = true; return; }
+      step(n);
+      done += n;
+      render();
+      requestAnimationFrame(burst);
+    })();
+    return;
+  }
+
+  wireUI();
+  applyPreset(0);
+  seedField("dish-" + Date.now());
+  el("feedv").textContent = Sim.params.F.toFixed(4);
+  el("killv").textContent = Sim.params.k.toFixed(4);
+  setTimeout(dismissHint, 7000);
+
+  /* Adaptive step count.
+   *
+   * A fixed fourteen steps a frame is right on a real GPU and awful on a weak
+   * one. Measured on a software renderer, the dish manages about 31 million
+   * cell updates a second, so fourteen steps of a 512 square grid drops the
+   * whole page to roughly 8 frames a second, and at 8 frames a second the
+   * brush feels broken. Target here is about 55 frames a second instead.
+   *
+   * I first wrote that this trade is free, on the reasoning that total
+   * throughput is fixed and only its distribution across frames changes. That
+   * was wrong and measuring it said so: growth went from 118 simulation steps
+   * a second to 68, a loss of 42%, because every extra frame is another full
+   * canvas display pass and on a software renderer those fragments come out of
+   * the same budget. On real hardware the display pass is negligible beside the
+   * simulation and the trade really is close to free, but "close to free on a
+   * GPU" is a different claim from "free", and only one of them was measured. */
+  let lastFrameAt = 0;
+  (function frame(now) {
+    if (halted) return;
+    if (!paused) {
+      if (lastFrameAt) {
+        const elapsed = now - lastFrameAt;
+        if (elapsed > 26) stepsPerFrame = Math.max(2, Math.round(stepsPerFrame * 0.85));
+        else if (elapsed < 15) stepsPerFrame = Math.min(40, stepsPerFrame + 1);
+      }
+      lastFrameAt = now;
+      step(stepsPerFrame);
+    } else {
+      lastFrameAt = 0;      // a paused frame is nearly free; do not let it ratchet
+    }
+    render();
+    requestAnimationFrame(frame);
+  })(0);
+}
+
+/* ------------------------------ test surface ------------------------------
+ * Exposed so _verify/check_petri.js can drive the real engine rather than a
+ * copy of it. Nothing in the interactive build reads any of this.
+ * ------------------------------------------------------------------------ */
+let halted = false;
+
+window.__petri = {
+  get ready() { return !!gl; },
+  /* Stop the animation loop dead.
+   *
+   * The numeric suite exists to compare one GPU step against one CPU step, and
+   * it cannot do that while the page is quietly running fourteen more steps
+   * every sixteen milliseconds underneath it. The first run of that suite
+   * reported the GPU and the CPU disagreeing by 0.28 after a single step, which
+   * read exactly like a model level bug and was nothing of the sort: the field
+   * had simply moved on between the upload and the readback. Nothing in the
+   * failure said "you are measuring a moving target". */
+  halt() { halted = true; return true; },
+  info() {
+    return {
+      format: Sim.fmt ? Sim.fmt.name : null,
+      linear: linearOk,
+      renderer: gl ? gl.getParameter(gl.RENDERER) : null,
+      version: gl ? gl.getParameter(gl.VERSION) : null,
+      stencil: STENCIL,
+      model: MODEL,
+      presets: PRESETS,
+      palettes: PALETTES.map((p) => p.name),
+      grid: GRID,
+      variant: Sim.variant,
+      steps: Sim.steps,
+      params: Object.assign({}, Sim.params),
+    };
+  },
+  /* Rebuild the world. size changes the grid, variant rebuilds the simulation
+   * shader with a deliberate defect, uniform skips seeding entirely. */
+  reset(opts) {
+    const o = opts || {};
+    if (o.variant !== undefined) buildSimProgram(o.variant);
+    if (o.size && o.size !== Sim.size) allocate(o.size);
+    // Omitted constants go back to the model defaults rather than keeping
+    // whatever the previous call left behind. A reset that silently carries
+    // state forward would let one test in a suite contaminate every test after
+    // it, which is precisely the sort of thing a checker cannot see.
+    const q = Sim.params;
+    if (o.F !== undefined) q.F = o.F;
+    if (o.k !== undefined) q.k = o.k;
+    q.Du = o.Du !== undefined ? o.Du : MODEL.Du;
+    q.Dv = o.Dv !== undefined ? o.Dv : MODEL.Dv;
+    q.dt = o.dt !== undefined ? o.dt : MODEL.dt;
+    if (o.uniform) clearField();
+    else seedField(o.seed || "test", o.blobs);
+    return this.info();
+  },
+  setField(u, v) { upload(Float32Array.from(u), Float32Array.from(v)); Sim.steps = 0; },
+  step(n) { step(n | 0); return Sim.steps; },
+  paint(x, y, r, erase) { paint(x, y, r, !!erase); },
+  field() {
+    const f = readField();
+    return { u: Array.from(f.u), v: Array.from(f.v), size: Sim.size };
+  },
+  stats() {
+    const f = readField();
+    const n = f.u.length;
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+    let sumV = 0, sumU = 0, above = 0, nan = 0;
+    for (let i = 0; i < n; i++) {
+      const u = f.u[i], v = f.v[i];
+      if (!Number.isFinite(u) || !Number.isFinite(v)) { nan++; continue; }
+      if (u < minU) minU = u; if (u > maxU) maxU = u;
+      if (v < minV) minV = v; if (v > maxV) maxV = v;
+      sumU += u; sumV += v;
+      if (v > 0.2) above++;
+    }
+    const good = n - nan;
+    const meanV = good ? sumV / good : NaN;
+    let varV = 0;
+    for (let i = 0; i < n; i++) {
+      const v = f.v[i];
+      if (Number.isFinite(v)) varV += (v - meanV) * (v - meanV);
+    }
+    return {
+      n, nan, above,
+      minU, maxU, minV, maxV,
+      meanU: good ? sumU / good : NaN,
+      meanV,
+      stdV: good ? Math.sqrt(varV / good) : NaN,
+      steps: Sim.steps,
+    };
+  },
+  render() { render(); },
+  /* P7: does WebGL2 really wrap a non power of two float texture? Built and
+   * measured here rather than asserted from the spec. */
+  probeNPOT(w, h) {
+    const size = { w: w || 300, h: h || 300 };
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    const n = size.w * size.h;
+    const data = new Float32Array(n * 4);
+    // A ramp in u so a wrapped fetch is distinguishable from a clamped one.
+    for (let i = 0; i < n; i++) { data[i * 4] = (i % size.w) / size.w; data[i * 4 + 3] = 1; }
+    gl.texImage2D(gl.TEXTURE_2D, 0, Sim.fmt.internal, size.w, size.h, 0, gl.RGBA, gl.FLOAT, data);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    const complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+
+    // Read one texel from beyond the right edge through the wrap by running a
+    // tiny shader that samples at u = 1 + 0.5/w, which must equal texel 0.
+    let wrapped = null, direct = null;
+    if (complete) {
+      const p = program(`#version 300 es
+        precision highp float;
+        uniform sampler2D uState; uniform vec2 uProbe;
+        in vec2 vTex; out vec4 o;
+        void main(){ o = vec4(texture(uState, uProbe).x, texture(uState, uProbe - vec2(1.0,0.0)).x, 0.0, 1.0); }`);
+      const out = makeTarget(4, Sim.fmt, false);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+      gl.viewport(0, 0, 4, 4);
+      gl.useProgram(p.prog);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.uniform1i(p.u.uState, 0);
+      gl.uniform2f(p.u.uProbe, 1.0 + 0.5 / size.w, 0.5 / size.h);
+      draw();
+      const px = new Float32Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px);
+      wrapped = px[0];
+      direct = px[1];
+      gl.deleteProgram(p.prog);
+      gl.deleteTexture(out.tex);
+      gl.deleteFramebuffer(out.fbo);
+    }
+    gl.deleteFramebuffer(fb);
+    gl.deleteTexture(t);
+    // Restore the engine's own binding, since this probe stomped on it.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { size, complete, wrapped, direct, agree: complete && Math.abs(wrapped - direct) < 1e-6 };
+  },
+};
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+else boot();
+</script>
+</body>
+</html>

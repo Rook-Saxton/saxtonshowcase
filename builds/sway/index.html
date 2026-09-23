@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<!--
+  SWAY, a wind garden.  Playground build, 2026-08-31.
+
+  WHAT IT IS
+  A meadow at dusk that you can stand in. Grass leans, gusts roll through, petals come off the
+  flowers and get carried, pollen drifts. Move the pointer and a small eddy follows your hand.
+  Click to plant something. There is no step button, no algorithm panel, and nothing to solve.
+  It is meant to be pleasant.
+
+  WHY I BUILT IT
+  The first four builds on this rail were all the same shape underneath: explain a mechanism by
+  making it steppable. That had stopped being a lane and become a house style, so the playtime
+  log told the next run to break it on purpose. This is that. The learning is real but it is
+  buried in the machinery instead of printed on the screen.
+
+  WHAT I LEARNED
+  Curl noise, which I could describe and had never written. Every part of the wind here, the
+  steady breeze, the gusts, the turbulence and the pointer eddy, is one scalar potential, and the
+  velocity is its perpendicular gradient:
+
+      v = ( dpsi/dy , -dpsi/dx )
+
+  A field built that way is exactly incompressible, which is why the pollen swirls forever instead
+  of collecting in a corner. Three things I did not know before writing it:
+
+    1. It is not merely divergence free to second order. If you take the derivatives with central
+       differences and then measure the divergence with central differences of the SAME step, the
+       four corner terms cancel one for one and what is left is floating point rounding, about
+       1e-16. Measured at a different step it degrades to ordinary truncation error. Both were
+       predicted before measuring and both came back where predicted.
+    2. The pointer eddy has to be a bump in the POTENTIAL, not a velocity you add on afterwards.
+       Added as a velocity it blows the pollen away and leaves a hole. Added as a potential it
+       circulates, and the field stays exactly incompressible with the pointer live.
+    3. Divergence free is not an aesthetic detail, it is the whole look. The gradient field, which
+       is the same noise wired one derivative differently, sucks 4000 tracers into a few sinks
+       within ten seconds. Measured: 62 percent of them end up in a tenth of the space.
+
+  And the bending. A stem is a Verlet chain, and its bend is held by a ghost distance constraint
+  spanning two segments. Two segments of length L at interior angle theta span
+
+      d = sqrt( L^2 + L^2 - 2 L^2 cos theta ) = 2 L sin(theta / 2)
+
+  so you set an angle by choosing a length. The trap, which cost the first hour: a perfectly
+  straight chain given a bent rest angle has no preferred direction to buckle in, so it just
+  shortens along its own axis and fights the segment constraints forever. Stems have to be born
+  with a lean.
+
+  HOW IT IS CHECKED
+  Predictions written first in ../_verify/PREDICTIONS_sway.md, then check_sway.js and
+  check_sway_ui.js, receipts in ../_verify/RESULTS.md.
+
+  Self-contained, offline, no dependencies, no network, nothing outbound.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sway, a wind garden</title>
+<style>
+  :root {
+    --ui-bg: rgba(12, 14, 24, 0.72);
+    --ui-line: rgba(255, 255, 255, 0.14);
+    --ui-text: rgba(238, 240, 248, 0.92);
+    --ui-dim: rgba(238, 240, 248, 0.52);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #0b0d18; color: var(--ui-text);
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+
+  /* ---- chrome ------------------------------------------------------------ */
+  .ui { position: fixed; z-index: 5; user-select: none; }
+
+  #caption {
+    left: 22px; bottom: 86px; max-width: 460px;
+    font-size: 12.5px; letter-spacing: 0.01em; color: var(--ui-dim);
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.85);
+    transition: opacity 1.4s ease; pointer-events: none;
+  }
+  #caption b { color: var(--ui-text); font-weight: 600; }
+  #caption.faded { opacity: 0; }
+
+  /* `right: auto` and the hint hidden by default are not cosmetic. With
+     `right: 18px` the bar spanned the whole viewport and wrapped to two rows,
+     so at 16 percent opacity it silently ate every click in an 85 pixel band
+     across the entire meadow: you would aim at the grass, click, and nothing
+     would be planted, with no visible reason why. Found by clicking, not by
+     reading, which is the entire argument for exercising a build as the
+     person who opens it. */
+  #bar {
+    left: 18px; bottom: 18px; right: auto; max-width: calc(100vw - 36px);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px;
+    padding: 9px 13px;
+    background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    opacity: 0.16; transition: opacity 0.35s ease;
+  }
+  #bar:hover, #bar:focus-within { opacity: 1; }
+  @media (hover: none) { #bar { opacity: 1; } }
+
+  .grp { display: flex; align-items: center; gap: 8px; }
+  .grp > label { color: var(--ui-dim); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .val { color: var(--ui-text); font-variant-numeric: tabular-nums; min-width: 2.6em; font-size: 11.5px; }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 108px; height: 18px; background: transparent; cursor: ew-resize;
+  }
+  input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: rgba(255,255,255,0.2); }
+  input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: rgba(255,255,255,0.2); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 13px; height: 13px; margin-top: -5px;
+    border-radius: 50%; background: #e8e2d2; border: none;
+  }
+  input[type=range]::-moz-range-thumb { width: 13px; height: 13px; border-radius: 50%; background: #e8e2d2; border: none; }
+  input[type=range]:focus-visible { outline: 2px solid #e8e2d2; outline-offset: 4px; border-radius: 4px; }
+
+  select, button {
+    font: inherit; font-size: 12px; color: var(--ui-text);
+    background: rgba(255,255,255,0.07); border: 1px solid var(--ui-line);
+    border-radius: 7px; padding: 4px 9px; cursor: pointer;
+  }
+  select:hover, button:hover { background: rgba(255,255,255,0.14); }
+  button:active { transform: translateY(1px); }
+
+  .chk { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--ui-dim);
+         font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .chk input { accent-color: #e8e2d2; width: 13px; height: 13px; cursor: pointer; }
+
+  .spacer { flex: 1 1 auto; }
+  #hint { color: var(--ui-dim); font-size: 11.5px; display: none; }
+  @media (min-width: 1560px) { #hint { display: inline; } }
+  kbd {
+    font: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 4px;
+    background: rgba(255,255,255,0.1); border: 1px solid var(--ui-line);
+  }
+
+  /* ---- preview mode: the storybook card ---------------------------------- */
+  .preview #bar, .preview #caption { display: none !important; }
+  .preview #stage { cursor: default; }
+
+  @media (max-width: 760px) {
+    #caption { bottom: 132px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+
+<p id="caption" class="ui">
+  <b>Sway.</b> Move through it. Click to plant. <kbd>Space</kbd> for a gust.
+</p>
+
+<div id="bar" class="ui">
+  <div class="grp">
+    <label for="wind">Wind</label>
+    <input id="wind" type="range" min="0" max="100" value="34" aria-label="Wind strength">
+    <span class="val" id="windVal">34</span>
+  </div>
+  <div class="grp">
+    <label for="density">Meadow</label>
+    <input id="density" type="range" min="20" max="100" value="62" aria-label="Meadow density">
+    <span class="val" id="densityVal">62</span>
+  </div>
+  <div class="grp">
+    <label for="palette">Light</label>
+    <select id="palette" aria-label="Palette">
+      <option value="dusk" selected>Dusk</option>
+      <option value="dawn">Dawn</option>
+      <option value="moonlit">Moonlit</option>
+      <option value="storm">Storm</option>
+    </select>
+  </div>
+  <label class="chk" for="bloom"><input id="bloom" type="checkbox" checked> Flowers</label>
+  <label class="chk" for="pollen"><input id="pollen" type="checkbox" checked> Pollen</label>
+  <button id="reseed" type="button">New meadow</button>
+  <div class="spacer"></div>
+  <span id="hint">every breath of this is one scalar field</span>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   0.  Determinism
+   ========================================================================== */
+
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* Integer hash for the noise lattice. Math.imul throughout so this behaves
+   identically on every engine instead of drifting through the float path. */
+function hash3(ix, iy, iz, seed) {
+  let h = seed | 0;
+  h = Math.imul(h ^ (ix | 0), 0x27d4eb2d);
+  h = Math.imul(h ^ (iy | 0), 0x165667b1);
+  h = Math.imul(h ^ (iz | 0), 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/* Smootherstep. C2 continuous, which matters: the field is differentiated
+   twice over in the divergence check, and a C1 kernel puts visible creases in
+   the flow where the lattice cells meet. */
+function smootherstep(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+
+function valueNoise(x, y, z, seed) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = smootherstep(xf), v = smootherstep(yf), w = smootherstep(zf);
+
+  const c000 = hash3(xi,     yi,     zi,     seed);
+  const c100 = hash3(xi + 1, yi,     zi,     seed);
+  const c010 = hash3(xi,     yi + 1, zi,     seed);
+  const c110 = hash3(xi + 1, yi + 1, zi,     seed);
+  const c001 = hash3(xi,     yi,     zi + 1, seed);
+  const c101 = hash3(xi + 1, yi,     zi + 1, seed);
+  const c011 = hash3(xi,     yi + 1, zi + 1, seed);
+  const c111 = hash3(xi + 1, yi + 1, zi + 1, seed);
+
+  const x00 = c000 + (c100 - c000) * u, x10 = c010 + (c110 - c010) * u;
+  const x01 = c001 + (c101 - c001) * u, x11 = c011 + (c111 - c011) * u;
+  const y0 = x00 + (x10 - x00) * v, y1 = x01 + (x11 - x01) * v;
+  return (y0 + (y1 - y0) * w) * 2 - 1;              // to [-1, 1]
+}
+
+function fbm(x, y, z, seed, octaves) {
+  let sum = 0, amp = 1, norm = 0, fx = x, fy = y, fz = z;
+  for (let o = 0; o < octaves; o++) {
+    sum += amp * valueNoise(fx, fy, fz, seed + o * 1013);
+    norm += amp;
+    amp *= 0.5;
+    fx *= 2.03; fy *= 2.03; fz *= 1.71;
+  }
+  return sum / norm;
+}
+
+/* ==========================================================================
+   1.  The wind, which is one scalar field and nothing else
+   ==========================================================================
+
+   Everything that pushes anything in this scene is a term in psi. Velocity is
+   the perpendicular gradient of psi, taken by central differences:
+
+       v = ( dpsi/dy , -dpsi/dx )
+
+   The consequence is that the flow is exactly incompressible, so pollen
+   circulates forever instead of collecting in sinks. Adding ANY term as a raw
+   velocity would break that, so nothing is. The pointer eddy in particular is
+   a Gaussian bump in psi, not a push.
+   ========================================================================== */
+
+const Field = {
+  seed: 1,
+  eps: 0.5,                 // the differencing step, in world pixels
+  octaves: 2,
+  freq: 1 / 300,            // spatial scale of the turbulence
+  timeScale: 0.085,
+  turb: 46,                 // turbulence speed contribution, px/s
+  base: 42,                 // steady breeze, px/s, rightward
+  gustPhase: 0,
+  gustAmp: 0,
+  blobs: [],                // pointer eddy and any rolling eddies. {x,y,sigma,amp}
+
+  /* U(t) . y is an exact potential for a uniform horizontal wind of speed U:
+     dpsi/dy = U, -dpsi/dx = 0. Gusts are therefore a swell in U, and they stay
+     inside the potential rather than being bolted on outside it. */
+  speed() { return this.base * (1 + 0.55 * Math.sin(this.gustPhase)) + this.gustAmp; },
+
+  psi(x, y, t) {
+    let p = this.speed() * y;
+    p += (this.turb / this.freq) * fbm(x * this.freq, y * this.freq, t * this.timeScale, this.seed, this.octaves);
+    for (let i = 0; i < this.blobs.length; i++) {
+      const b = this.blobs[i];
+      const dx = x - b.x, dy = y - b.y;
+      const r2 = dx * dx + dy * dy;
+      const s2 = b.sigma * b.sigma;
+      if (r2 < s2 * 20) p += b.amp * Math.exp(-r2 / (2 * s2));
+    }
+    return p;
+  },
+
+  /* The field the whole build runs on. */
+  windAt(x, y, t, out) {
+    const e = this.eps;
+    const vx = (this.psi(x, y + e, t) - this.psi(x, y - e, t)) / (2 * e);
+    const vy = -(this.psi(x + e, y, t) - this.psi(x - e, y, t)) / (2 * e);
+    if (out) { out.x = vx; out.y = vy; return out; }
+    return { x: vx, y: vy };
+  },
+
+  /* CONTROL ONLY. The same potential wired one derivative differently: this is
+     the gradient field, which is curl free instead of divergence free. Nothing
+     in the scene uses it. It exists so the checker has something that must
+     fail, and so the difference is demonstrable rather than asserted. */
+  gradAt(x, y, t, out) {
+    const e = this.eps;
+    const vx = (this.psi(x + e, y, t) - this.psi(x - e, y, t)) / (2 * e);
+    const vy = (this.psi(x, y + e, t) - this.psi(x, y - e, t)) / (2 * e);
+    if (out) { out.x = vx; out.y = vy; return out; }
+    return { x: vx, y: vy };
+  },
+
+  /* A vortex whose peak tangential speed is `speed` at radius `sigma`.
+     |grad psi| = amp * r / sigma^2 * exp(-r^2 / 2 sigma^2), which peaks at
+     r = sigma with value amp / (sigma * sqrt(e)). Invert that for amp. */
+  vortex(x, y, sigma, speed) {
+    return { x, y, sigma, amp: speed * sigma * Math.sqrt(Math.E) };
+  }
+};
+
+/* ==========================================================================
+   2.  A stem: a Verlet chain with a bend held by geometry
+   ==========================================================================
+
+   Positions only, no stored velocity: v is implied by (p - pPrev). Two
+   constraint families, both solved by Gauss-Seidel sweeps from the anchor out.
+
+     segment   |p[i+1] - p[i]| = L                                 inextensible
+     bend      |p[i] - midpoint(p[i-1], p[i+1])| = L cos(theta/2)   holds it up
+
+   THE BEND CONSTRAINT IS THE SECOND ONE I WROTE AND THE FIRST ONE IS WHY.
+
+   The obvious way to hold an angle between two segments of length L is to
+   constrain the span across them, which the law of cosines gives as
+
+       span = 2 L sin(theta / 2)
+
+   That formula is correct and it was a bad constraint, for a reason worth
+   keeping. Differentiate it: d(span)/d(theta) = L cos(theta / 2), which goes
+   to ZERO as theta approaches 180 degrees. A blade of grass is a smooth curve
+   made of a dozen joints, so every one of its joints sits within a few degrees
+   of straight, which is exactly where a span has no purchase on an angle at
+   all. The solver could only resist a bend by making the span error large,
+   and the only way to do that is to stretch the segments. Measured: the stems
+   sat at 3.2 percent strain and would not improve between 8 sweeps and 256,
+   while the same state with bending switched off relaxed to 0.06 percent.
+   The solver was not failing to converge. It had converged onto a fight.
+
+   The sagitta, the distance from the middle point to the midpoint of its two
+   neighbours, is the same geometry read the other way round:
+
+       h = L cos(theta / 2)          d(h)/d(theta) = -(L/2) sin(theta / 2)
+
+   Maximum sensitivity at exactly 180 degrees, where the span had none. And its
+   correction pushes the middle point sideways off the chord instead of hauling
+   its neighbours apart, so it changes the angle without arguing with the
+   segment lengths. Both forms are kept below, because the span one is still a
+   correct closed form and the checker grades the prediction that was written
+   against it before any of this was known.
+
+   A stem is born with a lean, whichever form is used: a perfectly straight
+   chain given a bent rest angle has no preferred side to buckle towards, and
+   just compresses along its own axis forever.
+   ========================================================================== */
+
+function makeStem(opts) {
+  const n = opts.n;
+  const L = opts.height / (n - 1);
+  const bendScale = opts.bendScale === undefined ? 1 : opts.bendScale;
+  const p = new Float64Array(n * 2);
+  const prev = new Float64Array(n * 2);
+  const invMass = new Float64Array(n);
+  const expo = new Float64Array(n);       // wind exposure, low at the root
+  const bend = new Float64Array(n);       // bending stiffness, high at the root
+
+  // Born with a lean. The lean accumulates down the chain so the stem is a
+  // gentle arc rather than a straight rod tipped over.
+  let ax = 0, ay = -1;                    // pointing up the screen
+  let x = opts.x, y = opts.y;
+  const lean = opts.lean;
+  for (let i = 0; i < n; i++) {
+    p[i * 2] = x; p[i * 2 + 1] = y;
+    prev[i * 2] = x; prev[i * 2 + 1] = y;
+    invMass[i] = i === 0 ? 0 : 1;
+    const u = i / (n - 1);
+    expo[i] = Math.pow(u, 1.15);
+    /* SOFT, and that word is doing all the work. The ghost span for a rest
+       angle near 180 degrees is very nearly 2L, which is a rigid rod, so
+       solving it at stiffness 1 gives a stem that cannot bend and stretches
+       instead: measured at 11 percent strain, and it barely moved between 2
+       and 128 solver iterations because it was already converged, just
+       converged onto a fight. Segments stay hard, bending is a spring. */
+    /* Clamped below 1 and it is not decoration. A Gauss-Seidel correction of
+       stiffness > 1 overshoots the constraint every single sweep, so the error
+       never settles and iterating does not help: the strain census sat at 5.5
+       percent from 2 sweeps to 128, which reads exactly like a solver that has
+       converged and is in fact a solver that is oscillating. */
+    bend[i] = Math.min(0.92, (0.030 + 0.075 * (1 - u)) * bendScale);
+    const a = Math.atan2(ay, ax) + lean;
+    ax = Math.cos(a); ay = Math.sin(a);
+    x += ax * L; y += ay * L;
+  }
+
+  return {
+    n, L, p, prev, invMass, expo, bend,
+    restAngle: opts.restAngle,
+    ghost: 2 * L * Math.sin(opts.restAngle / 2),   // the span form, kept, not used
+    sag: L * Math.cos(opts.restAngle / 2),         // the sagitta form, shipped
+    // The buried guide. A ghost span holds a joint straight and says nothing at
+    // all about which way the chain points, so a stem with only segment and
+    // ghost constraints is free to pivot about its anchor and lie flat on the
+    // ground, perfectly inextensible and perfectly straight the whole way down.
+    // That is what the first render did. The fix is a fixed point one segment
+    // BELOW the root, so the root itself is a joint with a rest angle like any
+    // other. It is never drawn and never moves.
+    guideX: opts.x,
+    guideY: opts.y + L,
+    // The root carries the whole stem, so it is the one joint that is stiffer
+    // than the rest. Still a spring, not a weld.
+    rootBend: opts.rootBend === undefined ? Math.min(0.85, 0.11 * bendScale) : opts.rootBend,
+    width: opts.width,
+    hue: opts.hue, sat: opts.sat, lum: opts.lum, alpha: opts.alpha,
+    band: opts.band,
+    drag: opts.drag,
+    flower: opts.flower,          // null, or {petals, hue, size, bloom, shed}
+    seedPhase: opts.seedPhase
+  };
+}
+
+const GRAVITY = 165;              // px/s^2, gentle: the bend does most of the work
+
+function integrateStem(s, dt, t, damping) {
+  const p = s.p, prev = s.prev, n = s.n;
+  const w = { x: 0, y: 0 };
+  const dt2 = dt * dt;
+  for (let i = 1; i < n; i++) {
+    const ix = i * 2, iy = ix + 1;
+    const x = p[ix], y = p[iy];
+    const vx = (x - prev[ix]) * damping;
+    const vy = (y - prev[iy]) * damping;
+
+    Field.windAt(x, y, t, w);
+    // Drag against the RELATIVE velocity, which is what makes a stem trail a
+    // gust instead of snapping to it. v is (p - prev)/dt.
+    const k = s.drag * s.expo[i];
+    const ax = k * (w.x - vx / dt);
+    const ay = k * (w.y - vy / dt) + GRAVITY;
+
+    prev[ix] = x; prev[iy] = y;
+    p[ix] = x + vx + ax * dt2;
+    p[iy] = y + vy + ay * dt2;
+  }
+}
+
+/* One bending correction, over three points, mass weighted.
+
+   C = |p_b - (p_a + p_c)/2| - hRest, so the gradients are n for the middle
+   point and -n/2 for each neighbour, and the usual PBD scaling divides by
+   w_b + (w_a + w_c)/4. The middle point moves off the chord and its
+   neighbours move the other way; nothing is pulled along the chain, which is
+   the whole reason this and not the span.
+
+   `ax, ay` are passed in rather than read from p[] so the buried root guide,
+   which is not a point in the array, can use the identical code path. A
+   control that exercises a copy of the logic proves nothing about the logic
+   that ships, and the same goes for a special case. */
+function applyBend(p, im, ai, bi, ci, ax, ay, hRest, stiff) {
+  const wa = ai < 0 ? 0 : im[ai], wb = im[bi], wc = im[ci];
+  const denom = wb + (wa + wc) * 0.25;
+  if (denom <= 0 || stiff <= 0) return;
+  const bx = p[bi * 2], by = p[bi * 2 + 1];
+  const cx = p[ci * 2], cy = p[ci * 2 + 1];
+  const mx = (ax + cx) * 0.5, my = (ay + cy) * 0.5;
+  let dx = bx - mx, dy = by - my;
+  const d = Math.hypot(dx, dy);
+  if (d < 1e-9) return;                     // no side to push towards yet
+  dx /= d; dy /= d;
+  const lambda = stiff * (d - hRest) / denom;
+  p[bi * 2] -= lambda * wb * dx;      p[bi * 2 + 1] -= lambda * wb * dy;
+  if (ai >= 0) { p[ai * 2] += lambda * wa * 0.5 * dx; p[ai * 2 + 1] += lambda * wa * 0.5 * dy; }
+  p[ci * 2] += lambda * wc * 0.5 * dx; p[ci * 2 + 1] += lambda * wc * 0.5 * dy;
+}
+
+function solveStem(s, iterations, opt) {
+  const p = s.p, im = s.invMass, n = s.n, L = s.L;
+  const o = opt || {};
+  const useSpan = o.mode === "span";
+  const rest = o.rest !== undefined ? o.rest : (useSpan ? s.ghost : s.sag);
+  /* Bending first, inextensibility last. Gauss-Seidel leaves the LAST family
+     it touched the best satisfied, and of the two, a visibly stretched blade
+     of grass is the one nobody forgives. */
+  for (let it = 0; it < iterations; it++) {
+    // the root joint, against the buried guide. Only p[1] can move.
+    if (s.guideX !== undefined && s.rootBend > 0) {
+      if (useSpan) {
+        const dx = p[2] - s.guideX, dy = p[3] - s.guideY;
+        const d = Math.hypot(dx, dy);
+        if (d > 1e-9) {
+          const c = s.rootBend * (d - rest) / d;
+          p[2] -= dx * c; p[3] -= dy * c;
+        }
+      } else {
+        // middle point is the anchor p[0]; neighbours are the guide and p[1]
+        applyBend(p, im, -1, 0, 1, s.guideX, s.guideY, rest, s.rootBend);
+      }
+    }
+    // the bend, joint by joint
+    for (let i = 0; i < n - 2; i++) {
+      if (useSpan) {
+        const a = i * 2, b = (i + 2) * 2;
+        const dx = p[b] - p[a], dy = p[b + 1] - p[a + 1];
+        const d = Math.hypot(dx, dy);
+        if (d < 1e-9) continue;
+        const wsum = im[i] + im[i + 2];
+        if (wsum === 0) continue;
+        const c = s.bend[i + 1] * (d - rest) / d / wsum;
+        const cx = dx * c, cy = dy * c;
+        p[a] += cx * im[i];       p[a + 1] += cy * im[i];
+        p[b] -= cx * im[i + 2];   p[b + 1] -= cy * im[i + 2];
+      } else {
+        applyBend(p, im, i, i + 1, i + 2, p[i * 2], p[i * 2 + 1], rest, s.bend[i + 1]);
+      }
+    }
+    // segments, root to tip, and last
+    for (let i = 0; i < n - 1; i++) {
+      const a = i * 2, b = (i + 1) * 2;
+      const dx = p[b] - p[a], dy = p[b + 1] - p[a + 1];
+      const d = Math.hypot(dx, dy);
+      if (d < 1e-9) continue;
+      const wsum = im[i] + im[i + 1];
+      if (wsum === 0) continue;
+      const c = (d - L) / d / wsum;
+      const cx = dx * c, cy = dy * c;
+      p[a] += cx * im[i];       p[a + 1] += cy * im[i];
+      p[b] -= cx * im[i + 1];   p[b + 1] -= cy * im[i + 1];
+    }
+  }
+}
+
+/* Interior angle at joint i, measured from the positions themselves. Used by
+   the checker; nothing in the sim needs it. */
+function jointAngle(s, i) {
+  const p = s.p;
+  const ax = p[(i - 1) * 2] - p[i * 2], ay = p[(i - 1) * 2 + 1] - p[i * 2 + 1];
+  const bx = p[(i + 1) * 2] - p[i * 2], by = p[(i + 1) * 2 + 1] - p[i * 2 + 1];
+  const na = Math.hypot(ax, ay), nb = Math.hypot(bx, by);
+  if (na < 1e-12 || nb < 1e-12) return NaN;
+  let c = (ax * bx + ay * by) / (na * nb);
+  c = Math.max(-1, Math.min(1, c));
+  return Math.acos(c);
+}
+
+function maxStrain(s) {
+  let worst = 0;
+  for (let i = 0; i < s.n - 1; i++) {
+    const a = i * 2, b = (i + 1) * 2;
+    const d = Math.hypot(s.p[b] - s.p[a], s.p[b + 1] - s.p[a + 1]);
+    const e = Math.abs(d - s.L) / s.L;
+    if (e > worst) worst = e;
+  }
+  return worst;
+}
+
+/* ==========================================================================
+   3.  Palettes
+   ========================================================================== */
+
+const PALETTES = {
+  dusk: {
+    label: "Dusk",
+    sky: [[0, "#131530"], [0.42, "#2f2a4c"], [0.72, "#6b4560"], [0.88, "#c4744f"], [1, "#e9a35f"]],
+    haze: "rgba(233,163,95,0.20)",
+    sun: { x: 0.74, y: 0.88, r: 0.42, c: "rgba(255,196,120,0.34)" },
+    ground: "#171426",
+    bands: [
+      { hue: 204, sat: 11, lum: 19, alpha: 0.52 },
+      { hue: 152, sat: 15, lum: 22, alpha: 0.76 },
+      { hue: 108, sat: 21, lum: 26, alpha: 0.96 }
+    ],
+    flowers: ["#f6c9c0", "#f7e2b6", "#dcc0e6", "#f2a58c", "#fff1dc"],
+    mote: "rgba(255,228,180,",
+    petalDim: 0.86
+  },
+  dawn: {
+    label: "Dawn",
+    sky: [[0, "#1d2a44"], [0.4, "#3f4d72"], [0.7, "#8c7794"], [0.88, "#e0a882"], [1, "#f6d6ac"]],
+    haze: "rgba(246,214,172,0.22)",
+    sun: { x: 0.28, y: 0.86, r: 0.40, c: "rgba(255,222,178,0.34)" },
+    ground: "#1a1c2c",
+    bands: [
+      { hue: 205, sat: 16, lum: 30, alpha: 0.58 },
+      { hue: 158, sat: 22, lum: 34, alpha: 0.80 },
+      { hue: 108, sat: 30, lum: 42, alpha: 0.95 }
+    ],
+    flowers: ["#ffd9d0", "#fff0c8", "#e6d2f2", "#ffbfa4", "#ffffff"],
+    mote: "rgba(255,240,214,",
+    petalDim: 0.92
+  },
+  moonlit: {
+    label: "Moonlit",
+    sky: [[0, "#05070f"], [0.45, "#0c1224"], [0.76, "#182643"], [0.92, "#2c4468"], [1, "#43648c"]],
+    haze: "rgba(120,170,220,0.14)",
+    sun: { x: 0.32, y: 0.20, r: 0.24, c: "rgba(190,214,255,0.22)" },
+    ground: "#070a14",
+    bands: [
+      { hue: 210, sat: 20, lum: 18, alpha: 0.62 },
+      { hue: 190, sat: 22, lum: 22, alpha: 0.82 },
+      { hue: 168, sat: 24, lum: 28, alpha: 0.96 }
+    ],
+    flowers: ["#cfe0ff", "#e9f1ff", "#b9c8f0", "#dfd0ff", "#ffffff"],
+    mote: "rgba(206,226,255,",
+    petalDim: 0.78
+  },
+  storm: {
+    label: "Storm",
+    sky: [[0, "#101318"], [0.45, "#1c222a"], [0.74, "#2f3a42"], [0.9, "#4c5a60"], [1, "#7b8a8c"]],
+    haze: "rgba(150,168,172,0.16)",
+    sun: { x: 0.6, y: 0.94, r: 0.5, c: "rgba(200,214,214,0.14)" },
+    ground: "#0d1013",
+    bands: [
+      { hue: 174, sat: 8,  lum: 22, alpha: 0.60 },
+      { hue: 130, sat: 12, lum: 26, alpha: 0.82 },
+      { hue: 92,  sat: 16, lum: 32, alpha: 0.96 }
+    ],
+    flowers: ["#dfe4e0", "#eceee8", "#c8d2cc", "#f0e6d2", "#ffffff"],
+    mote: "rgba(226,232,230,",
+    petalDim: 0.7
+  }
+};
+
+/* ==========================================================================
+   4.  The world
+   ========================================================================== */
+
+const World = {
+  seed: 12345,
+  rng: null,
+  t: 0,
+  steps: 0,
+  w: 0, h: 0,
+  groundY: 0,
+  stems: [],
+  petals: [],
+  motes: [],
+  palette: "dusk",
+  density: 0.62,
+  windLevel: 0.34,
+  showFlowers: true,
+  showPollen: true,
+  pointer: { x: -1e6, y: -1e6, active: false, vx: 0, vy: 0 },
+  pointerBlob: null,
+  eddies: [],
+  planted: [],
+  reducedMotion: false
+};
+
+const DT = 1 / 60;
+const MAX_PETALS = 340;
+const SOLVER_ITERATIONS = 8;
+const DAMPING = 0.978;
+
+function pick(rng, arr) { return arr[Math.floor(rng() * arr.length) % arr.length]; }
+
+function buildMeadow() {
+  const rng = World.rng = mulberry32(World.seed);
+  Field.seed = (World.seed * 2654435761) | 0;
+  Field.blobs = [];
+  World.eddies = [];
+  World.petals = [];
+  World.t = 0;
+  World.steps = 0;
+  World.gustCooldown = 2.2;
+  Field.gustPhase = 0;
+  Field.gustAmp = 0;
+
+  const pal = PALETTES[World.palette];
+  const w = World.w, h = World.h;
+  World.groundY = h * 0.965;
+
+  const stems = [];
+  const area = w / 1200;
+  const counts = [
+    Math.round(150 * area * (0.4 + World.density)),
+    Math.round(104 * area * (0.4 + World.density)),
+    Math.round(52 * area * (0.4 + World.density))
+  ];
+
+  for (let band = 0; band < 3; band++) {
+    const cfg = pal.bands[band];
+    const depth = band / 2;                              // 0 far, 1 near
+    const baseY = World.groundY - h * (0.20 - depth * 0.20);
+    for (let i = 0; i < counts[band]; i++) {
+      const x = rng() * (w + 200) - 100;
+      const heightPx = h * (0.13 + depth * 0.26) * (0.60 + rng() * 0.80);
+      const n = 7 + Math.round(depth * 5) + Math.round(rng() * 2);
+      const lean = (rng() - 0.5) * 0.10 - 0.012;         // never exactly zero
+      const flowerChance = 0.10 + depth * 0.22;
+      const flower = rng() < flowerChance ? {
+        petals: 5 + Math.floor(rng() * 3),
+        color: pick(rng, pal.flowers),
+        size: (3.2 + rng() * 4.4) * (0.5 + depth),
+        bloom: 0.25 + rng() * 0.75,
+        shedAt: 0.4 + rng() * 1.2,
+        spin: (rng() - 0.5) * 0.8
+      } : null;
+      stems.push(makeStem({
+        x, y: baseY + rng() * h * 0.02,
+        height: heightPx,
+        n,
+        lean,
+        restAngle: Math.PI - (0.010 + rng() * 0.055),
+        width: (1.3 + depth * 3.8) * (0.7 + rng() * 0.7),
+        hue: cfg.hue + (rng() - 0.5) * 22,
+        sat: cfg.sat + (rng() - 0.5) * 8,
+        lum: cfg.lum + (rng() - 0.5) * 9,
+        alpha: cfg.alpha,
+        band,
+        drag: 3.8 + depth * 2.4 + rng() * 1.4,
+        bendScale: 2.4 + depth * 2.4 + rng() * 1.3,
+        flower,
+        seedPhase: rng() * Math.PI * 2
+      }));
+    }
+  }
+  // painter's order: far bands behind near ones
+  stems.sort((a, b) => a.band - b.band);
+  World.stems = stems;
+
+  // pollen
+  const moteCount = Math.round(240 * area * (0.4 + World.density));
+  World.motes = [];
+  for (let i = 0; i < moteCount; i++) {
+    World.motes.push({
+      x: rng() * w, y: World.groundY - rng() * h * 0.55,
+      r: 0.5 + rng() * 1.5,
+      a: 0.18 + rng() * 0.5,
+      tw: rng() * Math.PI * 2,
+      band: rng() < 0.45 ? 0 : 1
+    });
+  }
+
+  // settle the meadow so the first frame is a garden and not a bed of nails
+  for (let i = 0; i < 90; i++) stepWorld(1, true);
+}
+
+function shedPetal(s, tipx, tipy, rng) {
+  if (World.petals.length >= MAX_PETALS) return;
+  const f = s.flower;
+  World.petals.push({
+    x: tipx, y: tipy,
+    vx: (rng() - 0.5) * 30, vy: -10 - rng() * 20,
+    r: f.size * (0.55 + rng() * 0.45),
+    rot: rng() * Math.PI * 2,
+    spin: (rng() - 0.5) * 3.2,
+    color: f.color,
+    life: 0, ttl: 7 + rng() * 7,
+    drag: 3.0 + rng() * 3.0,
+    band: s.band
+  });
+}
+
+function stepWorld(n, settling) {
+  const w = { x: 0, y: 0 };
+  for (let step = 0; step < n; step++) {
+    const t = World.t;
+    const rng = World.rng;
+
+    // --- gusts. A swell in the steady term, so it stays inside the potential.
+    Field.base = 12 + World.windLevel * 118 * (World.reducedMotion ? 0.45 : 1);
+    Field.turb = 14 + World.windLevel * 96 * (World.reducedMotion ? 0.5 : 1);
+    Field.gustPhase += DT * (0.22 + World.windLevel * 0.5);
+    Field.gustAmp *= 0.985;
+
+    if (!settling) {
+      World.gustCooldown -= DT;
+      if (World.gustCooldown <= 0) {
+        World.gustCooldown = (2.6 + rng() * 6.0) / (0.35 + World.windLevel);
+        Field.gustAmp += (18 + rng() * 70) * World.windLevel;
+        // a rolling eddy, which is the same potential term as the pointer
+        if (rng() < 0.55 && !World.reducedMotion) {
+          World.eddies.push({
+            x: -180, y: World.groundY - World.h * (0.10 + rng() * 0.40),
+            sigma: 90 + rng() * 190,
+            speed: (rng() < 0.5 ? -1 : 1) * (60 + rng() * 130) * (0.4 + World.windLevel),
+            vx: 90 + rng() * 190, life: 0, ttl: 26
+          });
+        }
+      }
+    }
+
+    // --- potential terms that move
+    for (let i = World.eddies.length - 1; i >= 0; i--) {
+      const e = World.eddies[i];
+      e.x += e.vx * DT; e.life += DT;
+      if (e.x > World.w + 320 || e.life > e.ttl) World.eddies.splice(i, 1);
+    }
+    Field.blobs.length = 0;
+    for (const e of World.eddies) {
+      const fade = Math.min(1, e.life / 1.5) * Math.max(0, 1 - e.life / e.ttl);
+      Field.blobs.push(Field.vortex(e.x, e.y, e.sigma, e.speed * fade));
+    }
+    if (World.pointerBlob) Field.blobs.push(World.pointerBlob);
+
+    // --- stems
+    const stems = World.stems;
+    for (let i = 0; i < stems.length; i++) {
+      integrateStem(stems[i], DT, t, DAMPING);
+      solveStem(stems[i], SOLVER_ITERATIONS);
+    }
+
+    // --- petals: advected by the same field, plus weight
+    if (!settling) {
+      const petals = World.petals;
+      for (let i = petals.length - 1; i >= 0; i--) {
+        const p = petals[i];
+        Field.windAt(p.x, p.y, t, w);
+        p.vx += (w.x - p.vx) * p.drag * DT;
+        p.vy += (w.y - p.vy) * p.drag * DT + 26 * DT;
+        p.x += p.vx * DT; p.y += p.vy * DT;
+        p.rot += p.spin * DT + w.x * 0.0016;
+        p.life += DT;
+        if (p.life > p.ttl || p.y > World.groundY + 30 || p.x < -160 || p.x > World.w + 160) {
+          petals.splice(i, 1);
+        }
+      }
+
+      // --- pollen: pure tracers. Nothing but the field moves these, which is
+      // the point: in an incompressible field they never collect anywhere.
+      if (World.showPollen) {
+        const motes = World.motes;
+        for (let i = 0; i < motes.length; i++) {
+          const m = motes[i];
+          Field.windAt(m.x, m.y, t, w);
+          m.x += w.x * DT * 0.85;
+          m.y += w.y * DT * 0.85 + 3 * DT;
+          m.tw += DT * 1.6;
+          if (m.x > World.w + 40) { m.x = -40; }
+          if (m.x < -60) { m.x = World.w + 40; }
+          if (m.y > World.groundY) { m.y = World.groundY - World.h * 0.5 * (0.3 + 0.7 * World.rng()); }
+          if (m.y < -40) { m.y = World.groundY - 10; }
+        }
+      }
+
+      // --- shedding
+      if (World.showFlowers) {
+        for (let i = 0; i < stems.length; i++) {
+          const s = stems[i];
+          if (!s.flower) continue;
+          const tip = (s.n - 1) * 2;
+          Field.windAt(s.p[tip], s.p[tip + 1], t, w);
+          const sp = Math.hypot(w.x, w.y);
+          if (sp > 120 && rng() < 0.00055 * (sp / 120) * (0.3 + World.windLevel)) {
+            shedPetal(s, s.p[tip], s.p[tip + 1], rng);
+          }
+        }
+      }
+    }
+
+    World.t += DT;
+    World.steps++;
+  }
+}
+
+/* ==========================================================================
+   5.  Drawing
+   ========================================================================== */
+
+let canvas, ctx, dpr = 1;
+
+function resize() {
+  const preview = document.body.classList.contains("preview");
+  dpr = Math.min(window.devicePixelRatio || 1, preview ? 2 : 2);
+  const w = window.innerWidth, h = window.innerHeight;
+  canvas.width = Math.max(1, Math.round(w * dpr));
+  canvas.height = Math.max(1, Math.round(h * dpr));
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  World.w = w; World.h = h;
+}
+
+function drawSky() {
+  const pal = PALETTES[World.palette];
+  const g = ctx.createLinearGradient(0, 0, 0, World.groundY);
+  for (const [stop, color] of pal.sky) g.addColorStop(stop, color);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, World.w, World.h);
+
+  const s = pal.sun;
+  const cx = World.w * s.x, cy = World.h * s.y, r = Math.max(World.w, World.h) * s.r;
+  const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  rg.addColorStop(0, s.c);
+  rg.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = rg;
+  ctx.fillRect(0, 0, World.w, World.h);
+}
+
+function drawGround() {
+  const pal = PALETTES[World.palette];
+  const g = ctx.createLinearGradient(0, World.groundY - World.h * 0.06, 0, World.h);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, pal.ground);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, World.groundY - World.h * 0.06, World.w, World.h);
+}
+
+function drawStem(s) {
+  const p = s.p, n = s.n;
+  const left = [], right = [];
+  for (let i = 0; i < n; i++) {
+    const ix = i * 2;
+    // tangent from neighbours, so the outline does not kink at every joint
+    const ax = p[Math.min(i + 1, n - 1) * 2] - p[Math.max(i - 1, 0) * 2];
+    const ay = p[Math.min(i + 1, n - 1) * 2 + 1] - p[Math.max(i - 1, 0) * 2 + 1];
+    const len = Math.hypot(ax, ay) || 1;
+    const nx = -ay / len, ny = ax / len;
+    const u = i / (n - 1);
+    const hw = s.width * Math.pow(1 - u, 0.8) * 0.5 + 0.16;
+    left.push(p[ix] + nx * hw, p[ix + 1] + ny * hw);
+    right.push(p[ix] - nx * hw, p[ix + 1] - ny * hw);
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(left[0], left[1]);
+  for (let i = 1; i < n - 1; i++) {
+    const cx = left[i * 2], cy = left[i * 2 + 1];
+    const mx = (cx + left[(i + 1) * 2]) / 2, my = (cy + left[(i + 1) * 2 + 1]) / 2;
+    ctx.quadraticCurveTo(cx, cy, mx, my);
+  }
+  ctx.lineTo(left[(n - 1) * 2], left[(n - 1) * 2 + 1]);
+  for (let i = n - 2; i >= 1; i--) {
+    const cx = right[i * 2], cy = right[i * 2 + 1];
+    const mx = (cx + right[(i - 1) * 2]) / 2, my = (cy + right[(i - 1) * 2 + 1]) / 2;
+    ctx.quadraticCurveTo(cx, cy, mx, my);
+  }
+  ctx.lineTo(right[0], right[1]);
+  ctx.closePath();
+
+  // a touch brighter towards the tip: catching the last of the light
+  const tipY = p[(n - 1) * 2 + 1], baseY = p[1];
+  const grad = ctx.createLinearGradient(0, baseY, 0, tipY);
+  grad.addColorStop(0, `hsla(${s.hue},${s.sat}%,${s.lum * 0.78}%,${s.alpha})`);
+  grad.addColorStop(1, `hsla(${s.hue + 8},${s.sat + 6}%,${s.lum * 1.32}%,${s.alpha})`);
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+function drawFlower(s) {
+  const f = s.flower;
+  const n = s.n, tip = (n - 1) * 2;
+  const x = s.p[tip], y = s.p[tip + 1];
+  const px = s.p[(n - 2) * 2], py = s.p[(n - 2) * 2 + 1];
+  const ang = Math.atan2(y - py, x - px);
+  const pal = PALETTES[World.palette];
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(ang + Math.PI / 2 + f.spin * 0.2);
+  ctx.globalAlpha = s.alpha * pal.petalDim;
+  const R = f.size * f.bloom;
+  for (let i = 0; i < f.petals; i++) {
+    const a = (i / f.petals) * Math.PI * 2 + s.seedPhase;
+    ctx.save();
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.ellipse(0, -R * 0.82, R * 0.46, R * 0.86, 0, 0, Math.PI * 2);
+    ctx.fillStyle = f.color;
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, Math.max(0.6, R * 0.36), 0, Math.PI * 2);
+  ctx.fillStyle = `hsla(45, 60%, ${World.palette === "moonlit" ? 78 : 66}%, 0.9)`;
+  ctx.fill();
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function drawPetals(band) {
+  const pal = PALETTES[World.palette];
+  for (const p of World.petals) {
+    if (p.band !== band) continue;
+    const fade = Math.min(1, p.life / 0.4) * Math.min(1, (p.ttl - p.life) / 2.2);
+    if (fade <= 0) continue;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.globalAlpha = fade * 0.9 * pal.petalDim;
+    ctx.beginPath();
+    // a petal is thinner when it turns edge-on, which is the whole tumble
+    ctx.ellipse(0, 0, p.r * 0.9, p.r * 0.42 * Math.abs(Math.cos(p.rot * 0.7)) + p.r * 0.1, 0, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawMotes(band) {
+  if (!World.showPollen) return;
+  const pal = PALETTES[World.palette];
+  for (const m of World.motes) {
+    if (m.band !== band) continue;
+    const a = m.a * (0.55 + 0.45 * Math.sin(m.tw));
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fillStyle = pal.mote + a.toFixed(3) + ")";
+    ctx.fill();
+  }
+}
+
+function drawVignette() {
+  const g = ctx.createRadialGradient(
+    World.w * 0.5, World.h * 0.52, Math.min(World.w, World.h) * 0.28,
+    World.w * 0.5, World.h * 0.52, Math.max(World.w, World.h) * 0.78);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, "rgba(0,0,0,0.42)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, World.w, World.h);
+}
+
+function render() {
+  drawSky();
+  const pal = PALETTES[World.palette];
+
+  // far band
+  for (const s of World.stems) if (s.band === 0) drawStem(s);
+  ctx.fillStyle = pal.haze;
+  ctx.fillRect(0, 0, World.w, World.h);
+
+  drawMotes(0);
+  for (const s of World.stems) if (s.band === 1) drawStem(s);
+  if (World.showFlowers) for (const s of World.stems) if (s.band === 1 && s.flower) drawFlower(s);
+  drawPetals(0);
+  drawPetals(1);
+
+  for (const s of World.stems) if (s.band === 2) drawStem(s);
+  if (World.showFlowers) for (const s of World.stems) if (s.band === 2 && s.flower) drawFlower(s);
+  drawPetals(2);
+  drawMotes(1);
+
+  drawGround();
+  drawVignette();
+}
+
+/* ==========================================================================
+   6.  Loop and input
+   ========================================================================== */
+
+let acc = 0, last = 0, running = true;
+
+function frame(now) {
+  if (!running) return;
+  if (!last) last = now;
+  let delta = (now - last) / 1000;
+  last = now;
+  if (delta > 0.25) delta = 0.25;                 // a backgrounded tab, not a gust
+  acc += delta;
+  let steps = 0;
+  while (acc >= DT && steps < 6) { stepWorld(1); acc -= DT; steps++; }
+  if (acc > DT * 6) acc = 0;
+  render();
+  requestAnimationFrame(frame);
+}
+
+function setPointer(x, y, moved) {
+  const p = World.pointer;
+  p.vx = x - p.x; p.vy = y - p.y;
+  p.x = x; p.y = y; p.active = true;
+  const speed = Math.min(260, Math.hypot(p.vx, p.vy) * 34) + 46;
+  World.pointerBlob = Field.vortex(x, y, 150, (p.vx >= 0 ? 1 : -1) * speed);
+  if (moved) fadeCaption();
+}
+
+let captionTimer = null;
+function fadeCaption() {
+  if (captionTimer) return;
+  captionTimer = setTimeout(() => {
+    const c = document.getElementById("caption");
+    if (c) c.classList.add("faded");
+  }, 5200);
+}
+
+function plant(x, y) {
+  const rng = World.rng;
+  const pal = PALETTES[World.palette];
+  const depth = 1;
+  const cfg = pal.bands[2];
+  const s = makeStem({
+    x, y: World.groundY - World.h * 0.002,
+    height: Math.max(40, (World.groundY - y) * (0.9 + rng() * 0.25)),
+    n: 11 + Math.round(rng() * 3),
+    lean: (rng() - 0.5) * 0.10 - 0.012,
+    restAngle: Math.PI - (0.010 + rng() * 0.05),
+    width: 2.6 + rng() * 2.2,
+    hue: cfg.hue + (rng() - 0.5) * 22,
+    sat: cfg.sat + 6,
+    lum: cfg.lum + 6,
+    alpha: 1,
+    band: 2,
+    drag: 8.0 + rng() * 1.8,
+    bendScale: 4.6 + rng() * 1.4,
+    flower: {
+      petals: 5 + Math.floor(rng() * 3),
+      color: pick(rng, pal.flowers),
+      size: 5.5 + rng() * 5.5,
+      bloom: 0.02,
+      shedAt: 0.6,
+      spin: (rng() - 0.5) * 0.8
+    },
+    seedPhase: rng() * Math.PI * 2
+  });
+  World.stems.push(s);
+  World.planted.push(s);
+  // bloom it open over the next second or so
+  const grow = setInterval(() => {
+    if (!s.flower || s.flower.bloom >= 1) { clearInterval(grow); return; }
+    s.flower.bloom = Math.min(1, s.flower.bloom + 0.045);
+  }, 26);
+  // a little puff of pollen where it lands
+  for (let i = 0; i < 8; i++) {
+    World.motes.push({
+      x: x + (rng() - 0.5) * 22, y: y + (rng() - 0.5) * 22,
+      r: 0.6 + rng() * 1.4, a: 0.3 + rng() * 0.4,
+      tw: rng() * 6.28, band: 1
+    });
+  }
+}
+
+function gust() {
+  const rng = World.rng || Math.random;
+  Field.gustAmp += 90 + rng() * 70;
+  World.eddies.push({
+    x: -160, y: World.groundY - World.h * (0.14 + rng() * 0.34),
+    sigma: 150 + rng() * 160,
+    speed: (rng() < 0.5 ? -1 : 1) * (140 + rng() * 150),
+    vx: 200 + rng() * 200, life: 0, ttl: 24
+  });
+}
+
+/* ==========================================================================
+   7.  Boot
+   ========================================================================== */
+
+function readControls() {
+  const q = id => document.getElementById(id);
+  World.windLevel = +q("wind").value / 100;
+  World.density = +q("density").value / 100;
+  World.palette = q("palette").value;
+  World.showFlowers = q("bloom").checked;
+  World.showPollen = q("pollen").checked;
+  q("windVal").textContent = q("wind").value;
+  q("densityVal").textContent = q("density").value;
+}
+
+function boot() {
+  canvas = document.getElementById("stage");
+  ctx = canvas.getContext("2d", { alpha: false });
+
+  const params = new URLSearchParams(location.search);
+  const isPreview = params.has("preview");
+  if (isPreview) document.body.classList.add("preview");
+
+  World.reducedMotion = window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (isPreview) {
+    World.seed = +(params.get("seed") || 7) || 7;
+    World.palette = params.get("palette") || "dusk";
+    World.windLevel = params.has("wind") ? +params.get("wind") : 0.46;
+    World.density = params.has("density") ? +params.get("density") : 0.9;
+    World.showFlowers = true;
+    World.showPollen = true;
+  } else {
+    readControls();
+    World.seed = (Math.random() * 1e9) | 0;
+  }
+
+  resize();
+  buildMeadow();
+
+  if (isPreview) {
+    // roll it forward so the card shows a garden mid-breath rather than a
+    // meadow standing to attention on frame one
+    const pre = +(params.get("preroll") || 260) || 260;
+    stepWorld(Math.max(0, Math.min(2000, pre)));
+  }
+
+  render();
+  requestAnimationFrame(frame);
+
+  if (isPreview) return;                       // no chrome, no input, just breathe
+
+  // --- controls
+  for (const id of ["wind", "density", "palette", "bloom", "pollen"]) {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => {
+      const before = { pal: World.palette, den: World.density };
+      readControls();
+      if (World.palette !== before.pal || Math.abs(World.density - before.den) > 0.001) {
+        buildMeadow();
+      }
+    });
+  }
+  document.getElementById("reseed").addEventListener("click", () => {
+    World.seed = (Math.random() * 1e9) | 0;
+    World.planted.length = 0;
+    buildMeadow();
+  });
+
+  // --- pointer
+  canvas.addEventListener("pointermove", e => setPointer(e.clientX, e.clientY, true));
+  canvas.addEventListener("pointerdown", e => {
+    setPointer(e.clientX, e.clientY, true);
+    if (e.clientY > World.groundY - World.h * 0.72) plant(e.clientX, e.clientY);
+  });
+  canvas.addEventListener("pointerleave", () => {
+    World.pointer.active = false;
+    World.pointerBlob = null;
+  });
+
+  window.addEventListener("keydown", e => {
+    if (e.key === " " || e.code === "Space") { e.preventDefault(); gust(); fadeCaption(); }
+    else if (e.key === "r" || e.key === "R") {
+      World.seed = (Math.random() * 1e9) | 0; World.planted.length = 0; buildMeadow();
+    }
+  });
+
+  window.addEventListener("resize", () => { resize(); buildMeadow(); });
+  document.addEventListener("visibilitychange", () => { last = 0; acc = 0; });
+  fadeCaption();
+}
+
+/* ==========================================================================
+   8.  Test surface
+   --------------------------------------------------------------------------
+   Exposed so the checkers can measure the field and the chain directly rather
+   than inferring them from pixels. Nothing here is used by the build itself.
+   ========================================================================== */
+
+window.__sway = {
+  Field, World, PALETTES,
+  fbm, valueNoise, hash3, mulberry32,
+  makeStem, solveStem, integrateStem, jointAngle, maxStrain,
+  stepWorld, buildMeadow, plant, gust, render,
+  DT, SOLVER_ITERATIONS, GRAVITY, DAMPING,
+
+  /* mean |div v| over a grid, divided by the mean size of the two terms that
+     make it up. Dimensionless, so it can be compared between fields and
+     between step sizes. `which` picks the real field or the control. */
+  divergenceRatio(opts) {
+    const o = Object.assign({
+      n: 40, x0: 40, y0: 40, x1: 1160, y1: 700, t: 3.25,
+      h: null, which: "curl"
+    }, opts || {});
+    const h = o.h === null ? Field.eps : o.h;
+    const f = o.which === "grad" ? Field.gradAt.bind(Field) : Field.windAt.bind(Field);
+    let sumDiv = 0, sumMag = 0, count = 0, worst = 0;
+    for (let i = 0; i < o.n; i++) {
+      for (let j = 0; j < o.n; j++) {
+        const x = o.x0 + (o.x1 - o.x0) * (i / (o.n - 1));
+        const y = o.y0 + (o.y1 - o.y0) * (j / (o.n - 1));
+        const dvxdx = (f(x + h, y, o.t).x - f(x - h, y, o.t).x) / (2 * h);
+        const dvydy = (f(x, y + h, o.t).y - f(x, y - h, o.t).y) / (2 * h);
+        const div = dvxdx + dvydy;
+        const mag = Math.abs(dvxdx) + Math.abs(dvydy);
+        sumDiv += Math.abs(div); sumMag += mag; count++;
+        const r = mag > 0 ? Math.abs(div) / mag : 0;
+        if (r > worst) worst = r;
+      }
+    }
+    return { ratio: sumDiv / sumMag, meanAbsDiv: sumDiv / count, meanMag: sumMag / count, worstPointRatio: worst, h, which: o.which, samples: count };
+  },
+
+  /* Release tracers on a uniform grid, advect them in the chosen field, and
+     report how badly they clump: the share of tracers sitting in the most
+     crowded tenth of the bins.
+
+     `which` picks the field, and "random" is the third option and the one that
+     makes the number readable. A perfect lattice scores 0.10, but no flow
+     leaves a lattice a lattice: an area preserving flow stretches and folds it
+     until the points are effectively a random scatter, and a RANDOM scatter of
+     n points into n bins scores far above 0.10 purely from counting noise.
+     Comparing an advected field against 0.10 therefore measures the counting
+     noise and calls it concentration. Comparing it against "random" measures
+     concentration. Learned the slow way on 2026-08-31, after this metric
+     reported a divergence free field clumping and two plausible explanations
+     for it were tested and refuted before the third one turned out to be the
+     instrument. */
+  clumping(opts) {
+    const o = Object.assign({
+      n: 4000, steps: 600, dt: 1 / 60, bins: 40,
+      x0: 0, y0: 0, x1: 1200, y1: 760, which: "curl", speed: 1, scatterSeed: 20260831
+    }, opts || {});
+    const side = Math.round(Math.sqrt(o.n));
+    const px = new Float64Array(side * side), py = new Float64Array(side * side);
+    const W = o.x1 - o.x0, H = o.y1 - o.y0;
+
+    if (o.which === "random") {
+      const r = mulberry32(o.scatterSeed);
+      for (let k = 0; k < px.length; k++) { px[k] = o.x0 + r() * W; py[k] = o.y0 + r() * H; }
+    } else {
+      for (let i = 0; i < side; i++) {
+        for (let j = 0; j < side; j++) {
+          px[i * side + j] = o.x0 + W * ((i + 0.5) / side);
+          py[i * side + j] = o.y0 + H * ((j + 0.5) / side);
+        }
+      }
+      const f = o.which === "grad" ? Field.gradAt.bind(Field) : Field.windAt.bind(Field);
+      const wrap = (v, lo, span) => { let r = (v - lo) % span; if (r < 0) r += span; return lo + r; };
+      const out = { x: 0, y: 0 };
+      let t = 0;
+      for (let s = 0; s < o.steps; s++) {
+        for (let k = 0; k < px.length; k++) {
+          f(px[k], py[k], t, out);
+          px[k] = wrap(px[k] + out.x * o.dt * o.speed, o.x0, W);
+          py[k] = wrap(py[k] + out.y * o.dt * o.speed, o.y0, H);
+        }
+        t += o.dt;
+      }
+    }
+    const grid = new Int32Array(o.bins * o.bins);
+    for (let k = 0; k < px.length; k++) {
+      const bi = Math.min(o.bins - 1, Math.max(0, Math.floor((px[k] - o.x0) / W * o.bins)));
+      const bj = Math.min(o.bins - 1, Math.max(0, Math.floor((py[k] - o.y0) / H * o.bins)));
+      grid[bi * o.bins + bj]++;
+    }
+    const sorted = Array.from(grid).sort((a, b) => b - a);
+    const topCells = Math.max(1, Math.round(sorted.length * 0.10));
+    let top = 0;
+    for (let i = 0; i < topCells; i++) top += sorted[i];
+    let empty = 0;
+    for (let i = 0; i < sorted.length; i++) if (sorted[i] === 0) empty++;
+    return {
+      which: o.which, tracers: px.length, steps: o.steps, bins: o.bins,
+      clumping: top / px.length,
+      emptyFraction: empty / sorted.length,
+      maxCell: sorted[0]
+    };
+  },
+
+  /* Relax a single test chain with no forces at all and report the angle each
+     interior joint settles at. This is what tests the closed form
+     d = 2 L sin(theta/2). */
+  restAngleTest(restAngleDeg, iterations, opt) {
+    const o = opt || {};
+    const s = makeStem({
+      x: 400, y: 700, height: 300, n: 10,
+      lean: 0.05,                       // never start straight: see the header
+      restAngle: restAngleDeg * Math.PI / 180,
+      width: 3, hue: 100, sat: 20, lum: 30, alpha: 1, band: 2,
+      drag: 0, flower: null, seedPhase: 0,
+      // Stiff and heavily iterated, because this test asks where the bend
+      // constraint CONVERGES to, not how fast a blade of grass gets there.
+      bendScale: 8,
+      // The buried root guide is switched OFF here on purpose. It is a second
+      // constraint on the same joint and it would fight the one being measured,
+      // so leaving it in would test the two together and report neither.
+      rootBend: 0
+    });
+    solveStem(s, iterations, o);
+    const angles = [];
+    for (let i = 1; i < s.n - 1; i++) angles.push(jointAngle(s, i) * 180 / Math.PI);
+    const th = restAngleDeg * Math.PI / 180;
+    return {
+      target: restAngleDeg, mode: o.mode === "span" ? "span" : "sagitta",
+      rest: o.rest !== undefined ? o.rest : (o.mode === "span" ? s.ghost : s.sag),
+      spanClosedForm: 2 * s.L * Math.sin(th / 2),
+      sagClosedForm: s.L * Math.cos(th / 2),
+      L: s.L, angles, strain: maxStrain(s)
+    };
+  },
+
+  /* Strain across every stem in the live meadow. */
+  strainCensus() {
+    let worst = 0, worstStem = -1, sum = 0, n = 0;
+    for (let i = 0; i < World.stems.length; i++) {
+      const e = maxStrain(World.stems[i]);
+      sum += e; n++;
+      if (e > worst) { worst = e; worstStem = i; }
+    }
+    return { worst, mean: sum / n, stems: n, worstStem };
+  },
+
+  /* Re-solve the current loaded state at a different iteration count, without
+     disturbing the live scene. */
+  strainAtIterations(iters) {
+    let worst = 0;
+    for (const s of World.stems) {
+      const copy = { n: s.n, L: s.L, p: Float64Array.from(s.p), invMass: s.invMass,
+                     bend: s.bend, ghost: s.ghost, sag: s.sag,
+                     guideX: s.guideX, guideY: s.guideY, rootBend: s.rootBend };
+      solveStem(copy, iters);
+      const e = maxStrain(copy);
+      if (e > worst) worst = e;
+    }
+    return worst;
+  },
+
+  /* Every coordinate in the scene, for the finiteness and bounds checks. */
+  snapshot() {
+    const coords = [];
+    for (const s of World.stems) for (let i = 0; i < s.p.length; i++) coords.push(s.p[i]);
+    for (const p of World.petals) coords.push(p.x, p.y);
+    for (const m of World.motes) coords.push(m.x, m.y);
+    return {
+      steps: World.steps, t: World.t, seed: World.seed,
+      stems: World.stems.length, petals: World.petals.length, motes: World.motes.length,
+      coords,
+      anchors: World.stems.map(s => [s.p[0], s.p[1]]),
+      w: World.w, h: World.h, groundY: World.groundY
+    };
+  },
+
+  reseed(seed) { World.seed = seed | 0; World.planted.length = 0; buildMeadow(); },
+  setWind(level) { World.windLevel = level; },
+  pause() { running = false; },
+  resume() { if (!running) { running = true; last = 0; acc = 0; requestAnimationFrame(frame); } }
+};
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+else boot();
+</script>
+</body>
+</html>

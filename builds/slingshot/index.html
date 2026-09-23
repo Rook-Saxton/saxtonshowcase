@@ -1,0 +1,718 @@
+<!doctype html>
+<!--
+  SLINGSHOT - a ballistic orbital puzzle
+  playground build, 2026-09-14
+
+  WHAT IT IS
+  Nine hand-built levels of the same problem: a probe, some gravity, and a station you have to
+  reach. You get one shot per attempt and no engine. Aim by dragging (or with the arrow keys),
+  release, and the only thing that steers you after that is whatever the planets do. The dotted
+  arc while you aim is not a sketch of where you will go, it is literally where you will go: it
+  is produced by running the same integrator over the same state, so on a level with no moving
+  parts it agrees with the flown path to the last bit.
+
+  WHY I BUILT IT
+  Four builds in a row on this rail were "explain a mechanism by making it steppable", which had
+  stopped being a lane and started being a house style. PLAYTIME_LOG.md said to break it on
+  purpose with something whose point is that it is pleasant rather than instructive. So this one
+  has no step button, no inspector and nothing that explains itself. It is a game. The physics is
+  correct because it should be, not so that you can watch it being correct.
+
+  WHAT I LEARNED
+  - Bodies carry `mu` (the standard gravitational parameter, G times mass) instead of a mass and
+    a separate G. That is how orbital mechanics actually does it, and it deletes a constant that
+    exists only to be cancelled again.
+  - Velocity Verlet does not conserve energy and is not trying to. It conserves a nearby shadow
+    quantity, so energy wobbles inside a band forever instead of drifting. Forward Euler on the
+    identical initial condition climbs out of the well and never comes back. Both measured here
+    over 50 orbits rather than recalled, and the sizes are in _verify/RESULTS.md.
+  - The collision test IS the regularization. Gravity has a singularity at r = 0 and the usual
+    fix is a softening term, which quietly changes the orbit you are simulating. Because a probe
+    inside a planet's radius is a crash, r can never get small, so no softening is needed and the
+    physics stays exactly Newtonian.
+  - The bug I expected to find was in the aiming arc, and the shape of it is worth naming: the
+    arc must advance simulation TIME, not just the probe, or the moons stand still inside the
+    prediction while they keep moving in the real flight. The arc then looks completely fine and
+    is wrong only on the levels that have something moving in them.
+
+  HOW IT IS CHECKED
+  _verify/check_slingshot.js (physics, against Kepler and the vis-viva relation worked out by
+  hand) and _verify/check_slingshot_ui.js (the game, driven through real pointer drags and real
+  keypresses). Predictions were written first in _verify/PREDICTIONS_slingshot.md and graded
+  afterwards, misses included.
+
+  Self-contained, offline, no dependencies, nothing leaves the machine.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Slingshot</title>
+<style>
+  :root{
+    --ink:#e8ecf6; --dim:#8e9ab5; --faint:#5b6580;
+    --panel:rgba(14,18,32,.82); --edge:rgba(126,148,200,.22);
+    --go:#7ef0c0; --warn:#ff9d76; --beam:#9fd6ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:#05070f; color:var(--ink);
+    font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden; -webkit-user-select:none; user-select:none;
+  }
+  #stage{position:fixed; inset:0}
+  canvas{display:block; width:100%; height:100%; touch-action:none; cursor:crosshair}
+
+  .hud{position:fixed; pointer-events:none; z-index:5}
+  #topbar{
+    left:0; right:0; top:0; display:flex; gap:14px; align-items:center;
+    padding:12px 16px; background:linear-gradient(#05070fdd,#05070f00);
+  }
+  #title{font-weight:650; letter-spacing:.14em; text-transform:uppercase; font-size:12px; color:var(--dim)}
+  #levelname{font-weight:600; font-size:15px}
+  #levelname small{color:var(--faint); font-weight:400; margin-left:8px}
+  #stats{margin-left:auto; color:var(--dim); font-variant-numeric:tabular-nums; font-size:13px}
+
+  #levels{
+    position:fixed; left:16px; bottom:14px; display:flex; gap:6px; flex-wrap:wrap;
+    max-width:60vw; pointer-events:auto; z-index:6;
+  }
+  #levels button{
+    width:30px; height:30px; border-radius:9px; cursor:pointer;
+    background:rgba(22,28,46,.9); color:var(--dim);
+    border:1px solid var(--edge); font:inherit; font-size:12px; font-variant-numeric:tabular-nums;
+  }
+  #levels button:hover{color:var(--ink); border-color:rgba(159,214,255,.5)}
+  #levels button[aria-current="true"]{background:var(--beam); color:#05070f; border-color:var(--beam); font-weight:700}
+  #levels button.done{color:var(--go); border-color:rgba(126,240,192,.45)}
+  #levels button.done[aria-current="true"]{background:var(--go); color:#05070f}
+
+  #hint{
+    position:fixed; right:16px; bottom:14px; max-width:min(46ch,50vw); text-align:right;
+    color:var(--faint); font-size:12.5px; line-height:1.45; z-index:5; pointer-events:none;
+  }
+  #hint b{color:var(--dim); font-weight:600}
+
+  #banner{
+    position:fixed; left:50%; top:46%; transform:translate(-50%,-50%);
+    padding:18px 26px; border-radius:16px; text-align:center; z-index:7;
+    background:var(--panel); border:1px solid var(--edge); backdrop-filter:blur(7px);
+    opacity:0; transition:opacity .22s; pointer-events:none;
+  }
+  #banner.show{opacity:1}
+  #banner .big{font-size:22px; font-weight:650; letter-spacing:.01em}
+  #banner .sub{color:var(--dim); font-size:13px; margin-top:6px}
+  #banner.win .big{color:var(--go)}
+  #banner.fail .big{color:var(--warn)}
+
+  html.preview #topbar,html.preview #levels,html.preview #hint,html.preview #banner{display:none!important}
+  html.preview body{overflow:hidden}
+  html.preview canvas{cursor:default}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="sky" aria-label="Slingshot orbital puzzle"></canvas></div>
+
+<div class="hud" id="topbar">
+  <span id="title">Slingshot</span>
+  <span id="levelname">&nbsp;</span>
+  <span id="stats">&nbsp;</span>
+</div>
+<div id="levels" aria-label="Levels"></div>
+<div id="hint"></div>
+<div id="banner"><div class="big"></div><div class="sub"></div></div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * 1. World and physics
+ *
+ * One integrator, one step function, used by the live flight, by the
+ * aiming arc and by the verification sweep. That sharing is the whole
+ * reason the arc can be trusted: it is not a second implementation
+ * that happens to agree, it is the same code on a copied state.
+ * ------------------------------------------------------------------ */
+
+const W = 1200, H = 600;          // world units. 2:1, which is also the preview card aspect.
+const DT = 1 / 240;               // fixed physics timestep, seconds
+const OUT = 420;                  // how far outside the world counts as lost
+const MAXT = 14;                  // seconds before a flight is declared lost
+
+/* Where a body is at simulation time t. Static bodies ignore t entirely;
+ * a body with an `orbit` rides a scripted circle, which keeps every level
+ * a pure function of t and therefore exactly reproducible. */
+function bodyPos(b, t) {
+  if (!b.orbit) return { x: b.x, y: b.y };
+  const o = b.orbit, a = (2 * Math.PI * t) / o.period + (o.phase || 0);
+  return { x: o.cx + o.r * Math.cos(a), y: o.cy + o.r * Math.sin(a) };
+}
+
+/* Newtonian acceleration, summed over bodies. No softening term on purpose:
+ * a probe closer than a body's radius has already crashed, so |d| can never
+ * approach zero and the singularity is unreachable. Softening would have
+ * changed the orbits being simulated in order to fix a case that cannot
+ * happen. */
+function accel(bodies, x, y, t) {
+  let ax = 0, ay = 0;
+  for (let i = 0; i < bodies.length; i++) {
+    const b = bodies[i], p = bodyPos(b, t);
+    const dx = p.x - x, dy = p.y - y;
+    const d2 = dx * dx + dy * dy;
+    const inv = b.mu / (d2 * Math.sqrt(d2));
+    ax += dx * inv; ay += dy * inv;
+  }
+  return [ax, ay];
+}
+
+function makeSim(level, angle, speed) {
+  const s = {
+    x: level.start.x, y: level.start.y,
+    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+    ax: 0, ay: 0, t: 0, steps: 0,
+    outcome: null, bodies: level.bodies, level
+  };
+  [s.ax, s.ay] = accel(s.bodies, s.x, s.y, s.t);
+  return s;
+}
+
+const cloneSim = s => ({ ...s });
+
+/* One velocity Verlet step.
+ *
+ * `freezeTime` exists only so the checker can build the broken variant of
+ * the aiming arc on purpose (bodies held still inside the prediction) and
+ * prove the test can tell the two apart. Nothing in the game sets it. */
+function advance(s, dt, freezeTime) {
+  const h = dt * dt * 0.5;
+  s.x += s.vx * dt + s.ax * h;
+  s.y += s.vy * dt + s.ay * h;
+  if (!freezeTime) s.t += dt;     // the control models a predictor that never advances t at all
+  const [ax2, ay2] = accel(s.bodies, s.x, s.y, s.t);
+  s.vx += (s.ax + ax2) * dt * 0.5;
+  s.vy += (s.ay + ay2) * dt * 0.5;
+  s.ax = ax2; s.ay = ay2;
+  s.steps++;
+  if (!s.outcome) s.outcome = verdict(s);
+  return s.outcome;
+}
+
+/* Forward Euler, for the negative control in the checker. Same signature,
+ * same state shape, deliberately the naive scheme. Not reachable from the
+ * game; it exists so the claim "velocity Verlet is doing something for us"
+ * has a measurement behind it instead of a citation. */
+function advanceEuler(s, dt) {
+  const [ax, ay] = accel(s.bodies, s.x, s.y, s.t);
+  s.x += s.vx * dt; s.y += s.vy * dt;
+  s.vx += ax * dt;  s.vy += ay * dt;
+  s.ax = ax; s.ay = ay; s.t += dt; s.steps++;
+  if (!s.outcome) s.outcome = verdict(s);
+  return s.outcome;
+}
+
+function verdict(s) {
+  for (const b of s.bodies) {
+    const p = bodyPos(b, s.t);
+    const dx = p.x - s.x, dy = p.y - s.y;
+    if (dx * dx + dy * dy < b.r * b.r) return "crash";
+  }
+  const g = s.level.target;
+  const tx = g.x - s.x, ty = g.y - s.y;
+  if (tx * tx + ty * ty < g.r * g.r) return "win";
+  if (s.x < -OUT || s.x > W + OUT || s.y < -OUT || s.y > H + OUT) return "lost";
+  if (s.t > MAXT) return "lost";
+  return null;
+}
+
+/* Run a launch to its conclusion. Used by the aiming arc, by the level
+ * sweep and by the checker, all through `advance` above. */
+function simulate(level, angle, speed, opts) {
+  opts = opts || {};
+  const maxSteps = opts.maxSteps || Math.ceil(MAXT / DT) + 2;
+  const every = opts.every || 1;
+  const s = makeSim(level, angle, speed);
+  const path = [s.x, s.y];
+  while (!s.outcome && s.steps < maxSteps) {
+    advance(s, DT, opts.freezeTime);
+    if (s.steps % every === 0 || s.outcome) path.push(s.x, s.y);
+  }
+  return { outcome: s.outcome || "lost", path, steps: s.steps, t: s.t, sim: s };
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. Levels
+ * ------------------------------------------------------------------ */
+const P = (x, y, r, mu, color, name) => ({ x, y, r, mu, color, name: name || "" });
+const MOON = (cx, cy, R, period, phase, r, mu, color) =>
+  ({ orbit: { cx, cy, r: R, period, phase }, r, mu, color, x: cx + R, y: cy });
+
+const LEVELS = [
+  { id: "first-arc", demo: { angle: -1.54462, speed: 130.91 }, name: "First Arc",
+    hint: "Drag from the probe to aim, let go to launch. Nothing steers you after that.",
+    start: { x: 120, y: 520 }, target: { x: 1085, y: 500, r: 34 },
+    bodies: [P(610, 300, 58, 9.0e6, "#6f8ad6", "Anchor")] },
+
+  { id: "over-the-top", demo: { angle: -1.67552, speed: 182.05 }, name: "Over the Top",
+    hint: "The station is high and the planet is heavy. Going straight at it will not work.",
+    start: { x: 120, y: 530 }, target: { x: 1080, y: 130, r: 34 },
+    bodies: [P(600, 430, 74, 1.5e7, "#c98a62", "Kiln")] },
+
+  { id: "threading", demo: { angle: -2.25147, speed: 110.45 }, name: "Threading",
+    hint: "Two wells, offset on purpose. There is no line where they cancel.",
+    start: { x: 100, y: 330 }, target: { x: 1120, y: 250, r: 32 },
+    bodies: [P(545, 140, 46, 6.5e6, "#7fb3a6", "Vane"),
+             P(690, 470, 52, 9.5e6, "#8d7fc4", "Spar")] },
+
+  { id: "slingshot", demo: { angle: 0.83776, speed: 212.73 }, name: "Slingshot",
+    hint: "Swing close and the planet does the turning for you. Too close and it keeps you.",
+    start: { x: 110, y: 545 }, target: { x: 1105, y: 110, r: 34 },
+    bodies: [P(460, 315, 82, 2.4e7, "#d0a05e", "Forge"),
+             P(880, 420, 48, 5.5e6, "#6f8ad6", "Chock")] },
+
+  { id: "moon-timing", demo: { angle: -1.07338, speed: 192.27 }, name: "Moon Timing",
+    hint: "The moon is where you are going, not something in the way. Time the crossing.",
+    start: { x: 90, y: 520 }, target: { x: 1110, y: 90, r: 34 },
+    bodies: [P(600, 300, 62, 1.3e7, "#b08a6a", "Hearth"),
+             MOON(600, 300, 215, 4.2, 0, 27, 1.6e6, "#9fd6ff")] },
+
+  { id: "binary", demo: { angle: 2.77507, speed: 130.91 }, name: "Binary",
+    hint: "Both of them are moving. So is the answer.",
+    start: { x: 95, y: 300 }, target: { x: 1115, y: 300, r: 34 },
+    bodies: [MOON(600, 300, 150, 6.0, 0, 48, 8.0e6, "#c98a62"),
+             MOON(600, 300, 150, 6.0, Math.PI, 48, 8.0e6, "#7fb3a6")] },
+
+  { id: "corridor", demo: { angle: 2.51327, speed: 130.91 }, name: "Corridor",
+    hint: "Three wells in a row. Ride the gaps.",
+    start: { x: 90, y: 520 }, target: { x: 1120, y: 190, r: 32 },
+    bodies: [P(390, 215, 48, 7.0e6, "#8d7fc4"),
+             P(690, 455, 52, 8.5e6, "#7fb3a6"),
+             P(960, 175, 44, 6.0e6, "#c98a62")] },
+
+  { id: "the-long-way", demo: { angle: -1.20428, speed: 263.86 }, name: "The Long Way",
+    hint: "The direct route is a wall. Go around the outside and let the big one bend you back.",
+    start: { x: 120, y: 300 }, target: { x: 1110, y: 300, r: 32 },
+    bodies: [P(615, 300, 128, 3.0e7, "#a8708a", "Bulwark")] },
+
+  { id: "gauntlet", demo: { angle: 2.35619, speed: 90.0 }, name: "Gauntlet",
+    hint: "Everything you have learned, plus one thing that will not hold still.",
+    start: { x: 90, y: 540 }, target: { x: 1120, y: 80, r: 32 },
+    bodies: [P(340, 250, 46, 6.0e6, "#6f8ad6"),
+             P(700, 480, 54, 9.0e6, "#c98a62"),
+             MOON(920, 230, 130, 5.0, 1.1, 26, 2.0e6, "#9fd6ff")] }
+];
+
+const SPEED_MIN = 90, SPEED_MAX = 540;
+
+/* ------------------------------------------------------------------ *
+ * 3. Rendering
+ * ------------------------------------------------------------------ */
+const cv = document.getElementById("sky");
+const ctx = cv.getContext("2d");
+let view = { s: 1, ox: 0, oy: 0, w: 0, h: 0 };
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const STARS = (() => {
+  const rnd = mulberry32(0x51a17), out = [];
+  for (let i = 0; i < 260; i++)
+    out.push({ x: rnd() * (W + 2 * OUT) - OUT, y: rnd() * (H + 2 * OUT) - OUT,
+               r: 0.4 + rnd() * 1.25, a: 0.18 + rnd() * 0.62, tw: rnd() * 6.28 });
+  return out;
+})();
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = cv.clientWidth || 800, h = cv.clientHeight || 400;
+  cv.width = Math.max(2, Math.round(w * dpr));
+  cv.height = Math.max(2, Math.round(h * dpr));
+  const s = Math.min(cv.width / W, cv.height / H);
+  view = { s, ox: (cv.width - W * s) / 2, oy: (cv.height - H * s) / 2, w, h };
+}
+const sx = x => x * view.s + view.ox;
+const sy = y => y * view.s + view.oy;
+const toWorldX = px => (px * (cv.width / (cv.clientWidth || 1)) - view.ox) / view.s;
+const toWorldY = py => (py * (cv.height / (cv.clientHeight || 1)) - view.oy) / view.s;
+
+function drawSpace(t) {
+  const g = ctx.createLinearGradient(0, 0, cv.width * 0.35, cv.height);
+  g.addColorStop(0, "#0b1024"); g.addColorStop(0.45, "#0a0d1c"); g.addColorStop(1, "#120a1e");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, cv.width, cv.height);
+
+  const neb = ctx.createRadialGradient(sx(W * 0.62), sy(H * 0.28), 0, sx(W * 0.62), sy(H * 0.28), view.s * 620);
+  neb.addColorStop(0, "rgba(86,74,158,.24)"); neb.addColorStop(1, "rgba(86,74,158,0)");
+  ctx.fillStyle = neb; ctx.fillRect(0, 0, cv.width, cv.height);
+
+  for (const st of STARS) {
+    const a = st.a * (0.68 + 0.32 * Math.sin(t * 1.6 + st.tw));
+    ctx.fillStyle = `rgba(214,226,255,${a.toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(sx(st.x), sy(st.y), st.r * view.s, 0, 6.2832); ctx.fill();
+  }
+}
+
+function drawBody(b, t) {
+  const p = bodyPos(b, t), R = b.r * view.s, X = sx(p.x), Y = sy(p.y);
+  const halo = ctx.createRadialGradient(X, Y, R * 0.9, X, Y, R * 2.5);
+  halo.addColorStop(0, hexA(b.color, 0.22)); halo.addColorStop(1, hexA(b.color, 0));
+  ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(X, Y, R * 2.5, 0, 6.2832); ctx.fill();
+
+  const g = ctx.createRadialGradient(X - R * 0.38, Y - R * 0.42, R * 0.06, X, Y, R);
+  g.addColorStop(0, lighten(b.color, 0.42)); g.addColorStop(0.62, b.color); g.addColorStop(1, darken(b.color, 0.55));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(X, Y, R, 0, 6.2832); ctx.fill();
+  ctx.strokeStyle = hexA(b.color, 0.55); ctx.lineWidth = Math.max(1, view.s * 1.1);
+  ctx.beginPath(); ctx.arc(X, Y, R, 0, 6.2832); ctx.stroke();
+
+  if (b.orbit) {
+    ctx.strokeStyle = "rgba(159,214,255,.13)"; ctx.lineWidth = Math.max(1, view.s);
+    ctx.setLineDash([view.s * 5, view.s * 9]);
+    ctx.beginPath(); ctx.arc(sx(b.orbit.cx), sy(b.orbit.cy), b.orbit.r * view.s, 0, 6.2832); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function drawTarget(g, t) {
+  const X = sx(g.x), Y = sy(g.y), R = g.r * view.s;
+  const pulse = 0.62 + 0.38 * Math.sin(t * 2.4);
+  const halo = ctx.createRadialGradient(X, Y, 0, X, Y, R * 2.2);
+  halo.addColorStop(0, `rgba(126,240,192,${(0.20 * pulse).toFixed(3)})`);
+  halo.addColorStop(1, "rgba(126,240,192,0)");
+  ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(X, Y, R * 2.2, 0, 6.2832); ctx.fill();
+
+  ctx.strokeStyle = `rgba(126,240,192,${(0.5 + 0.4 * pulse).toFixed(3)})`;
+  ctx.lineWidth = Math.max(1.4, view.s * 2.4);
+  ctx.beginPath(); ctx.arc(X, Y, R, 0, 6.2832); ctx.stroke();
+  ctx.strokeStyle = "rgba(126,240,192,.30)"; ctx.lineWidth = Math.max(1, view.s * 1.1);
+  ctx.beginPath(); ctx.arc(X, Y, R * 0.55 * (1.9 - pulse * 0.5), 0, 6.2832); ctx.stroke();
+  for (let i = 0; i < 4; i++) {
+    const a = t * 0.7 + i * Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(X + Math.cos(a) * R * 1.22, Y + Math.sin(a) * R * 1.22);
+    ctx.lineTo(X + Math.cos(a) * R * 1.5, Y + Math.sin(a) * R * 1.5);
+    ctx.stroke();
+  }
+}
+
+function drawPath(pts, style, width, dash) {
+  if (pts.length < 4) return;
+  ctx.save();
+  if (dash) ctx.setLineDash(dash);
+  ctx.strokeStyle = style; ctx.lineWidth = width; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(sx(pts[0]), sy(pts[1]));
+  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(sx(pts[i]), sy(pts[i + 1]));
+  ctx.stroke(); ctx.restore();
+}
+
+/* Trail drawn as a gradient from cold and faint at the tail to hot at the head. */
+function drawTrail(pts) {
+  if (pts.length < 4) return;
+  const n = pts.length / 2, seg = Math.max(1, Math.floor(n / 120));
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  for (let i = 0; i + seg * 2 < pts.length; i += seg * 2) {
+    const f = i / (pts.length - 2);
+    ctx.strokeStyle = `rgba(${Math.round(120 + 110 * f)},${Math.round(190 + 50 * f)},255,${(0.10 + 0.72 * f).toFixed(3)})`;
+    ctx.lineWidth = Math.max(1, view.s * (0.9 + 1.9 * f));
+    ctx.beginPath(); ctx.moveTo(sx(pts[i]), sy(pts[i + 1]));
+    ctx.lineTo(sx(pts[i + seg * 2]), sy(pts[i + seg * 2 + 1])); ctx.stroke();
+  }
+}
+
+function drawProbe(x, y, t, live) {
+  const X = sx(x), Y = sy(y), R = Math.max(3, view.s * 6);
+  const halo = ctx.createRadialGradient(X, Y, 0, X, Y, R * 3.4);
+  halo.addColorStop(0, "rgba(200,235,255,.55)"); halo.addColorStop(1, "rgba(200,235,255,0)");
+  ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(X, Y, R * 3.4, 0, 6.2832); ctx.fill();
+  ctx.fillStyle = live ? "#ffffff" : "#cfe4ff";
+  ctx.beginPath(); ctx.arc(X, Y, R * 0.62, 0, 6.2832); ctx.fill();
+  if (!live) {
+    ctx.strokeStyle = `rgba(159,214,255,${(0.35 + 0.3 * Math.sin(t * 3)).toFixed(3)})`;
+    ctx.lineWidth = Math.max(1, view.s * 1.2);
+    ctx.beginPath(); ctx.arc(X, Y, R * (1.7 + 0.25 * Math.sin(t * 3)), 0, 6.2832); ctx.stroke();
+  }
+}
+
+/* An edge marker for a probe that has left the visible world.
+ *
+ * Added after looking at a screenshot rather than after any assertion failed.
+ * A flight is allowed to travel 420 units outside the world before it counts
+ * as lost, which is deliberate ("The Long Way" is won by going around the
+ * outside), but until this existed the probe simply vanished off the edge and
+ * the player had nothing to watch. The physics suite was entirely green at the
+ * time and had nothing to say about it. */
+const inWorld = (x, y) => x >= 0 && x <= W && y >= 0 && y <= H;
+function drawOffscreen(x, y) {
+  const m = 26;
+  const ex = Math.max(m, Math.min(W - m, x)), ey = Math.max(m, Math.min(H - m, y));
+  const dx = x - ex, dy = y - ey, d = Math.hypot(dx, dy);
+  if (d < 1) return;
+  /* The floor on `fade` is 0.55, not 0.3. At 0.3 over this background the
+   * chevron composites to a blue channel of about 98 out of 255 and is close
+   * to invisible: it was drawn correctly and still failed at the one job it
+   * has. The floor exists because the marker matters MOST at maximum distance,
+   * which is exactly where a linear fade makes it faintest. */
+  const a = Math.atan2(dy, dx), fade = Math.max(0.55, 1 - d / (OUT * 1.2));
+  const X = sx(ex), Y = sy(ey), R = Math.max(6, view.s * 10);
+  const glow = ctx.createRadialGradient(X, Y, 0, X, Y, R * 2.6);
+  glow.addColorStop(0, `rgba(159,214,255,${(fade * 0.3).toFixed(3)})`);
+  glow.addColorStop(1, "rgba(159,214,255,0)");
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(X, Y, R * 2.6, 0, 6.2832); ctx.fill();
+  ctx.save();
+  ctx.translate(X, Y); ctx.rotate(a);
+  ctx.fillStyle = `rgba(159,214,255,${fade.toFixed(3)})`;
+  ctx.beginPath();
+  ctx.moveTo(R, 0); ctx.lineTo(-R * 0.72, R * 0.6);
+  ctx.lineTo(-R * 0.34, 0); ctx.lineTo(-R * 0.72, -R * 0.6);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = `rgba(159,214,255,${(fade * 0.85).toFixed(3)})`;
+  ctx.font = `${Math.max(9, view.s * 11)}px ui-sans-serif,system-ui,sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(String(Math.round(d)), X - Math.cos(a) * R * 2.3, Y - Math.sin(a) * R * 2.3);
+}
+
+function drawAim(x, y, angle, speed) {
+  const f = (speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN);
+  const L = view.s * (34 + 78 * f);
+  ctx.strokeStyle = `rgba(255,${Math.round(220 - 90 * f)},${Math.round(160 - 90 * f)},.85)`;
+  ctx.lineWidth = Math.max(1.5, view.s * 2.2); ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(sx(x), sy(y));
+  ctx.lineTo(sx(x) + Math.cos(angle) * L, sy(y) + Math.sin(angle) * L); ctx.stroke();
+}
+
+/* colour helpers, hex in, rgba out */
+function rgbOf(h) { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function hexA(h, a) { const [r, g, b] = rgbOf(h); return `rgba(${r},${g},${b},${a})`; }
+function lighten(h, f) { const [r, g, b] = rgbOf(h); return `rgb(${Math.round(r + (255 - r) * f)},${Math.round(g + (255 - g) * f)},${Math.round(b + (255 - b) * f)})`; }
+function darken(h, f) { const [r, g, b] = rgbOf(h); return `rgb(${Math.round(r * (1 - f))},${Math.round(g * (1 - f))},${Math.round(b * (1 - f))})`; }
+
+/* ------------------------------------------------------------------ *
+ * 4. Game state
+ * ------------------------------------------------------------------ */
+const G = {
+  li: 0, level: LEVELS[0],
+  angle: -0.62, speed: 300,
+  phase: "aim",            // aim | flying | done
+  sim: null, trail: [], arc: [],
+  attempts: 0, solved: new Set(), lastOutcome: null,
+  dragging: false, clock: 0, acc: 0
+};
+
+function loadLevel(i, keepAttempts) {
+  G.li = ((i % LEVELS.length) + LEVELS.length) % LEVELS.length;
+  G.level = LEVELS[G.li];
+  G.phase = "aim"; G.sim = null; G.trail = []; G.lastOutcome = null;
+  if (!keepAttempts) G.attempts = 0;
+  G.angle = G.level.aim0 !== undefined ? G.level.aim0 : -0.62;
+  G.speed = 300;
+  refreshArc(); paintChrome(); hideBanner();
+}
+
+/* The arc is a PREFIX of the real flight, not the whole answer. Showing all
+ * 14 seconds would hand you the solution; ~2.9s is enough to read the shape
+ * of the well you are falling into and still leave you a puzzle. It is the
+ * same `simulate` the flight uses, just stopped early, so what it draws is
+ * exactly what happens. */
+const ARC_STEPS = 700;
+function refreshArc() {
+  G.arc = simulate(G.level, G.angle, G.speed, { every: 3, maxSteps: ARC_STEPS }).path;
+}
+
+function launch() {
+  if (G.phase !== "aim") return;
+  G.sim = makeSim(G.level, G.angle, G.speed);
+  G.trail = [G.sim.x, G.sim.y];
+  G.phase = "flying"; G.attempts++; G.acc = 0;
+  paintChrome();
+}
+
+function retry() { G.phase = "aim"; G.sim = null; G.trail = []; G.lastOutcome = null; refreshArc(); hideBanner(); paintChrome(); }
+
+function finish(outcome) {
+  G.phase = "done"; G.lastOutcome = outcome;
+  if (outcome === "win") {
+    G.solved.add(G.level.id);
+    showBanner("win", "Docked", `${G.level.name} in ${G.attempts} ${G.attempts === 1 ? "shot" : "shots"} · N for next`);
+  } else {
+    showBanner("fail", outcome === "crash" ? "Impact" : "Lost to space", "R to try again");
+  }
+  paintChrome();
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. Chrome
+ * ------------------------------------------------------------------ */
+const elName = document.getElementById("levelname");
+const elStats = document.getElementById("stats");
+const elLevels = document.getElementById("levels");
+const elHint = document.getElementById("hint");
+const elBanner = document.getElementById("banner");
+
+function buildLevelButtons() {
+  elLevels.innerHTML = "";
+  LEVELS.forEach((L, i) => {
+    const b = document.createElement("button");
+    b.textContent = String(i + 1); b.title = L.name;
+    b.addEventListener("click", () => loadLevel(i));
+    elLevels.appendChild(b);
+  });
+}
+
+function paintChrome() {
+  elName.innerHTML = `${G.level.name} <small>${G.li + 1} of ${LEVELS.length}</small>`;
+  elStats.textContent = `${G.attempts} ${G.attempts === 1 ? "shot" : "shots"} · ${G.solved.size}/${LEVELS.length} docked`;
+  elHint.innerHTML = `<b>${G.phase === "aim" ? "Drag to aim, release to launch" : G.phase === "flying" ? "Coasting" : "R to retry · N for next"}</b><br>${G.level.hint}`;
+  [...elLevels.children].forEach((b, i) => {
+    b.setAttribute("aria-current", i === G.li ? "true" : "false");
+    b.classList.toggle("done", G.solved.has(LEVELS[i].id));
+  });
+}
+function showBanner(kind, big, sub) {
+  elBanner.className = "show " + kind;
+  elBanner.querySelector(".big").textContent = big;
+  elBanner.querySelector(".sub").textContent = sub;
+}
+function hideBanner() { elBanner.className = ""; }
+
+/* ------------------------------------------------------------------ *
+ * 6. Input
+ * ------------------------------------------------------------------ */
+function aimAt(wx, wy) {
+  const dx = wx - G.level.start.x, dy = wy - G.level.start.y;
+  const d = Math.hypot(dx, dy);
+  if (d > 1) G.angle = Math.atan2(dy, dx);
+  G.speed = Math.max(SPEED_MIN, Math.min(SPEED_MAX, SPEED_MIN + (d - 30) * 1.35));
+  refreshArc();
+}
+
+cv.addEventListener("pointerdown", e => {
+  if (G.phase === "done") { retry(); return; }
+  if (G.phase !== "aim") return;
+  G.dragging = true; cv.setPointerCapture(e.pointerId);
+  const r = cv.getBoundingClientRect();
+  aimAt(toWorldX(e.clientX - r.left), toWorldY(e.clientY - r.top));
+});
+cv.addEventListener("pointermove", e => {
+  if (!G.dragging) return;
+  const r = cv.getBoundingClientRect();
+  aimAt(toWorldX(e.clientX - r.left), toWorldY(e.clientY - r.top));
+});
+cv.addEventListener("pointerup", () => { if (G.dragging) { G.dragging = false; launch(); } });
+cv.addEventListener("pointercancel", () => { G.dragging = false; });
+
+window.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (k === "r") { retry(); e.preventDefault(); return; }
+  if (k === "n") { loadLevel(G.li + 1); e.preventDefault(); return; }
+  if (k === "p") { loadLevel(G.li - 1); e.preventDefault(); return; }
+  if (G.phase !== "aim") return;
+  const fine = e.shiftKey ? 0.25 : 1;
+  if (k === "arrowleft")  { G.angle -= 0.02 * fine; refreshArc(); e.preventDefault(); }
+  if (k === "arrowright") { G.angle += 0.02 * fine; refreshArc(); e.preventDefault(); }
+  if (k === "arrowup")    { G.speed = Math.min(SPEED_MAX, G.speed + 6 * fine); refreshArc(); e.preventDefault(); }
+  if (k === "arrowdown")  { G.speed = Math.max(SPEED_MIN, G.speed - 6 * fine); refreshArc(); e.preventDefault(); }
+  if (k === " " || k === "enter") { launch(); e.preventDefault(); }
+});
+window.addEventListener("resize", resize);
+
+/* ------------------------------------------------------------------ *
+ * 7. Loop
+ * ------------------------------------------------------------------ */
+let last = 0;
+function frame(now) {
+  const dtr = last ? Math.min(0.05, (now - last) / 1000) : 0;
+  last = now; G.clock += dtr;
+
+  if (G.phase === "flying" && G.sim) {
+    G.acc += dtr;
+    let guard = 0;
+    while (G.acc >= DT && G.phase === "flying" && guard++ < 900) {
+      const o = advance(G.sim, DT);
+      G.acc -= DT;
+      if (G.sim.steps % 2 === 0) G.trail.push(G.sim.x, G.sim.y);
+      if (o) { G.trail.push(G.sim.x, G.sim.y); finish(o); }
+    }
+  }
+
+  const t = G.phase === "aim" ? 0 : (G.sim ? G.sim.t : 0);
+  resizeIfNeeded();
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  drawSpace(G.clock);
+  for (const b of G.level.bodies) drawBody(b, t);
+  drawTarget(G.level.target, G.clock);
+  if (G.phase === "aim") {
+    drawPath(G.arc, "rgba(159,214,255,.42)", Math.max(1, view.s * 1.5), [view.s * 3, view.s * 7]);
+    drawAim(G.level.start.x, G.level.start.y, G.angle, G.speed);
+    drawProbe(G.level.start.x, G.level.start.y, G.clock, false);
+  } else {
+    drawTrail(G.trail);
+    if (inWorld(G.sim.x, G.sim.y)) drawProbe(G.sim.x, G.sim.y, G.clock, G.phase === "flying");
+    else drawOffscreen(G.sim.x, G.sim.y);
+  }
+  requestAnimationFrame(frame);
+}
+
+let lastW = 0, lastH = 0;
+function resizeIfNeeded() {
+  if (cv.clientWidth !== lastW || cv.clientHeight !== lastH) {
+    lastW = cv.clientWidth; lastH = cv.clientHeight; resize();
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 8. Preview mode
+ *
+ * The index card renders this page in a 2:1 iframe with the chrome
+ * hidden. It paints a level with one solved flight already drawn, so a
+ * thumbnail shows the actual game rather than an empty start position.
+ * ------------------------------------------------------------------ */
+function previewMode(q) {
+  document.documentElement.classList.add("preview");
+  const want = q.get("preview");
+  const idx = LEVELS.findIndex(L => L.id === want);
+  const L = LEVELS[idx >= 0 ? idx : 3];
+  const demo = L.demo || { angle: -0.6, speed: 320 };
+  const run = simulate(L, demo.angle, demo.speed, { every: 1 });
+  const tEnd = run.t;
+
+  function paint() {
+    resizeIfNeeded();
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    drawSpace(1.2);
+    for (const b of L.bodies) drawBody(b, tEnd);
+    drawTarget(L.target, 0.9);
+    drawTrail(run.path);
+    const n = run.path.length, px = run.path[n - 2], py = run.path[n - 1];
+    if (inWorld(px, py)) drawProbe(px, py, 0.9, true); else drawOffscreen(px, py);
+    drawProbe(L.start.x, L.start.y, 0.9, false);
+  }
+  resize(); paint();
+  window.addEventListener("resize", () => { resize(); paint(); });
+  window.__slingshotPreview = { level: L.id, outcome: run.outcome, points: run.path.length / 2 };
+}
+
+/* ------------------------------------------------------------------ *
+ * 9. Boot, and the test surface
+ * ------------------------------------------------------------------ */
+window.__slingshot = {
+  W, H, DT, SPEED_MIN, SPEED_MAX, OUT, MAXT, LEVELS,
+  accel, bodyPos, makeSim, cloneSim, advance, advanceEuler, simulate, verdict,
+  state: () => ({
+    level: G.level.id, li: G.li, phase: G.phase, angle: G.angle, speed: G.speed,
+    attempts: G.attempts, solved: [...G.solved], outcome: G.lastOutcome,
+    trailPoints: G.trail.length / 2, arcPoints: G.arc.length / 2,
+    probe: G.sim ? { x: G.sim.x, y: G.sim.y, t: G.sim.t, steps: G.sim.steps } : null
+  }),
+  // used by the UI suite to place a known-good shot without a 300-pixel drag
+  setAim: (a, s) => { G.angle = a; G.speed = s; refreshArc(); },
+  launch, retry, loadLevel
+};
+
+const Q = new URLSearchParams(location.search);
+if (Q.has("preview")) {
+  previewMode(Q);
+} else {
+  buildLevelButtons();
+  resize();
+  loadLevel(0);
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

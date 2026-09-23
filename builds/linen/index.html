@@ -1,0 +1,1339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linen, a cloth you can grab</title>
+<!--
+  LINEN, a cloth you can grab, cut, and hang out in the wind.
+  Built 2026-09-16 for playground/. Self-contained, offline, no dependencies.
+
+  WHAT IT DOES
+  A piece of cloth, simulated properly, with nothing between you and it. Drag it around.
+  Hold X (or the right button) and slash to cut it, and the piece you cut off falls. Double
+  click to pin or unpin a point. Turn the wind up and the flag flaps instead of leaning.
+  Five hangings, a slack knob that runs from starched to gauze, and a tear threshold that
+  lets you rip the thing in half.
+
+  This is the first build in this folder with no explainer in it. The previous four all
+  taught a mechanism by making it steppable, which had quietly become a house style rather
+  than a choice, so this one is just a pleasant object that happens to be correct
+  underneath. The one piece of teaching left is a button marked PBD, and it is there
+  because you can feel the difference rather than read about it.
+
+  WHY I BUILT IT
+  XPBD, the 2016 extension of position based dynamics, makes one claim I could repeat and
+  had never tested: that stiffness stops being a fudge factor tied to how many solver
+  iterations you happen to run, and becomes a material property in real units. Position
+  based dynamics is everywhere in game physics and I had never written the solver by hand,
+  which is the reliable sign that I did not know it.
+
+  WHAT I LEARNED BUILDING IT
+  1. The whole of XPBD is one extra term. Plain PBD projects a fraction of the constraint
+     error per iteration, so its stiffness depends on the iteration count, the timestep and
+     nothing physical. XPBD carries a per constraint Lagrange multiplier and a compliance
+     alpha, and divides that compliance by the SUBSTEP timestep squared:
+
+         alpha_tilde = alpha / h^2
+         d_lambda    = (-C - alpha_tilde * lambda) / (w_i + w_j + alpha_tilde)
+
+     Compliance is then inverse stiffness in real units, so a particle of mass m hanging
+     from a pin by one constraint settles at exactly m * g * alpha. Measured against that
+     closed form at three compliances two orders of magnitude apart: off by 0.0000%,
+     0.0000% and 0.0007%. Sweeping the substep count from 2 to 32 moves the answer by
+     0.0001%. The same rig in PBD mode moves by a factor of 256.0, which is the 1/N^2 the
+     theory predicts, to four significant figures.
+  2. h is the SUBSTEP, not the frame. Getting that wrong is invisible at a fixed substep
+     count, because the error is a constant factor on a knob nobody calibrated and the
+     cloth merely feels a bit soft. It only shows when the schedule changes and the fabric
+     changes material with it. That is why the gate sweeps the schedule instead of testing
+     one point, and the negative control that deletes the division moves the answer by 374%.
+  3. Substeps beat iterations. Ten substeps of one iteration is far stiffer and more stable
+     than one substep of ten iterations for the same work, because every substep
+     re-integrates the velocity and re-linearises the constraint. Measured on a 40 by 40
+     inextensible cloth: doubling the substeps cuts the residual stretch about 4x, while
+     doubling the iterations only halves it.
+  4. Compliance zero is not the same as inextensible. That was prediction P4 and it was
+     wrong. alpha = 0 is inextensible in the CONVERGED solution, and one Gauss Seidel sweep
+     per substep does not converge a 40 row cloth carrying its own weight: worst stretch
+     1.155% at the shipped default, 0.293% at 16 substeps, 0.085% at 32, and always in the
+     top row, which is the row holding up everything below it. Graded as a miss in
+     _verify/RESULTS.md rather than edited into a hit.
+  5. The correction has to be split in proportion to INVERSE mass. An even split looks
+     perfectly fine until two masses differ, at which point the cloth is quietly
+     manufacturing momentum: 7.1e-2 of relative drift against 3.6e-12 for the real thing.
+
+  WHAT BIT ME, and all five were found by measuring rather than by reading the code
+  1. Velocity damping applied AFTER the gravity increment rescales gravity by
+     exp(-damping * h), which is a function of the substep length. So the schedule sweep
+     came back 1.6% spread and the XPBD claim looked slightly false. The ratio was 0.995842
+     at every compliance, which is exp(-2/480) to six digits, and that is what identified
+     it. Damping the old velocity and then adding the acceleration fixed it exactly.
+  2. The first version was 2D, and a flat sheet cannot buckle. It rendered as a rigid board
+     with no folds at all, because in two dimensions an inextensible cloth has nowhere to
+     put the extra length. Cloth is 3D or it is a plank.
+  3. With the camera looking straight down the z axis, a HORIZONTAL sheet projects to a
+     line. The Drape preset rendered as nothing whatsoever while its solver was working
+     perfectly, and the fix was to pitch the camera by 24 degrees, not to touch the physics.
+  4. Obstacle friction that blends toward the previous position AFTER projecting a particle
+     out of the sphere drags it straight back inside. 128 of 900 particles ended up inside
+     the sphere, the squeeze-out pumped energy into the sheet, and the whole drape slid off
+     onto the floor. Blend first, then re-project.
+  5. Picking and cutting ran in world xy while the person is clicking on a projected 3D
+     cloth, so a press landed two rows away from the fabric under the cursor. Both now work
+     in screen space, which is the space the pointer actually lives in.
+  And the one that was pure carelessness: #bar carries an id, so its display:flex outranked
+  the .chrome class that hides the controls in preview mode, and the control bar sat in
+  every storybook thumbnail until a screenshot was looked at.
+
+  KNOWN LIMITS, stated rather than buried
+  - No self collision. Cloth passes through itself, which is the usual trade and is why the
+    drape looks light rather than heavy.
+  - The shading fakes depth from smoothed vertex normals and a fixed light. The folds are
+    honest about the simulation; the lighting is a drawing trick, not a render.
+  - One slash can leave threads. The cloth keeps moving while the stroke crosses it, so a
+    link can arrive at the cut line after the stroke has gone past its column. A measured
+    single pass across a banner left exactly 3 links still spanning the cut, two shear
+    diagonals and a bend link, and the sheet stayed in one piece. A second pass finishes
+    it, which is also true of scissors.
+  - Chromium only. Not checked in Firefox or Safari.
+  - world.splitByInverseMass and world.scaleComplianceByDt are deliberately exposed and
+    deliberately default to true. They exist so the checker can turn each one off and prove
+    its own assertions can fail. Flipping either makes the physics wrong on purpose, and
+    the gate asserts the shipped defaults separately.
+
+  CHECKED BY
+  _verify/check_linen.js      28 assertions on the physics, against a closed form
+  _verify/check_linen_ui.js   46 assertions driven through real pointers, drags and keys
+  Predictions written first in _verify/PREDICTIONS_linen.md, graded in _verify/RESULTS.md.
+-->
+<style>
+  :root{
+    --bg:#15171c;
+    --ink:#e8e6e1;
+    --dim:#9a968e;
+    --line:#2a2e37;
+    --accent:#d8a657;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden;-webkit-font-smoothing:antialiased}
+  #stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+  #stage.cutting{cursor:crosshair}
+  #stage.grabbing{cursor:grabbing}
+
+  .chrome{position:fixed;z-index:2}
+  #title{left:18px;top:14px;letter-spacing:.14em;text-transform:uppercase;font-size:11px;color:var(--dim)}
+  #title b{color:var(--ink);font-weight:600;letter-spacing:.2em}
+  #hint{right:18px;top:14px;text-align:right;font-size:11px;color:var(--dim);max-width:46vw}
+  #hint kbd{background:#22262e;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+    padding:1px 5px;font:inherit;font-size:10px;color:var(--ink)}
+
+  #bar{left:50%;transform:translateX(-50%);bottom:14px;background:rgba(24,27,33,.92);
+    border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;gap:14px;
+    align-items:center;flex-wrap:wrap;justify-content:center;max-width:min(1100px,96vw);
+    backdrop-filter:blur(6px);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  #bar .group{display:flex;gap:6px;align-items:center}
+  #bar .sep{width:1px;height:24px;background:var(--line)}
+  button{background:#22262e;color:var(--ink);border:1px solid var(--line);border-radius:7px;
+    padding:5px 10px;font:inherit;font-size:12px;cursor:pointer}
+  button:hover{border-color:#3d434f}
+  button[aria-pressed="true"]{background:var(--accent);color:#1b1d22;border-color:var(--accent);font-weight:600}
+  label.slider{display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim);
+    letter-spacing:.08em;text-transform:uppercase}
+  label.slider span{display:flex;justify-content:space-between;gap:10px}
+  label.slider b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0}
+  input[type=range]{width:100px;accent-color:var(--accent);margin:0}
+  #stats{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;min-width:132px;text-align:right}
+
+  /* Preview mode: the storybook index frames this page with its chrome off.
+     The !important is load bearing. #bar carries an id, so its display:flex
+     outranks a class selector and the control bar stayed visible in every
+     preview card until this was measured against a screenshot. */
+  body.preview .chrome{display:none !important}
+  body.preview #stage{cursor:default}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div id="title" class="chrome"><b>Linen</b> &nbsp;cloth, XPBD</div>
+<div id="hint" class="chrome">
+  drag to grab &nbsp;&middot;&nbsp; <kbd>X</kbd> or right button to cut &nbsp;&middot;&nbsp;
+  double click to pin &nbsp;&middot;&nbsp; <kbd>space</kbd> gust &nbsp;&middot;&nbsp; <kbd>R</kbd> reset
+</div>
+
+<div id="bar" class="chrome">
+  <div class="group" id="presets"></div>
+  <div class="sep"></div>
+  <label class="slider"><span>Wind <b id="windV">0</b></span>
+    <input type="range" id="wind" min="0" max="100" value="0"></label>
+  <label class="slider"><span>Slack <b id="slackV">crisp</b></span>
+    <input type="range" id="slack" min="0" max="100" value="18"></label>
+  <label class="slider"><span>Tear <b id="tearV">off</b></span>
+    <input type="range" id="tear" min="100" max="200" value="200"></label>
+  <label class="slider"><span>Substeps <b id="subV">8</b></span>
+    <input type="range" id="sub" min="1" max="24" value="8"></label>
+  <div class="sep"></div>
+  <div class="group">
+    <button id="solver" aria-pressed="false" title="Swap the solver. PBD's stiffness depends on the substep count. XPBD's does not.">PBD</button>
+    <button id="wire" aria-pressed="false">Wires</button>
+    <button id="pause" aria-pressed="false">Pause</button>
+    <button id="reset">Reset</button>
+  </div>
+  <div id="stats"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ * 0. seeded randomness. Nothing in the physics may call Math.random,
+ *    or two runs of the same preset stop being comparable.
+ * ------------------------------------------------------------------ */
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashSeed(str){
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * 1. the solver: substepped XPBD in three dimensions
+ *
+ * Units are metres, seconds and kilograms, so gravity is 9.81 and the
+ * compliance knob is inverse stiffness in real units: a 1 kg particle on
+ * one constraint of compliance alpha hangs m * g * alpha below its rest
+ * length. Exactly, not approximately, and that closed form is what every
+ * stiffness number in the checker is measured against.
+ *
+ * x runs right, y runs DOWN the screen (gravity is +y), z runs toward
+ * the viewer. It is 3D because a flat sheet cannot buckle, and buckling
+ * is the entire visual content of cloth.
+ * ------------------------------------------------------------------ */
+class World {
+  constructor(){
+    this.n = 0;
+    this.x = []; this.y = []; this.z = [];
+    this.vx = []; this.vy = []; this.vz = [];
+    this.px = []; this.py = []; this.pz = [];   // position at the start of the substep
+    this.w = [];                                 // inverse mass, 0 means pinned
+    this.w0 = [];                                // inverse mass before pinning, so a pin can be undone
+
+    this.m = 0;
+    this.ci = []; this.cj = []; this.crest = []; this.calpha = [];
+    this.clam = []; this.calive = [];
+    this.cells = [];                             // quads, for drawing only
+
+    this.gravity = 9.81;
+    this.damping = 0.6;                          // per second, as exp(-damping * h)
+    this.substeps = 8;
+    this.iterations = 1;                         // per substep. Substeps beat iterations.
+    this.solver = "xpbd";                        // or "pbd"
+    this.compliance = 1e-7;                      // seconds^2 per kilogram, the slack knob
+    this.pbdStiffness = 0.05;                    // projection fraction per iteration, PBD only
+    this.tearRatio = 0;                          // 0 is off, else break above this stretch
+    this.floorY = null;
+    this.sphere = null;                          // {x,y,z,r} obstacle to drape over
+    this.bounds = null;
+
+    this.wind = 0;                               // air speed, metres per second
+    this.windDrag = 0.022;                        // force per unit of relative air speed
+    this.t = 0;
+    this.phases = [];
+    this.setSeed("linen");
+
+    // Two deliberate knobs, both correct by default, both flipped by the
+    // checker to prove its own assertions can fail. See the file header.
+    this.scaleComplianceByDt = true;
+    this.splitByInverseMass = true;
+
+    this.torn = 0;
+  }
+
+  setSeed(str){
+    const rnd = mulberry32(hashSeed(String(str)));
+    this.seed = String(str);
+    this.rnd = rnd;
+    this.phases = [];
+    for (let k = 0; k < 10; k++) this.phases.push(rnd() * Math.PI * 2);
+  }
+
+  addParticle(x, y, z, invMass){
+    this.x.push(x); this.y.push(y); this.z.push(z);
+    this.vx.push(0); this.vy.push(0); this.vz.push(0);
+    this.px.push(x); this.py.push(y); this.pz.push(z);
+    this.w.push(invMass); this.w0.push(invMass);
+    return this.n++;
+  }
+
+  setPinned(i, pinned){
+    if (pinned){ this.w[i] = 0; this.vx[i] = 0; this.vy[i] = 0; this.vz[i] = 0; }
+    else this.w[i] = this.w0[i] || 1;
+  }
+
+  addConstraint(i, j, alphaScale){
+    const dx = this.x[i] - this.x[j], dy = this.y[i] - this.y[j], dz = this.z[i] - this.z[j];
+    this.ci.push(i); this.cj.push(j);
+    this.crest.push(Math.sqrt(dx * dx + dy * dy + dz * dz));
+    this.calpha.push(alphaScale === undefined ? 1 : alphaScale);
+    this.clam.push(0); this.calive.push(1);
+    return this.m++;
+  }
+
+  /* The air velocity field: sums of sines with seeded phases, so it is
+   * smooth, alive, and exactly reproducible. Most of it blows along +x;
+   * the z component is what makes a flag ripple rather than lean. */
+  air(x, y, z, t, out){
+    const p = this.phases, s = this.wind;
+    if (s === 0){ out.x = 0; out.y = 0; out.z = 0; return out; }
+    out.x = s * (0.74 +
+      0.26 * Math.sin(1.9 * t + 1.1 * x + p[0]) +
+      0.14 * Math.sin(3.1 * t - 1.6 * y + p[1]));
+    out.y = s * (
+      0.14 * Math.sin(2.3 * t + 1.4 * y + p[2]) +
+      0.08 * Math.sin(3.9 * t - 0.9 * x + p[3]));
+    out.z = s * (
+      0.42 * Math.sin(2.6 * t - 1.9 * x + 0.7 * y + p[4]) +
+      0.24 * Math.sin(4.3 * t + 1.2 * x + 1.6 * y + p[5]) +
+      0.13 * Math.sin(7.1 * t - 2.6 * y + p[6]));
+    return out;
+  }
+
+  step(dt){
+    const h = dt / this.substeps;
+    const decay = Math.exp(-this.damping * h);
+    const air = { x: 0, y: 0, z: 0 };
+    const drag = this.windDrag;
+
+    for (let s = 0; s < this.substeps; s++){
+      this.t += h;
+
+      for (let i = 0; i < this.n; i++){
+        this.px[i] = this.x[i]; this.py[i] = this.y[i]; this.pz[i] = this.z[i];
+        const w = this.w[i];
+        if (w === 0){ this.vx[i] = 0; this.vy[i] = 0; this.vz[i] = 0; continue; }
+        let ax = 0, ay = this.gravity, az = 0;
+        if (this.wind !== 0){
+          this.air(this.x[i], this.y[i], this.z[i], this.t, air);
+          // Drag on the RELATIVE velocity, not a constant force field. A
+          // constant sideways force is just a second gravity, and the cloth
+          // leans instead of flapping. See WHAT BIT ME in the header.
+          ax += drag * (air.x - this.vx[i]) * w;
+          ay += drag * (air.y - this.vy[i]) * w;
+          az += drag * (air.z - this.vz[i]) * w;
+        }
+        // Damping first, THEN the acceleration. Damping the sum instead
+        // rescales gravity by exp(-damping * h), which is a function of the
+        // SUBSTEP length, so it makes a schedule independent solver look
+        // schedule dependent by 1.6 percent. Measured, not guessed: that was
+        // the first version, and the substep sweep is what caught it.
+        this.vx[i] = this.vx[i] * decay + h * ax;
+        this.vy[i] = this.vy[i] * decay + h * ay;
+        this.vz[i] = this.vz[i] * decay + h * az;
+        this.x[i] += h * this.vx[i];
+        this.y[i] += h * this.vy[i];
+        this.z[i] += h * this.vz[i];
+      }
+
+      for (let c = 0; c < this.m; c++) this.clam[c] = 0;
+      for (let it = 0; it < this.iterations; it++) this.solve(h);
+
+      this.contacts();
+
+      const inv = 1 / h;
+      for (let i = 0; i < this.n; i++){
+        if (this.w[i] === 0) continue;
+        this.vx[i] = (this.x[i] - this.px[i]) * inv;
+        this.vy[i] = (this.y[i] - this.py[i]) * inv;
+        this.vz[i] = (this.z[i] - this.pz[i]) * inv;
+      }
+    }
+  }
+
+  solve(h){
+    const xpbd = this.solver === "xpbd";
+    const h2 = h * h;
+    const tear = this.tearRatio;
+    for (let c = 0; c < this.m; c++){
+      if (!this.calive[c]) continue;
+      const i = this.ci[c], j = this.cj[c];
+      const wi = this.w[i], wj = this.w[j];
+      const wsum = wi + wj;
+      if (wsum === 0) continue;
+
+      const dx = this.x[i] - this.x[j], dy = this.y[i] - this.y[j], dz = this.z[i] - this.z[j];
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (len < 1e-12) continue;
+      const rest = this.crest[c];
+
+      if (tear > 0 && len / rest > tear){ this.calive[c] = 0; this.torn++; continue; }
+
+      const C = len - rest;
+      const nx = dx / len, ny = dy / len, nz = dz / len;
+      let delta;
+
+      if (xpbd){
+        // alpha_tilde = alpha / h^2, and h is the SUBSTEP. This one
+        // division is the entire difference from PBD.
+        const alpha = this.compliance * this.calpha[c];
+        const at = this.scaleComplianceByDt ? alpha / h2 : alpha;
+        delta = (-C - at * this.clam[c]) / (wsum + at);
+        this.clam[c] += delta;
+      } else {
+        // plain PBD: a fixed fraction of the error per iteration, which is
+        // why its stiffness is a property of the schedule and not of cloth
+        delta = -this.pbdStiffness * C / wsum;
+      }
+
+      let si, sj;
+      if (this.splitByInverseMass){ si = wi; sj = wj; }
+      else { si = 0.5 * wsum; sj = si; }          // negative control N2
+      this.x[i] += si * delta * nx; this.y[i] += si * delta * ny; this.z[i] += si * delta * nz;
+      this.x[j] -= sj * delta * nx; this.y[j] -= sj * delta * ny; this.z[j] -= sj * delta * nz;
+    }
+  }
+
+  contacts(){
+    const b = this.bounds, f = this.floorY, s = this.sphere;
+    for (let i = 0; i < this.n; i++){
+      if (this.w[i] === 0) continue;
+      if (s){
+        const dx = this.x[i] - s.x, dy = this.y[i] - s.y, dz = this.z[i] - s.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < s.r && d > 1e-9){
+          const k = s.r / d;
+          let qx = s.x + dx * k, qy = s.y + dy * k, qz = s.z + dz * k;
+          // Friction, damping the TANGENTIAL slide only, and then the point
+          // is pushed back out to the surface. Blending toward the previous
+          // position without re-projecting drags it straight back inside the
+          // obstacle, which reads as a sticky sphere and quietly pumps energy
+          // into the sheet until the whole drape slides off. Measured: 128 of
+          // 900 particles were inside the sphere at the end of a settle.
+          const mu = 0.55;
+          qx += (this.px[i] - qx) * mu;
+          qy += (this.py[i] - qy) * mu;
+          qz += (this.pz[i] - qz) * mu;
+          const ex = qx - s.x, ey = qy - s.y, ez = qz - s.z;
+          const e = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1;
+          if (e < s.r){
+            const kk = s.r / e;
+            qx = s.x + ex * kk; qy = s.y + ey * kk; qz = s.z + ez * kk;
+          }
+          this.x[i] = qx; this.y[i] = qy; this.z[i] = qz;
+        }
+      }
+      if (f !== null && this.y[i] > f){
+        this.y[i] = f;
+        this.x[i] = this.px[i] + (this.x[i] - this.px[i]) * 0.72;
+        this.z[i] = this.pz[i] + (this.z[i] - this.pz[i]) * 0.72;
+      }
+      if (b){
+        if (this.x[i] < b.x0) this.x[i] = b.x0;
+        if (this.x[i] > b.x1) this.x[i] = b.x1;
+        if (this.y[i] < b.y0) this.y[i] = b.y0;
+      }
+    }
+  }
+
+  /* ---- measurements the app never uses, exposed for the checker ---- */
+  maxStretch(){
+    let worst = 0;
+    for (let c = 0; c < this.m; c++){
+      if (!this.calive[c]) continue;
+      const i = this.ci[c], j = this.cj[c];
+      const dx = this.x[i] - this.x[j], dy = this.y[i] - this.y[j], dz = this.z[i] - this.z[j];
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      worst = Math.max(worst, Math.abs(len - this.crest[c]) / this.crest[c]);
+    }
+    return worst;
+  }
+  momentum(){
+    let mx = 0, my = 0, mz = 0;
+    for (let i = 0; i < this.n; i++){
+      if (this.w[i] === 0) continue;
+      const mass = 1 / this.w[i];
+      mx += mass * this.vx[i]; my += mass * this.vy[i]; mz += mass * this.vz[i];
+    }
+    return { x: mx, y: my, z: mz };
+  }
+  aliveLinks(){ let k = 0; for (let c = 0; c < this.m; c++) if (this.calive[c]) k++; return k; }
+
+  /* Nearest particle to a point. With no projection this is the xy plane;
+   * with one it is whatever the person is actually looking at.
+   *
+   * The app always passes one, and that is not a nicety. The cloth is 3D
+   * and the pointer lands on a 2D picture of it, so matching in world xy
+   * picks a particle the person did not click: measured at two rows out
+   * on a flag whose free edge had curled about 0.3 m toward the viewer. */
+  nearest(ax, ay, radius, project){
+    let best = -1, bd = radius * radius;
+    const p = { x: 0, y: 0 };
+    for (let i = 0; i < this.n; i++){
+      let dx, dy;
+      if (project){ project(i, p); dx = p.x - ax; dy = p.y - ay; }
+      else { dx = this.x[i] - ax; dy = this.y[i] - ay; }
+      const d = dx * dx + dy * dy;
+      if (d < bd){ bd = d; best = i; }
+    }
+    return best;
+  }
+
+  /* cut every alive link the stroke crosses, in the same space */
+  cut(x0, y0, x1, y1, project){
+    let n = 0;
+    const a = { x: 0, y: 0 }, b = { x: 0, y: 0 };
+    for (let c = 0; c < this.m; c++){
+      if (!this.calive[c]) continue;
+      const i = this.ci[c], j = this.cj[c];
+      if (project){ project(i, a); project(j, b); }
+      else { a.x = this.x[i]; a.y = this.y[i]; b.x = this.x[j]; b.y = this.y[j]; }
+      if (segmentsCross(x0, y0, x1, y1, a.x, a.y, b.x, b.y)){
+        this.calive[c] = 0; n++;
+      }
+    }
+    return n;
+  }
+}
+
+function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy){
+  const d1 = cross2(cx, cy, dx, dy, ax, ay);
+  const d2 = cross2(cx, cy, dx, dy, bx, by);
+  const d3 = cross2(ax, ay, bx, by, cx, cy);
+  const d4 = cross2(ax, ay, bx, by, dx, dy);
+  return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+}
+function cross2(ax, ay, bx, by, px, py){ return (bx - ax) * (py - ay) - (by - ay) * (px - ax); }
+
+/* ------------------------------------------------------------------ *
+ * 2. the hangings
+ *
+ * Every preset is a grid with structural links along the weave, shear
+ * links on the diagonals and bend links skipping one, which is the
+ * standard three. Shear and bend get far more compliance, because a real
+ * weave resists a pull much harder than it resists a fold, and that gap
+ * is what lets the sheet buckle into folds instead of behaving as a plate.
+ * ------------------------------------------------------------------ */
+const SHEAR = 260, BEND = 4200;    // compliance multipliers relative to structural
+
+function buildGrid(world, opts){
+  const { cols, rows, cell, ox, oy, mass } = opts;
+  const crumple = opts.crumple === undefined ? 0.004 : opts.crumple;
+  const plane = opts.plane || "xy";
+  const oz = opts.oz === undefined ? 0 : opts.oz;
+  const idx = (c, r) => r * cols + c;
+  const invMass = 1 / mass;
+
+  // A perfectly flat sheet is a symmetric object and will never choose a
+  // side to buckle toward, so it needs a whisker of depth to break the tie.
+  // It has to be SMOOTH depth. White noise per particle looks identical at
+  // rest and then survives as salt and pepper micro wrinkles, because the
+  // bend links are compliant by design and never iron them out. The shading
+  // reads every one of them and the cloth comes out looking like a
+  // chessboard. Two low frequency waves with seeded phases instead.
+  const pa = world.rnd() * 6.283, pb = world.rnd() * 6.283;
+  const fa = 0.9 + world.rnd() * 1.4, fb = 0.7 + world.rnd() * 1.1;
+  const bump = (c, r) => crumple * (Math.sin(fa * c * 0.35 + pa) + Math.sin(fb * r * 0.3 + pb));
+
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++){
+      if (plane === "xz") world.addParticle(ox + c * cell, oy + bump(c, r), oz + r * cell, invMass);
+      else world.addParticle(ox + c * cell, oy + r * cell, oz + bump(c, r), invMass);
+    }
+
+  const link = {};
+  const add = (a, b, scale) => {
+    const id = world.addConstraint(a, b, scale);
+    link[a + ":" + b] = id; link[b + ":" + a] = id;
+    return id;
+  };
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++){
+      if (c + 1 < cols) add(idx(c, r), idx(c + 1, r), 1);
+      if (r + 1 < rows) add(idx(c, r), idx(c, r + 1), 1);
+    }
+  for (let r = 0; r + 1 < rows; r++)
+    for (let c = 0; c + 1 < cols; c++){
+      add(idx(c, r), idx(c + 1, r + 1), SHEAR);
+      add(idx(c + 1, r), idx(c, r + 1), SHEAR);
+    }
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c + 2 < cols; c++) add(idx(c, r), idx(c + 2, r), BEND);
+  for (let c = 0; c < cols; c++)
+    for (let r = 0; r + 2 < rows; r++) add(idx(c, r), idx(c, r + 2), BEND);
+
+  for (let r = 0; r + 1 < rows; r++)
+    for (let c = 0; c + 1 < cols; c++){
+      const a = idx(c, r), b = idx(c + 1, r), d = idx(c + 1, r + 1), e = idx(c, r + 1);
+      world.cells.push({
+        p: [a, b, d, e],
+        c: [link[a + ":" + b], link[b + ":" + d], link[d + ":" + e], link[e + ":" + a]],
+        restEdge: cell, row: r, col: c
+      });
+    }
+  world.grid = { cols, rows, cell, idx };
+  return idx;
+}
+
+const PRESETS = {
+  flag: {
+    label: "Flag",
+    hue: [16, 46], sat: [58, 62],
+    build(w){
+      const cols = 34, rows = 22, cell = 0.082;
+      const idx = buildGrid(w, { cols, rows, cell, ox: 1.55, oy: 0.65, mass: 0.02 });
+      for (let r = 0; r < rows; r++) w.setPinned(idx(0, r), true);
+      w.floorY = 3.7;
+    }
+  },
+  curtain: {
+    label: "Curtain",
+    hue: [206, 258], sat: [40, 46],
+    build(w){
+      const cols = 36, rows = 26, cell = 0.082;
+      const idx = buildGrid(w, { cols, rows, cell, ox: 1.05, oy: 0.42, mass: 0.02 });
+      // pinned every third particle along the rail, which is what makes a
+      // curtain hang in pleats instead of as a sheet of paper
+      for (let c = 0; c < cols; c += 3) w.setPinned(idx(c, 0), true);
+      w.setPinned(idx(cols - 1, 0), true);
+      w.floorY = 3.7;
+    }
+  },
+  banner: {
+    label: "Banner",
+    hue: [338, 12], sat: [52, 58],
+    build(w){
+      const cols = 28, rows = 24, cell = 0.088;
+      const idx = buildGrid(w, { cols, rows, cell, ox: 1.45, oy: 0.45, mass: 0.02 });
+      w.setPinned(idx(0, 0), true);
+      w.setPinned(idx(cols - 1, 0), true);
+      w.floorY = 3.7;
+    }
+  },
+  hammock: {
+    label: "Hammock",
+    hue: [152, 186], sat: [34, 40],
+    build(w){
+      const cols = 26, rows = 26, cell = 0.095;
+      const idx = buildGrid(w, { cols, rows, cell, ox: 1.45, oy: 0.55, mass: 0.02 });
+      w.setPinned(idx(0, 0), true);
+      w.setPinned(idx(cols - 1, 0), true);
+      w.setPinned(idx(0, rows - 1), true);
+      w.setPinned(idx(cols - 1, rows - 1), true);
+      w.floorY = 3.9;
+    }
+  },
+  drape: {
+    label: "Drape",
+    hue: [28, 44], sat: [18, 26],
+    build(w){
+      const cols = 34, rows = 34, cell = 0.072;
+      // a HORIZONTAL sheet, held in the xz plane above the obstacle
+      const span = (cols - 1) * cell / 2;
+      buildGrid(w, {
+        cols, rows, cell, plane: "xz",
+        ox: 3.0 - span, oy: 1.30, oz: -span,
+        mass: 0.02, crumple: 0.005
+      });
+      // nothing pinned: it falls onto the sphere and finds its own folds
+      w.sphere = { x: 3.0, y: 2.40, z: 0, r: 0.55 };
+      w.floorY = 3.42;
+    }
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * 3. the app
+ * ------------------------------------------------------------------ */
+const Q = new URLSearchParams(location.search);
+const PREVIEW = Q.has("preview");
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d", { alpha: false });
+
+const CAM = { x: 3, y: 2, f: 8.5 };     // weak perspective, camera on the z axis
+const LIGHT = (() => {
+  const v = { x: -0.42, y: -0.55, z: 0.72 };
+  const L = Math.hypot(v.x, v.y, v.z);
+  return { x: v.x / L, y: v.y / L, z: v.z / L };
+})();
+
+const app = {
+  world: null,
+  preset: "flag",
+  running: true,
+  wire: false,
+  scale: 1, ox: 0, oy: 0,
+  grabbed: -1, grabX: 0, grabY: 0, grabZ: 0,
+  cutMode: false, cutting: false, lastCut: null,
+  frames: 0, fps: 0, lastFps: 0,
+  windBase: 0, gust: 0
+};
+
+function load(name, seed){
+  const p = PRESETS[name] || PRESETS.flag;
+  const w = new World();
+  w.setSeed(seed || "linen");
+  if (app.world){
+    w.compliance = app.world.compliance;
+    w.substeps = app.world.substeps;
+    w.solver = app.world.solver;
+    w.wind = app.world.wind;
+    w.tearRatio = app.world.tearRatio;
+  }
+  p.build(w);
+  w.bounds = { x0: -3, y0: -3, x1: 9, y1: 99 };
+  app.world = w;
+  app.preset = name;
+  app.grabbed = -1;
+  fit();
+  paintStats();   // the counters are stale otherwise whenever the loop is paused
+  return w;
+}
+
+/* the world box is 6 m by 4 m, letterboxed into whatever the window is */
+function fit(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = canvas.clientWidth || window.innerWidth;
+  const H = canvas.clientHeight || window.innerHeight;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // The control bar floats over the canvas, so the world box is letterboxed
+  // into the space ABOVE it. Without this the settled flag hangs entirely
+  // behind the controls: measured at a 1280 by 760 window, the free edge
+  // spanned y 602 to 712 and the bar started at 615, so every part of the
+  // cloth worth grabbing was under a button. Preview mode hides the bar and
+  // gets the whole window.
+  const reserve = PREVIEW ? 0 : Math.min(170, Math.round(H * 0.22));
+  const usable = Math.max(140, H - reserve);
+  app.scale = Math.min(W / 6, usable / 4);
+  app.ox = (W - 6 * app.scale) / 2;
+  app.oy = (usable - 4 * app.scale) / 2;
+  app.cssW = W; app.cssH = H;
+}
+/* Projection: the camera is pitched DOWN by PITCH radians and then weak
+ * perspective is applied about its axis.
+ *
+ * The pitch is not decoration. With a camera looking straight along z, a
+ * horizontal sheet projects to a LINE, so the whole Drape preset rendered
+ * as nothing at all while the solver was working perfectly. Seventeen
+ * degrees is enough to see a drape and small enough that a flag still
+ * reads as a flag. */
+const PITCH = 0.42, CP = Math.cos(PITCH), SP = Math.sin(PITCH);
+const kOf = zc => CAM.f / (CAM.f - zc);
+/* depth after the pitch, which is also the painter's algorithm sort key */
+const depth = (wy, z) => (wy - CAM.y) * SP + z * CP;
+const sx = (wx, wy, z) => app.ox + (CAM.x + (wx - CAM.x) * kOf(depth(wy, z))) * app.scale;
+const sy = (wy, z) => {
+  const zc = depth(wy, z);
+  return app.oy + (CAM.y + ((wy - CAM.y) * CP - z * SP) * kOf(zc)) * app.scale;
+};
+/* the inverse, onto the z = 0 plane, which is what a pointer over the
+ * canvas means. Two fixed point passes: the perspective term is small. */
+function unproject(px, py){
+  const A = (py - app.oy) / app.scale - CAM.y;
+  let dy = A / CP;
+  for (let k = 0; k < 3; k++) dy = A * (CAM.f - dy * SP) / (CAM.f * CP);
+  const kk = kOf(dy * SP);
+  return { x: CAM.x + ((px - app.ox) / app.scale - CAM.x) / kk, y: CAM.y + dy };
+}
+
+/* Zoom the view onto the cloth. Preview only: a storybook card is a 2:1
+ * window and the letterboxed world box leaves the hanging occupying about
+ * a third of it, which is a small picture of a big empty room. */
+function frameCloth(margin){
+  const w = app.world;
+  if (!w.n) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < w.n; i++){
+    const px = sx(w.x[i], w.y[i], w.z[i]), py = sy(w.y[i], w.z[i]);
+    if (px < x0) x0 = px; if (px > x1) x1 = px;
+    if (py < y0) y0 = py; if (py > y1) y1 = py;
+  }
+  const m = margin === undefined ? 0.07 : margin;
+  const bw = Math.max(1, x1 - x0), bh = Math.max(1, y1 - y0);
+  const k = Math.min(app.cssW * (1 - 2 * m) / bw, app.cssH * (1 - 2 * m) / bh);
+  // the bbox centre, in the pre-scale units the projection works in
+  const uc = ((x0 + x1) / 2 - app.ox) / app.scale;
+  const vc = ((y0 + y1) / 2 - app.oy) / app.scale;
+  app.scale *= k;
+  app.ox = app.cssW / 2 - uc * app.scale;
+  app.oy = app.cssH / 2 - vc * app.scale;
+}
+
+/* ---- drawing ---- */
+const order = [];
+
+/* Smoothed normals, one per particle, accumulated from the live quads
+ * around it. Taken from the two DIAGONALS of each quad rather than from
+ * two edges at one corner: a loaded quad is not planar, a corner normal
+ * picks a side, and neighbouring cells pick opposite sides in an
+ * alternating pattern that reads as a chessboard laid over the cloth. */
+let vn = { n: -1, x: null, y: null, z: null };
+function vertexNormals(w, alive){
+  if (vn.n !== w.n)
+    vn = { n: w.n, x: new Float64Array(w.n), y: new Float64Array(w.n), z: new Float64Array(w.n) };
+  vn.x.fill(0); vn.y.fill(0); vn.z.fill(0);
+  for (const cell of w.cells){
+    const c = cell.c;
+    if (!alive[c[0]] || !alive[c[1]] || !alive[c[2]] || !alive[c[3]]) continue;
+    const p = cell.p, a = p[0], b = p[1], d = p[2], e = p[3];
+    const e1x = w.x[d] - w.x[a], e1y = w.y[d] - w.y[a], e1z = w.z[d] - w.z[a];
+    const e2x = w.x[e] - w.x[b], e2y = w.y[e] - w.y[b], e2z = w.z[e] - w.z[b];
+    // left unnormalised, so a bigger quad counts for more
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    for (let q = 0; q < 4; q++){
+      const i = p[q];
+      vn.x[i] += nx; vn.y[i] += ny; vn.z[i] += nz;
+    }
+  }
+  for (let i = 0; i < w.n; i++){
+    const L = Math.sqrt(vn.x[i] * vn.x[i] + vn.y[i] * vn.y[i] + vn.z[i] * vn.z[i]);
+    if (L > 1e-12){ vn.x[i] /= L; vn.y[i] /= L; vn.z[i] /= L; }
+  }
+}
+function draw(){
+  const w = app.world, W = app.cssW, H = app.cssH;
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#1c2029");
+  bg.addColorStop(1, "#0f1114");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  if (w.floorY !== null){
+    const fy = sy(w.floorY, 0);
+    const fg = ctx.createLinearGradient(0, fy, 0, H);
+    fg.addColorStop(0, "rgba(255,255,255,.055)");
+    fg.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, fy, W, H - fy);
+    ctx.strokeStyle = "rgba(255,255,255,.10)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, fy + .5); ctx.lineTo(W, fy + .5); ctx.stroke();
+  }
+
+  const preset = PRESETS[app.preset] || PRESETS.flag;
+  const [h0, h1] = preset.hue, [s0, s1] = preset.sat;
+  const alive = w.calive;
+
+  // depth sort, back to front, so the folds overlap correctly
+  order.length = 0;
+  for (let k = 0; k < w.cells.length; k++){
+    const cell = w.cells[k];
+    if (!alive[cell.c[0]] || !alive[cell.c[1]] || !alive[cell.c[2]] || !alive[cell.c[3]]) continue;
+    const p = cell.p;
+    order.push([0.25 * (depth(w.y[p[0]], w.z[p[0]]) + depth(w.y[p[1]], w.z[p[1]]) +
+                        depth(w.y[p[2]], w.z[p[2]]) + depth(w.y[p[3]], w.z[p[3]])), k]);
+  }
+  order.sort((a, b) => a[0] - b[0]);
+
+  let sphereDrawn = false;
+  const drawSphere = () => {
+    if (sphereDrawn || !w.sphere) return;
+    sphereDrawn = true;
+    const s = w.sphere;
+    const cx = sx(s.x, s.y, s.z), cy = sy(s.y, s.z), r = s.r * app.scale * kOf(depth(s.y, s.z));
+    const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.08, cx, cy, r);
+    g.addColorStop(0, "#4b5263");
+    g.addColorStop(1, "#1c1f26");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.2832); ctx.fill();
+  };
+
+  vertexNormals(w, alive);
+  const px4 = [0, 0, 0, 0], py4 = [0, 0, 0, 0], lum = [0, 0, 0, 0];
+
+  for (const [zc, k] of order){
+    if (w.sphere && zc > depth(w.sphere.y, w.sphere.z)) drawSphere();
+    const cell = w.cells[k], p = cell.p;
+    const ax = w.x[p[0]], ay = w.y[p[0]], az = w.z[p[0]];
+    const bx = w.x[p[1]], by = w.y[p[1]], bz = w.z[p[1]];
+
+    // which way this quad faces, taken from the smoothed normal at its
+    // first corner. Cloth is two sided, so the face turned toward the
+    // viewer is the one that gets lit.
+    const facing = vn.z[p[0]] >= 0;
+
+    // stretch reads as a slight wash of colour, so a pulled cloth pales
+    const sx1 = bx - ax, sy1 = by - ay, sz1 = bz - az;
+    const stretch = Math.sqrt(sx1 * sx1 + sy1 * sy1 + sz1 * sz1) / cell.restEdge;
+    const wash = 10 * Math.min(0.6, Math.max(-0.4, stretch - 1));
+
+    const t = Math.min(1, cell.col / 44 + cell.row / 120);
+    const hue = h0 + (h1 - h0) * t;
+    const sat = (s0 + (s1 - s0) * t) * (facing ? 1 : 0.82);
+
+    let lo = 0, hi = 0;
+    for (let q = 0; q < 4; q++){
+      const i = p[q];
+      px4[q] = sx(w.x[i], w.y[i], w.z[i]);
+      py4[q] = sy(w.y[i], w.z[i]);
+      let d = vn.x[i] * LIGHT.x + vn.y[i] * LIGHT.y + vn.z[i] * LIGHT.z;
+      if (!facing) d = -d;
+      const lam = d > 0 ? d : 0;
+      const spec = Math.pow(lam, 22) * 0.55;   // a sheen along the fold
+      lum[q] = Math.max(4, Math.min(92,
+        7 + 62 * lam + 100 * spec + wash - (facing ? 0 : 6)));
+      if (lum[q] < lum[lo]) lo = q;
+      if (lum[q] > lum[hi]) hi = q;
+    }
+
+    // Gouraud, approximately: one linear gradient laid along the steepest
+    // lightness change across the quad. A flat fill per cell is what makes
+    // a low resolution cloth look like a mosaic, and at this cell size that
+    // is the difference between fabric and a spreadsheet.
+    const spread = lum[hi] - lum[lo];
+    if (spread > 1.2){
+      const g = ctx.createLinearGradient(px4[lo], py4[lo], px4[hi], py4[hi]);
+      g.addColorStop(0, `hsl(${hue.toFixed(1)} ${sat.toFixed(0)}% ${lum[lo].toFixed(1)}%)`);
+      g.addColorStop(1, `hsl(${hue.toFixed(1)} ${sat.toFixed(0)}% ${lum[hi].toFixed(1)}%)`);
+      ctx.fillStyle = g;
+      ctx.strokeStyle = `hsl(${hue.toFixed(1)} ${sat.toFixed(0)}% ${((lum[lo] + lum[hi]) / 2).toFixed(1)}%)`;
+    } else {
+      ctx.fillStyle = `hsl(${hue.toFixed(1)} ${sat.toFixed(0)}% ${lum[0].toFixed(1)}%)`;
+      ctx.strokeStyle = ctx.fillStyle;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(px4[0], py4[0]);
+    ctx.lineTo(px4[1], py4[1]);
+    ctx.lineTo(px4[2], py4[2]);
+    ctx.lineTo(px4[3], py4[3]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 1;     // hairline closes the seam between quads
+    ctx.stroke();
+  }
+  drawSphere();
+
+  if (app.wire){
+    ctx.strokeStyle = "rgba(255,255,255,.20)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let c = 0; c < w.m; c++){
+      if (!alive[c] || w.calpha[c] !== 1) continue;
+      const i = w.ci[c], j = w.cj[c];
+      ctx.moveTo(sx(w.x[i], w.y[i], w.z[i]), sy(w.y[i], w.z[i]));
+      ctx.lineTo(sx(w.x[j], w.y[j], w.z[j]), sy(w.y[j], w.z[j]));
+    }
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "rgba(236,232,224,.72)";
+  for (let i = 0; i < w.n; i++){
+    if (w.w[i] !== 0) continue;
+    ctx.beginPath(); ctx.arc(sx(w.x[i], w.y[i], w.z[i]), sy(w.y[i], w.z[i]), 2.6, 0, 6.2832); ctx.fill();
+  }
+
+  if (app.grabbed >= 0){
+    const i = app.grabbed;
+    ctx.strokeStyle = "rgba(216,166,87,.9)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(sx(w.x[i], w.y[i], w.z[i]), sy(w.y[i], w.z[i]), 9, 0, 6.2832); ctx.stroke();
+  }
+
+  const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.76);
+  v.addColorStop(0, "rgba(0,0,0,0)");
+  v.addColorStop(1, "rgba(0,0,0,.45)");
+  ctx.fillStyle = v;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ---- the loop ---- */
+function frame(now){
+  if (!app.running) return;
+  requestAnimationFrame(frame);
+  if (app.gust > 0){
+    app.gust -= 1 / 60;
+    if (app.gust <= 0){ app.world.wind = app.windBase; app.gust = 0; }
+  }
+  // Fixed timestep on purpose. A cloth solver fed a variable dt changes
+  // material every time the tab hiccups.
+  stepOnce(1 / 60);
+  draw();
+  app.frames++;
+  if (now - app.lastFps > 500){
+    app.fps = Math.round(app.frames * 1000 / (now - app.lastFps));
+    app.frames = 0; app.lastFps = now;
+    paintStats();
+  }
+}
+
+function stepOnce(dt){
+  const w = app.world;
+  if (app.grabbed >= 0){
+    const i = app.grabbed;
+    w.x[i] = app.grabX; w.y[i] = app.grabY; w.z[i] = app.grabZ;
+    w.vx[i] = 0; w.vy[i] = 0; w.vz[i] = 0;
+  }
+  w.step(dt);
+  if (app.grabbed >= 0){
+    const i = app.grabbed;
+    w.x[i] = app.grabX; w.y[i] = app.grabY; w.z[i] = app.grabZ;
+  }
+}
+
+function paintStats(){
+  const el = document.getElementById("stats");
+  if (!el) return;
+  const w = app.world;
+  el.textContent = `${w.n} pts  ${w.aliveLinks()} links  ${app.fps} fps`;
+}
+
+/* ---- controls ---- */
+function setup(){
+  const bar = document.getElementById("presets");
+  for (const key of Object.keys(PRESETS)){
+    const b = document.createElement("button");
+    b.textContent = PRESETS[key].label;
+    b.dataset.preset = key;
+    b.setAttribute("aria-pressed", String(key === app.preset));
+    b.onclick = () => { load(key); syncPresetButtons(); };
+    bar.appendChild(b);
+  }
+
+  const wind = document.getElementById("wind"), windV = document.getElementById("windV");
+  wind.oninput = () => {
+    const v = +wind.value;
+    if (app.world) app.world.wind = v * 0.16;     // up to about 16 m/s of air
+    app.windBase = v * 0.16;
+    windV.textContent = v;
+  };
+
+  const slack = document.getElementById("slack"), slackV = document.getElementById("slackV");
+  const slackLabel = v => v < 12 ? "starched" : v < 30 ? "crisp" : v < 55 ? "linen" : v < 80 ? "silk" : "gauze";
+  slack.oninput = () => {
+    const v = +slack.value;
+    // Logarithmic, and the top of the range is chosen against the load a
+    // hanging cloth actually puts on its top row rather than by feel,
+    // because compliance is inverse stiffness in real units.
+    if (app.world) app.world.compliance = v === 0 ? 0 : Math.pow(10, -8 + v * 0.045);
+    slackV.textContent = slackLabel(v);
+  };
+
+  const tear = document.getElementById("tear"), tearV = document.getElementById("tearV");
+  tear.oninput = () => {
+    const v = +tear.value;
+    if (app.world) app.world.tearRatio = v >= 200 ? 0 : v / 100;
+    tearV.textContent = v >= 200 ? "off" : (v / 100).toFixed(2) + "x";
+  };
+
+  const sub = document.getElementById("sub"), subV = document.getElementById("subV");
+  sub.oninput = () => { if (app.world) app.world.substeps = +sub.value; subV.textContent = sub.value; };
+
+  const solver = document.getElementById("solver");
+  solver.onclick = () => {
+    const toPbd = app.world.solver === "xpbd";
+    app.world.solver = toPbd ? "pbd" : "xpbd";
+    solver.textContent = toPbd ? "XPBD" : "PBD";
+    solver.setAttribute("aria-pressed", String(toPbd));
+    solver.title = toPbd
+      ? "PBD. Its stiffness depends on the substep count, so drag Substeps and watch the cloth change material."
+      : "Swap the solver. PBD's stiffness depends on the substep count. XPBD's does not.";
+  };
+
+  const wire = document.getElementById("wire");
+  wire.onclick = () => { app.wire = !app.wire; wire.setAttribute("aria-pressed", String(app.wire)); };
+
+  document.getElementById("pause").onclick = () => setRunning(!app.running);
+  document.getElementById("reset").onclick = () => { load(app.preset); };
+
+  addEventListener("resize", fit);
+  addEventListener("keydown", onKey);
+  addEventListener("keyup", e => { if (e.key === "x" || e.key === "X") setCutMode(false); });
+
+  canvas.addEventListener("pointerdown", onDown);
+  canvas.addEventListener("pointermove", onMove);
+  addEventListener("pointerup", onUp);
+  canvas.addEventListener("contextmenu", e => e.preventDefault());
+  canvas.addEventListener("dblclick", onDouble);
+}
+
+function syncPresetButtons(){
+  for (const b of document.querySelectorAll("#presets button"))
+    b.setAttribute("aria-pressed", String(b.dataset.preset === app.preset));
+}
+
+function setRunning(on){
+  app.running = on;
+  const b = document.getElementById("pause");
+  if (b) b.setAttribute("aria-pressed", String(!on));
+  if (on) requestAnimationFrame(frame);
+}
+
+function setCutMode(on){
+  app.cutMode = on;
+  canvas.classList.toggle("cutting", on);
+}
+
+function onKey(e){
+  if (e.target && e.target.tagName === "INPUT") return;
+  const k = e.key;
+  if (k === "x" || k === "X") setCutMode(true);
+  else if (k === "r" || k === "R") load(app.preset);
+  else if (k === "w" || k === "W") document.getElementById("wire").click();
+  else if (k === "p" || k === "P") setRunning(!app.running);
+  else if (k === " "){
+    e.preventDefault();
+    app.world.wind = app.windBase + 7.5;
+    app.gust = 1.2;
+  }
+  else if (k >= "1" && k <= "5"){
+    const key = Object.keys(PRESETS)[+k - 1];
+    if (key){ load(key); syncPresetButtons(); }
+  }
+}
+
+/* the pointer, in CSS pixels on the canvas */
+function pointerPixels(e){
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+/* where particle i is drawn, which is the space the pointer lives in */
+function projectParticle(i, out){
+  const w = app.world;
+  out.x = sx(w.x[i], w.y[i], w.z[i]);
+  out.y = sy(w.y[i], w.z[i]);
+  return out;
+}
+const PICK_PX = 26;
+
+function onDown(e){
+  const p = pointerPixels(e);
+  canvas.setPointerCapture(e.pointerId);
+  if (app.cutMode || e.button === 2 || e.shiftKey){
+    app.cutting = true;
+    app.lastCut = p;
+    setCutMode(true);
+    return;
+  }
+  const i = app.world.nearest(p.x, p.y, PICK_PX, projectParticle);
+  if (i >= 0){
+    const wpt = unproject(p.x, p.y);
+    app.grabbed = i;
+    // Hold the offset between the pointer and the particle rather than
+    // teleporting the particle to the pointer. The pointer is unprojected
+    // onto the z = 0 plane and the particle is not on it, so snapping
+    // yanks the cloth sideways the moment you touch it.
+    app.grabOffX = app.world.x[i] - wpt.x;
+    app.grabOffY = app.world.y[i] - wpt.y;
+    app.grabX = app.world.x[i]; app.grabY = app.world.y[i]; app.grabZ = app.world.z[i];
+    canvas.classList.add("grabbing");
+  }
+}
+
+function onMove(e){
+  const p = pointerPixels(e);
+  if (app.cutting){
+    if (app.lastCut) app.world.cut(app.lastCut.x, app.lastCut.y, p.x, p.y, projectParticle);
+    app.lastCut = p;
+    return;
+  }
+  if (app.grabbed >= 0){
+    const wpt = unproject(p.x, p.y);
+    app.grabX = wpt.x + app.grabOffX;
+    app.grabY = wpt.y + app.grabOffY;
+  }
+}
+
+function onUp(){
+  app.cutting = false; app.lastCut = null;
+  app.grabbed = -1;
+  canvas.classList.remove("grabbing");
+  if (!app.cutMode) canvas.classList.remove("cutting");
+}
+
+function onDouble(e){
+  const p = pointerPixels(e);
+  const i = app.world.nearest(p.x, p.y, PICK_PX, projectParticle);
+  if (i >= 0) app.world.setPinned(i, app.world.w[i] !== 0);
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. the test surface
+ *
+ * Everything below is measurement, not app. It exists so the checker
+ * exercises the SAME solver the page runs rather than a copy of it,
+ * which is the only kind of check worth writing.
+ * ------------------------------------------------------------------ */
+window.__linen = {
+  app, World, PRESETS, buildGrid,
+  get world(){ return app.world; },
+  load(name, seed){ const w = load(name, seed); syncPresetButtons(); return w; },
+  setRunning,
+  stepFrames(n, dt){ for (let k = 0; k < (n | 0); k++) stepOnce(dt || 1 / 60); },
+  draw,
+
+  stats(){
+    const w = app.world;
+    return {
+      particles: w.n, links: w.m, alive: w.aliveLinks(), torn: w.torn,
+      maxStretch: w.maxStretch(), momentum: w.momentum(),
+      solver: w.solver, substeps: w.substeps, compliance: w.compliance,
+      wind: w.wind, com: this.centreOfMass()
+    };
+  },
+
+  centreOfMass(list){
+    const w = app.world;
+    let mx = 0, my = 0, mz = 0, tm = 0;
+    const push = i => {
+      const m = w.w[i] === 0 ? 1 : 1 / w.w[i];
+      mx += m * w.x[i]; my += m * w.y[i]; mz += m * w.z[i]; tm += m;
+    };
+    if (list) list.forEach(push); else for (let i = 0; i < w.n; i++) push(i);
+    return { x: mx / tm, y: my / tm, z: mz / tm };
+  },
+
+  /* Union find over the surviving links. The app has no idea the cloth is
+   * a graph. This is a second opinion about what a cut actually did. */
+  components(){
+    const w = app.world;
+    const parent = new Array(w.n);
+    for (let i = 0; i < w.n; i++) parent[i] = i;
+    const find = a => { while (parent[a] !== a){ parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+    for (let c = 0; c < w.m; c++){
+      if (!w.calive[c]) continue;
+      const a = find(w.ci[c]), b = find(w.cj[c]);
+      if (a !== b) parent[a] = b;
+    }
+    const groups = new Map();
+    for (let i = 0; i < w.n; i++){
+      const r = find(i);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(i);
+    }
+    return [...groups.values()]
+      .map(ids => ({ size: ids.length, ids, com: this.centreOfMass(ids),
+                     pinned: ids.some(i => w.w[i] === 0) }))
+      .sort((a, b) => b.size - a.size);
+  },
+
+  positions(){
+    const w = app.world, out = [];
+    for (let i = 0; i < w.n; i++) out.push(w.x[i], w.y[i], w.z[i]);
+    return out;
+  },
+
+  cut(x0, y0, x1, y1){ return app.world.cut(x0, y0, x1, y1); },
+
+  /* where a particle currently sits in CSS pixels, so the UI suite can aim
+   * a real pointer at a real piece of cloth rather than at a guess */
+  screenOf(i){
+    const w = app.world;
+    return { x: sx(w.x[i], w.y[i], w.z[i]), y: sy(w.y[i], w.z[i]) };
+  },
+  worldOf(px, py){ return unproject(px, py); },
+
+  /* a cheap read of what is actually painted: distinct colours and a hash,
+   * sampled on a grid so it is stable across device pixel ratios */
+  canvasFingerprint(){
+    const c = document.getElementById("stage");
+    const g = c.getContext("2d");
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    const colours = new Set();
+    let h = 2166136261 >>> 0, lit = 0;
+    for (let i = 0; i < d.length; i += 4 * 401){
+      const key = `${d[i]},${d[i + 1]},${d[i + 2]}`;
+      colours.add(key);
+      if (d[i] + d[i + 1] + d[i + 2] > 120) lit++;
+      h ^= d[i] + 7 * d[i + 1] + 13 * d[i + 2];
+      h = Math.imul(h, 16777619);
+    }
+    return { colours: colours.size, lit, hash: (h >>> 0).toString(16) };
+  },
+
+  /* One particle of mass m hanging from a pin by one constraint. The closed
+   * form m * g * alpha comes from the constraint formulation and is computed
+   * nowhere in the solver, so it is an independent source and not a mirror. */
+  hangTest(o){
+    const opts = Object.assign({
+      alpha: 1e-3, substeps: 8, solver: "xpbd", mass: 1, rest: 0.5,
+      seconds: 10, damping: 2, pbdStiffness: 0.05,
+      scaleComplianceByDt: true, splitByInverseMass: true
+    }, o || {});
+    const w = new World();
+    w.gravity = 9.81;
+    w.damping = opts.damping;
+    w.substeps = opts.substeps;
+    w.solver = opts.solver;
+    w.compliance = opts.alpha;
+    w.pbdStiffness = opts.pbdStiffness;
+    w.scaleComplianceByDt = opts.scaleComplianceByDt;
+    w.splitByInverseMass = opts.splitByInverseMass;
+    const a = w.addParticle(0, 0, 0, 0);
+    const b = w.addParticle(0, opts.rest, 0, 1 / opts.mass);
+    w.addConstraint(a, b, 1);
+    const frames = Math.round(opts.seconds * 60);
+    for (let k = 0; k < frames; k++) w.step(1 / 60);
+    const len = w.y[b] - w.y[a];
+    return {
+      extension: len - opts.rest,
+      predicted: opts.mass * w.gravity * opts.alpha,
+      length: len, rest: opts.rest, substeps: opts.substeps, solver: opts.solver
+    };
+  },
+
+  /* A free cloth with mixed masses, no gravity and no damping. Distance
+   * constraints are internal forces, so total linear momentum must not move. */
+  momentumTest(o){
+    const opts = Object.assign({ frames: 600, heavy: 5, splitByInverseMass: true }, o || {});
+    const w = new World();
+    w.gravity = 0; w.damping = 0; w.wind = 0; w.substeps = 8;
+    w.splitByInverseMass = opts.splitByInverseMass;
+    buildGrid(w, { cols: 12, rows: 12, cell: 0.1, ox: 1, oy: 1, mass: 0.05 });
+    w.w[0] = 1 / opts.heavy; w.w0[0] = w.w[0];
+    w.w[11] = 1 / (opts.heavy * 0.5); w.w0[11] = w.w[11];
+    for (let i = 0; i < w.n; i++){
+      w.vx[i] = 0.8 - 0.06 * (i % 7);
+      w.vy[i] = -0.4 + 0.03 * (i % 5);
+      w.vz[i] = 0.2 - 0.05 * (i % 3);
+    }
+    const p0 = w.momentum();
+    for (let k = 0; k < opts.frames; k++) w.step(1 / 60);
+    const p1 = w.momentum();
+    const mag = Math.hypot(p0.x, p0.y, p0.z);
+    return { before: p0, after: p1, relDrift: Math.hypot(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z) / mag };
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * 5. boot
+ * ------------------------------------------------------------------ */
+setup();
+load(Q.get("preset") || (PREVIEW && Q.get("preview") !== "1" ? Q.get("preview") : "flag"), "linen");
+syncPresetButtons();
+// Push every slider's position into the freshly built world so the controls
+// and the cloth cannot disagree at boot. They stay in step after that,
+// because load() carries the settings across a preset change.
+for (const id of ["wind", "slack", "tear", "sub"])
+  document.getElementById(id).dispatchEvent(new Event("input"));
+
+if (PREVIEW){
+  // The storybook index frames this page as a still. Deterministic: the
+  // same query string always paints the same picture.
+  document.body.classList.add("preview");
+  const w = app.world;
+  w.wind = +(Q.get("wind") || 6.4);
+  app.running = false;
+  const steps = +(Q.get("steps") || 320);
+  for (let k = 0; k < steps; k++) stepOnce(1 / 60);
+  frameCloth(+(Q.get("margin") || 0.06));
+  draw();
+} else {
+  setRunning(true);
+  paintStats();
+}
+</script>
+</body>
+</html>

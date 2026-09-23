@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<!--
+  SWAY - a rope and cloth sandbox you can grab, cut, pin and blow around.
+  Playground build, 2026-09-13. Self-contained: one file, no dependencies, opens offline.
+
+  WHAT IT IS
+  Four hanging things (a curtain, a rope bridge, a row of chandelier chains, a net holding a
+  ball) simulated with XPBD, extended position based dynamics. Drag any part of them, cut
+  threads with the blade, pin and unpin points, throw a gust of wind at the lot. Turn on stress
+  colouring and the threads light up with how hard they are pulling.
+
+  WHY I BUILT IT
+  Every previous playground build was "explain a mechanism by making it steppable", and the log
+  said out loud that this had become a house style worth breaking. So this one is a toy first.
+  But it is built on the one thing in cloth simulation I could describe and had never written:
+  compliance in real units.
+
+  WHAT IT TAUGHT ME
+  Naive position based dynamics takes a stiffness between 0 and 1 and applies that fraction of
+  the correction per iteration. That makes the stiffness of a rope a function of how many
+  solver iterations you happened to run, which is why every naive cloth demo has a magic number
+  in it and why turning the quality up changes what the fabric is made of. XPBD replaces that
+  with a compliance alpha in metres per newton, which is 1/k for a real spring, and divides it
+  by dt squared inside the solver.
+
+  I went in believing the usual summary of that: stiffness stops being a solver setting and
+  becomes a property of the material. I wrote that down as a prediction, measured it, and it is
+  WRONG as stated. With one Gauss-Seidel sweep per substep, a ten link chain at 4 substeps
+  hangs 282 percent stretchier than its own material says it should. The compliance is not
+  self-enforcing.
+
+  What is true is better, and it took a measurement to find:
+
+    * The error is a CONVERGENCE error and it dies as the square of the substep size. Every
+      doubling of the substeps divides it by 4.00, measured across seven doublings from 2 to
+      256 substeps. Iterations buy the same thing: 4 substeps with 16 sweeps lands within 0.3
+      percent, same as 64 substeps with one.
+    * It grows with the DISTANCE across the constraint graph, because Gauss-Seidel moves news
+      one link per sweep. A single link is exact at any substep count. Two links is 7 percent
+      off, ten links 17.6, twenty links 19.5.
+    * The real difference from naive PBD is not that XPBD is settings-independent. Both of them
+      converge, at the same second order rate. The difference is WHERE. XPBD converges on the
+      material's own answer. Naive PBD converges on a rigid rod: 4.73 mm of stretch at 16
+      substeps, 0.0012 mm at 1024, heading for zero no matter what material you asked for.
+    * The exact one link case caught something else. It settles 0.104 percent under the statics
+      value, and that is not noise: it is exp(-damping * h), the velocity damping taking its
+      cut of the gravity impulse inside the same substep. Predicted in closed form afterwards
+      and matched to four figures.
+
+  So the honest version of the claim is that XPBD gives you a knob that converges to the right
+  answer, not a knob that is always right. The Measure panel runs that whole argument in front
+  of you against statics the simulator does not contain, and ../_verify/ has the receipts plus
+  the predictions written down before any of it was measured.
+
+  AND THEN THE SECOND LESSON, WHICH COST THE WHOLE NIGHT
+  All of the above is about a chain, where the solver is merely inaccurate. On a sheet it is
+  worse than inaccurate. One sweep is well behaved while alpha/(dt^2 * w) is somewhere near 1
+  and degenerates into a hard projection as that ratio falls to zero, and a grid of hard
+  projections where every particle is pulled by eight of them at once does not converge, it
+  oscillates. My first curtain had that ratio at 0.0001. A ONE PERCENT nudge on the starting
+  positions took it to 136 m/s and 226 percent strain, and the sheet crumpled into a band a
+  quarter of its height.
+  Two fixes, both here: every scene now carries its own compliance in the well conditioned
+  band (a gram of fabric and a ninety gram plank cannot share one number), and the solver
+  under-relaxes on the cloth scenes. What made it expensive is that I spent four rounds
+  blaming the thing I had just changed, when the answer was one bisection away the whole time.
+
+  The other half of that: it passed every check I had. The colour counter saw 2,263 colours,
+  the strain assertions passed, the stability run passed, and the picture was a wreck, because
+  nothing was looking at the SHAPE. check_sway_ui.js now measures it, and a negative control
+  proves that check fails on the exact build that caused this.
+
+  CONTROLS
+  1-4 scenes, G grab, C cut, P pin, W wind gust, S stress colours, R reset, M measure, H help.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sway</title>
+<style>
+  :root {
+    --bg: #0b0f16; --panel: rgba(19,25,34,0.92); --line: #2a3441;
+    --ink: #e6edf3; --dim: #8b98a8; --accent: #5fd3c4; --warm: #f0a05a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px; overflow: hidden;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+  .chip {
+    position: fixed; top: 14px; left: 16px; z-index: 5;
+    font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--dim); pointer-events: none;
+  }
+  .chip b { color: var(--ink); letter-spacing: 0.24em; font-weight: 700; }
+  .chip span { color: var(--accent); }
+
+  #bar {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; z-index: 6;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 14px; backdrop-filter: blur(6px); max-width: calc(100vw - 24px);
+  }
+  .group { display: flex; gap: 6px; align-items: center; }
+  .group + .group { border-left: 1px solid var(--line); padding-left: 14px; }
+  button {
+    font: inherit; font-size: 12.5px; color: var(--dim); background: #1a2230;
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer;
+  }
+  button:hover { color: var(--ink); border-color: #3d4a5c; }
+  button[aria-pressed="true"] { color: #0b0f16; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  button kbd { font: inherit; font-size: 10px; opacity: 0.65; margin-left: 4px; }
+  label.slider { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px;
+                 text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); }
+  label.slider input { width: 92px; accent-color: var(--accent); }
+  label.slider b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .panel {
+    position: fixed; z-index: 7; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px; backdrop-filter: blur(6px);
+    max-height: calc(100vh - 40px); overflow: auto;
+  }
+  #measure { top: 20px; right: 20px; width: min(430px, calc(100vw - 40px)); }
+  #help { top: 20px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 40px)); }
+  .panel h2 { margin: 0 0 4px; font-size: 15px; }
+  .panel h3 { margin: 14px 0 4px; font-size: 11px; text-transform: uppercase;
+              letter-spacing: 0.09em; color: var(--dim); }
+  .panel p { margin: 0 0 8px; color: var(--dim); font-size: 12.5px; line-height: 1.5; }
+  .panel .close { position: absolute; top: 10px; right: 12px; padding: 2px 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 4px; }
+  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line);
+           font-variant-numeric: tabular-nums; }
+  th { color: var(--dim); font-weight: 600; font-size: 10.5px; text-transform: uppercase;
+       letter-spacing: 0.06em; }
+  td.pass { color: var(--accent); font-weight: 600; }
+  td.fail { color: #ff6b6b; font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         background: #1a2230; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12.5px;
+          color: var(--dim); }
+  .keys b { color: var(--ink); font-weight: 600; }
+  [hidden] { display: none !important; }
+
+  /* Preview mode: the storybook card shows the toy running with its chrome out of the way. */
+  html.preview .chip, html.preview #bar, html.preview .panel { display: none !important; }
+  html.preview canvas { cursor: default; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+
+<div class="chip"><b>Sway</b> <span>/</span> <span id="sceneName">curtain</span></div>
+
+<div id="bar">
+  <div class="group" id="scenes"></div>
+  <div class="group" id="tools"></div>
+  <div class="group">
+    <label class="slider">softness <b id="softVal">1.0x</b>
+      <input id="soft" type="range" min="0" max="100" value="50"></label>
+    <label class="slider">wind <b id="windVal">0</b>
+      <input id="wind" type="range" min="0" max="100" value="0"></label>
+    <label class="slider">substeps <b id="subVal">12</b>
+      <input id="sub" type="range" min="1" max="48" value="12"></label>
+    <label class="slider">tear <b id="tearVal">off</b>
+      <input id="tear" type="range" min="0" max="100" value="0"></label>
+  </div>
+  <div class="group">
+    <button id="gust">Gust<kbd>W</kbd></button>
+    <button id="stress" aria-pressed="false">Stress<kbd>S</kbd></button>
+    <button id="reset">Reset<kbd>R</kbd></button>
+    <button id="measureBtn">Measure<kbd>M</kbd></button>
+    <button id="helpBtn">?<kbd>H</kbd></button>
+  </div>
+</div>
+
+<div class="panel" id="measure" hidden>
+  <button class="close" data-close="measure">close</button>
+  <h2>Is the softness a material, or a solver setting?</h2>
+  <p>A ten link chain, 1.0 m of rest length, hung from a pin. Statics says a chain of
+  <code>N</code> segments with compliance <code>alpha</code> stretches by
+  <code>alpha &middot; m &middot; g &middot; N(N+1)/2</code>. The simulator has never heard of
+  that formula. Everything below is measured off the settled chain, live, right now.</p>
+  <div id="measureOut"><p>Running...</p></div>
+</div>
+
+<div class="panel" id="help" hidden>
+  <button class="close" data-close="help">close</button>
+  <h2>Sway</h2>
+  <p>Grab anything and throw it. Cut threads with the blade. Pin a point to hang it in the air,
+  or unpin one to drop it. The ball in the curtain and net scenes is draggable.</p>
+  <h3>Keys</h3>
+  <div class="keys">
+    <b>1 2 3 4</b><span>curtain, bridge, chandelier, net</span>
+    <b>G</b><span>grab tool</span>
+    <b>C</b><span>cut tool</span>
+    <b>P</b><span>pin tool</span>
+    <b>W</b><span>gust of wind</span>
+    <b>S</b><span>stress colours</span>
+    <b>R</b><span>reset the scene</span>
+    <b>M</b><span>measure panel</span>
+    <b>H</b><span>this</span>
+  </div>
+  <h3>The knobs</h3>
+  <p><b>Softness</b> is the compliance, in real units: 0 is a rigid rod, the top of the range is
+  a rubber band. <b>Substeps</b> is solver quality, and it is not an innocent knob. At 8
+  substeps a ten link chain hangs about 70 percent stretchier than the material you asked for,
+  because one solver sweep only carries news one link along the rope. Turn substeps up and the
+  fabric visibly firms up toward the number the softness slider actually promised. Press
+  Measure to watch that tested against statics, live.</p>
+</div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Physics: XPBD (Macklin, Muller, Chentanez, Kim 2016) with small substeps.
+//
+// The whole idea in one line: a distance constraint gets a compliance alpha in
+// metres per newton, which for a real spring is 1/k, and the solver divides it
+// by the substep dt squared. That makes the stiffness a material property
+// rather than a solver setting.
+// ---------------------------------------------------------------------------
+
+const G = 9.81;                       // m/s^2, world is metres, kilograms, seconds
+
+function makeWorld() {
+  return { particles: [], constraints: [], obstacle: null, bounds: null, cells: [], style: {} };
+}
+
+function addParticle(w, x, y, mass, pinned) {
+  w.particles.push({
+    x, y, px: x, py: y, vx: 0, vy: 0,
+    w: pinned ? 0 : 1 / mass, mass, pinned: !!pinned
+  });
+  return w.particles.length - 1;
+}
+
+function addConstraint(w, a, b, alpha, rest) {
+  const pa = w.particles[a], pb = w.particles[b];
+  w.constraints.push({
+    a, b, alpha,
+    rest: rest === undefined ? Math.hypot(pa.x - pb.x, pa.y - pb.y) : rest,
+    lambda: 0, dead: false
+  });
+  return w.constraints.length - 1;
+}
+
+// One Gauss-Seidel sweep over the distance constraints.
+// mode "xpbd": compliance in physical units, lambda accumulated within the substep.
+// mode "pbd" : the naive version, a stiffness between 0 and 1 applied per iteration.
+// mode "xpbd-nodt": NEGATIVE CONTROL, uses alpha without dividing by dt^2.
+// mode "pbd-hard" : NEGATIVE CONTROL, XPBD with the compliance term dropped.
+function solveConstraints(w, h, mode, stiffness) {
+  const P = w.particles, C = w.constraints;
+  // Under-relaxation. A particle in a cloth grid is touched by up to eight constraints in
+  // one sweep, and each correction is computed as though it were the only one, so the
+  // particle can be moved several times further than its own error. See RESULTS.md.
+  const relax = w.relax === undefined ? 1 : w.relax;
+  for (let i = 0; i < C.length; i++) {
+    const c = C[i];
+    if (c.dead) continue;
+    const a = P[c.a], b = P[c.b];
+    const wsum = a.w + b.w;
+    if (wsum === 0) continue;
+    const dx = a.x - b.x, dy = a.y - b.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < 1e-12) continue;
+    const err = d - c.rest;
+    const nx = dx / d, ny = dy / d;
+    let s;
+    if (mode === "pbd") {
+      s = (-err / wsum) * stiffness;
+    } else if (mode === "pbd-hard") {
+      s = -err / wsum;
+    } else {
+      const at = mode === "xpbd-nodt" ? c.alpha : c.alpha / (h * h);
+      const dl = (-err - at * c.lambda) / (wsum + at);
+      c.lambda += dl;
+      s = dl;
+    }
+    const sr = s * relax;
+    a.x += a.w * sr * nx;  a.y += a.w * sr * ny;
+    b.x -= b.w * sr * nx;  b.y -= b.w * sr * ny;
+  }
+}
+
+const DEFAULTS = {
+  substeps: 12, iterations: 1, gravity: G, damping: 0.35, wind: 0, windY: 0,
+  mode: "xpbd", stiffness: 0.2, tear: 0, grab: null, floor: true
+};
+
+function step(w, dt, optsIn) {
+  const o = Object.assign({}, DEFAULTS, optsIn || {});
+  const n = Math.max(1, o.substeps | 0);
+  const h = dt / n;
+  const P = w.particles;
+  const damp = Math.exp(-o.damping * h);
+
+  for (let s = 0; s < n; s++) {
+    const ob = w.obstacle;
+    if (ob) {
+      ob.px = ob.x; ob.py = ob.y;
+      if (o.ballGrab) { ob.x = o.ballGrab.x; ob.y = o.ballGrab.y; }
+      else if (ob.w > 0) {
+        ob.vy += h * o.gravity;
+        ob.vx *= damp; ob.vy *= damp;
+        ob.x += h * ob.vx; ob.y += h * ob.vy;
+      }
+    }
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i];
+      p.px = p.x; p.py = p.y;
+      if (p.w === 0) continue;
+      p.vy += h * o.gravity;
+      if (o.wind) p.vx += h * o.wind * p.w;
+      if (o.windY) p.vy += h * o.windY * p.w;
+      p.vx *= damp; p.vy *= damp;
+      p.x += h * p.vx; p.y += h * p.vy;
+    }
+
+    if (o.mode === "xpbd" || o.mode === "xpbd-nodt") {
+      const C = w.constraints;
+      for (let i = 0; i < C.length; i++) C[i].lambda = 0;
+    }
+    for (let it = 0; it < o.iterations; it++) solveConstraints(w, h, o.mode, o.stiffness);
+
+    // Grab: pull the held particle toward the cursor by moving its POSITION, so the
+    // velocity write-back below turns a drag into a throw with no extra bookkeeping.
+    if (o.grab && o.grab.index >= 0) {
+      const p = P[o.grab.index];
+      if (p.w > 0) {
+        p.x += (o.grab.x - p.x) * 0.35;
+        p.y += (o.grab.y - p.y) * 0.35;
+      }
+    }
+
+    // The ball is a body, not a hole in the world: overlaps are resolved by moving BOTH
+    // sides in proportion to inverse mass, so a net full of ball actually holds it up.
+    // The per-substep cap stops a fast drag from teleporting the ball through a sheet and
+    // firing everything it passed out the far side, which is what the first version did.
+    if (w.obstacle) {
+      const ob = w.obstacle;
+      const MAXPUSH = 0.05;
+      const obw = o.ballGrab ? 0 : ob.w;      // a held ball is kinematic
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i];
+        if (p.w === 0) continue;
+        const dx = p.x - ob.x, dy = p.y - ob.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < ob.r && d > 1e-9) {
+          const pen = Math.min(ob.r - d, MAXPUSH);
+          const nx = dx / d, ny = dy / d;
+          const wsum = p.w + obw;
+          if (wsum <= 0) continue;
+          const sp = pen * (p.w / wsum), sb = pen * (obw / wsum);
+          p.x += nx * sp; p.y += ny * sp;
+          ob.x -= nx * sb; ob.y -= ny * sb;
+        }
+      }
+    }
+
+    if (o.floor && w.bounds) {
+      const B = w.bounds;
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i];
+        if (p.w === 0) continue;
+        if (p.y > B.bottom) { p.y = B.bottom; p.x = p.px + (p.x - p.px) * 0.72; }
+        if (p.x < B.left) p.x = B.left;
+        if (p.x > B.right) p.x = B.right;
+      }
+      if (w.obstacle && w.obstacle.w > 0) {
+        const ob = w.obstacle;
+        if (ob.y + ob.r > B.bottom) { ob.y = B.bottom - ob.r; ob.x = ob.px + (ob.x - ob.px) * 0.9; }
+        ob.x = Math.max(B.left + ob.r, Math.min(B.right - ob.r, ob.x));
+      }
+    }
+
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i];
+      if (p.w === 0) { p.vx = 0; p.vy = 0; continue; }
+      p.vx = (p.x - p.px) / h;
+      p.vy = (p.y - p.py) / h;
+    }
+    if (w.obstacle) {
+      const ob = w.obstacle;
+      ob.vx = (ob.x - ob.px) / h;
+      ob.vy = (ob.y - ob.py) / h;
+    }
+  }
+
+  // Tearing is judged once per frame on the finished state, never mid-sweep.
+  if (o.tear > 0) {
+    const C = w.constraints, Pp = w.particles;
+    for (let i = 0; i < C.length; i++) {
+      const c = C[i];
+      if (c.dead) continue;
+      const a = Pp[c.a], b = Pp[c.b];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if ((d - c.rest) / c.rest > o.tear) c.dead = true;
+    }
+  }
+}
+
+// --- rigs used by the Measure panel and by the checkers -------------------
+
+function makeChain(cfg) {
+  const n = cfg.n, L0 = cfg.L0, mass = cfg.mass, alpha = cfg.alpha;
+  const w = makeWorld();
+  addParticle(w, 0, 0, mass, true);
+  for (let i = 1; i <= n; i++) addParticle(w, 0, i * L0, mass, false);
+  for (let i = 0; i < n; i++) addConstraint(w, i, i + 1, alpha, L0);
+  return w;
+}
+
+function chainLength(w) {
+  let total = 0;
+  for (const c of w.constraints) {
+    if (c.dead) continue;
+    const a = w.particles[c.a], b = w.particles[c.b];
+    total += Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  return total;
+}
+
+function segmentExtensions(w) {
+  return w.constraints.filter(c => !c.dead).map(c => {
+    const a = w.particles[c.a], b = w.particles[c.b];
+    return Math.hypot(a.x - b.x, a.y - b.y) - c.rest;
+  });
+}
+
+function settle(w, seconds, opts) {
+  const dt = 1 / 60, frames = Math.round(seconds * 60);
+  for (let i = 0; i < frames; i++) step(w, dt, opts);
+  return w;
+}
+
+function makePendulum(cfg) {
+  const w = makeWorld();
+  addParticle(w, 0, 0, cfg.mass, true);
+  const th = cfg.theta0;
+  addParticle(w, Math.sin(th) * cfg.L, Math.cos(th) * cfg.L, cfg.mass, false);
+  addConstraint(w, 0, 1, cfg.alpha, cfg.L);
+  return w;
+}
+
+// Period from sign changes of the bob's x position, measured off the trajectory.
+// Half periods are averaged and doubled, so a slow drift cannot hide in one crossing.
+function measurePeriod(w, seconds, opts) {
+  const dt = 1 / 240, frames = Math.round(seconds / dt);
+  const crossings = [];
+  let prevX = w.particles[1].x, t = 0;
+  for (let i = 0; i < frames; i++) {
+    step(w, dt, opts);
+    t += dt;
+    const x = w.particles[1].x;
+    if ((prevX > 0 && x <= 0) || (prevX < 0 && x >= 0)) {
+      // linear interpolation onto the zero crossing
+      const frac = prevX / (prevX - x);
+      crossings.push(t - dt + frac * dt);
+    }
+    prevX = x;
+  }
+  if (crossings.length < 3) return { period: NaN, crossings: crossings.length };
+  let sum = 0;
+  for (let i = 1; i < crossings.length; i++) sum += crossings[i] - crossings[i - 1];
+  return { period: 2 * sum / (crossings.length - 1), crossings: crossings.length };
+}
+
+// ---------------------------------------------------------------------------
+// Scenes
+// ---------------------------------------------------------------------------
+
+// Deterministic noise so a preview frame and a checker run agree with each other.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const WORLD_H = 2.6;                  // metres, top to bottom of the view
+
+function makeBall(x, y, r, mass) {
+  return { x, y, px: x, py: y, vx: 0, vy: 0, r, mass, w: 1 / mass };
+}
+
+function sceneBounds(aspect) {
+  const wWidth = WORLD_H * aspect;
+  // The floor sits well above the bottom edge, because the bottom edge of the window is
+  // behind the toolbar and a ball that rolls under the controls is a ball nobody can find.
+  return { left: 0.05, right: wWidth - 0.05, bottom: WORLD_H - 0.42, width: wWidth };
+}
+
+function buildCurtain(aspect, alpha) {
+  const w = makeWorld();
+  const B = sceneBounds(aspect);
+  w.bounds = B;
+  const cols = 26, rows = 20;
+  const spanX = Math.min(B.width * 0.62, 2.1);
+  const gx = spanX / (cols - 1), gy = gx;
+  const x0 = (B.width - spanX) / 2, y0 = 0.14;
+  // GATHER IS 1.0, AND THAT IS THE FINDING, NOT AN OVERSIGHT. Real curtains drape because
+  // the rail is shorter than the cloth, so I gathered the pinned points by 11 percent and
+  // the sheet crumpled into a band a quarter of its height. Backing off to 6 percent, then
+  // 3, then adding bend constraints, each got a prettier crumple. The measurement that
+  // ended it: parts of the sheet were climbing ABOVE the rail, to y = -0.6, which is a
+  // solver injecting energy rather than fabric folding. Slack needs a converged solve to
+  // hold it up and a 520 particle sheet at 12 substeps does not have one. So this curtain
+  // hangs taut, and the movement comes from wind, hands and scissors instead.
+  // The whole episode is in _verify/RESULTS.md.
+  // 3 percent of gather, not the 11 the first version tried. Slack is only free if the
+  // solver has converged enough to hold the sheet up, and at the default substeps it has
+  // not: 6 percent of gather crushes the curtain to 80 percent of its height, and 11
+  // percent turns it into a crumpled band. Measured in _verify/RESULTS.md.
+  const gather = 1.0, rnd = mulberry32(7301);
+  // About 0.4 kg of fabric across the whole sheet. The first version hung 7 kg of it and
+  // the storybook card came back looking like a road accident, which is in RESULTS.md.
+  const mass = 0.0012;
+  const idx = (r, c) => r * cols + c;
+  const mid = x0 + spanX / 2;
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      const pinned = r === 0 && c % 4 === 0;
+      const flat = x0 + c * gx;
+      const x = pinned ? mid + (flat - mid) * gather : flat + (rnd() - 0.5) * gx * 0.02;
+      addParticle(w, x, y0 + r * gy, mass, pinned);
+    }
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      // Woven fabric is very stiff in plane, so the cloth scenes take a fraction of the
+      // slider's compliance. The shear pair is deliberately softer, otherwise a grid of
+      // distance constraints folds flat like a hinge and the sheet has no drape.
+      // Rest lengths come from the UNJITTERED grid, so the gather at the rail and the
+      // jitter are real slack in the cloth rather than something baked into the material.
+      const diag = Math.hypot(gx, gy);
+      if (c < cols - 1) addConstraint(w, idx(r, c), idx(r, c + 1), 5e-4 * alpha, gx);
+      if (r < rows - 1) addConstraint(w, idx(r, c), idx(r + 1, c), 5e-4 * alpha, gy);
+      if (r < rows - 1 && c < cols - 1) {
+        addConstraint(w, idx(r, c), idx(r + 1, c + 1), 2e-3 * alpha, diag);
+        addConstraint(w, idx(r, c + 1), idx(r + 1, c), 2e-3 * alpha, diag);
+      }
+      // NO BEND CONSTRAINTS, and that is measured rather than assumed. Adding them (span
+      // two cells, rest 2*gx) is the textbook way to give cloth resistance to folding,
+      // and here it made the sheet WORSE in every configuration I tried: 1.63 m of height
+      // without them, 1.52, 1.51 and 1.28 with them. More constraints means each sweep of
+      // a one-sweep solve gets through a smaller fraction of the system, so the cure cost
+      // more convergence than the disease. They belong here at 40 substeps, not at 12.
+    }
+  w.cells = [];
+  for (let r = 0; r < rows - 1; r++)
+    for (let c = 0; c < cols - 1; c++)
+      w.cells.push([idx(r, c), idx(r, c + 1), idx(r + 1, c + 1), idx(r + 1, c)]);
+  w.restArea = gx * gy;      // carried, not hardcoded, so the shading follows the grid
+  w.relax = 0.6;             // eight constraints per particle, one sweep: see RESULTS.md
+  w.damping = 0.5;
+  // The ball starts on the floor, clear of the sheet. Drag it into the curtain.
+  // Building it INSIDE the fabric is what produced the 66x strain on frame one.
+  w.obstacle = makeBall(B.left + 0.5, B.bottom - 0.2, 0.2, 1.4);
+  w.style = { kind: "cloth", hue: 172, thread: "rgba(120,220,205,0.30)" };
+  return w;
+}
+
+function buildBridge(aspect, alpha) {
+  const w = makeWorld();
+  const B = sceneBounds(aspect);
+  w.bounds = B;
+  const n = 34;
+  const x0 = B.width * 0.10, x1 = B.width * 0.90, y = 0.55;
+  const gx = (x1 - x0) / (n - 1);
+  const top = [], deck = [];
+  for (let i = 0; i < n; i++) {
+    const pin = i === 0 || i === n - 1;
+    top.push(addParticle(w, x0 + i * gx, y, 0.05, pin));
+  }
+  for (let i = 0; i < n; i++) {
+    const pin = i === 0 || i === n - 1;
+    deck.push(addParticle(w, x0 + i * gx, y + 0.34, 0.09, pin));
+  }
+  for (let i = 0; i < n - 1; i++) {
+    w.constraints[addConstraint(w, top[i], top[i + 1], 1.2e-5 * alpha)].kind = "cable";
+    w.constraints[addConstraint(w, deck[i], deck[i + 1], 1.2e-5 * alpha)].kind = "deck";
+  }
+  for (let i = 0; i < n; i++) {
+    w.constraints[addConstraint(w, top[i], deck[i], 6e-5 * alpha)].kind = "hanger";
+  }
+  w.damping = 0.25;
+  w.style = {
+    kind: "rope", hue: 30, width: 2.2, thread: "rgba(240,170,110,0.8)",
+    widths: { deck: 5.5, cable: 2.6, hanger: 1.2 },
+    colours: { deck: "rgba(226,164,96,0.95)", cable: "rgba(245,196,150,0.9)",
+               hanger: "rgba(180,140,110,0.55)" }
+  };
+  return w;
+}
+
+// A pendulum wave. Nine pendulums whose lengths are chosen so that in one 45 second
+// cycle the k-th of them makes exactly (18 + k) swings: L = g * (T / 2pi)^2. Released
+// together, they slide out of phase, pass through every pattern a pendulum wave makes,
+// and come back together at the end of the cycle.
+//
+// It is a design, so it is also a prediction, and check_sway.js measures all nine periods
+// off the motion and holds them against the numbers that generated the lengths.
+const WAVE = { cycle: 45, firstCount: 18, strands: 9, angle: 15 * Math.PI / 180 };
+
+function waveLength(k) {
+  const T = WAVE.cycle / (WAVE.firstCount + k);
+  return G * Math.pow(T / (2 * Math.PI), 2);
+}
+
+function buildChandelier(aspect, alpha) {
+  const w = makeWorld();
+  const B = sceneBounds(aspect);
+  w.bounds = B;
+  w.damping = 0.012;                 // a chandelier that stops moving is furniture
+  const top = 0.12, links = 12;
+  for (let s = 0; s < WAVE.strands; s++) {
+    const x = B.width * (0.5 + (s - (WAVE.strands - 1) / 2) * 0.082);
+    const L = waveLength(s);
+    const seg = L / links;
+    // released from the same ANGLE, which is what puts them in phase at t = 0
+    const dx = Math.sin(WAVE.angle), dy = Math.cos(WAVE.angle);
+    let prev = addParticle(w, x, top, 1, true);
+    for (let i = 1; i <= links; i++) {
+      const heavy = i === links;
+      const id = addParticle(w, x + dx * seg * i, top + dy * seg * i,
+                             heavy ? 0.35 : 0.0015, false);
+      addConstraint(w, prev, id, 4e-6 * alpha, seg);
+      prev = id;
+    }
+    w.particles[prev].bob = 0.05;
+  }
+  w.style = { kind: "rope", hue: 196, width: 1.5, thread: "rgba(150,200,255,0.75)" };
+  w.caption = "nine pendulums, tuned to fall out of step and back in every 45 seconds";
+  return w;
+}
+
+function buildNet(aspect, alpha) {
+  const w = makeWorld();
+  const B = sceneBounds(aspect);
+  w.bounds = B;
+  const cols = 22, rows = 13;
+  const spanX = Math.min(B.width * 0.74, 2.5);
+  const gx = spanX / (cols - 1), gy = gx * 0.9;
+  const x0 = (B.width - spanX) / 2, y0 = 0.28;
+  const idx = (r, c) => r * cols + c;
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      const corner = (r === 0 && (c === 0 || c === cols - 1)) ||
+                     (r === rows - 1 && (c === 0 || c === cols - 1));
+      const edge = (c === 0 || c === cols - 1) && r % 4 === 0;
+      addParticle(w, x0 + c * gx, y0 + r * gy, 0.004, corner || edge);
+    }
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      if (c < cols - 1) addConstraint(w, idx(r, c), idx(r, c + 1), 6e-4 * alpha);
+      if (r < rows - 1) addConstraint(w, idx(r, c), idx(r + 1, c), 6e-4 * alpha);
+    }
+  w.relax = 0.7;
+  w.damping = 0.45;
+  // Dropped from above the net, so the scene is a net catching a ball rather than a
+  // picture of one. It has mass and it falls; the net has to actually hold it.
+  w.obstacle = makeBall(B.width * 0.5 + 0.18, y0 - 0.46, 0.26, 2.2);
+  w.style = { kind: "net", hue: 150, width: 1.6, thread: "rgba(130,230,190,0.75)" };
+  return w;
+}
+
+const SCENES = {
+  curtain: { label: "Curtain", build: buildCurtain },
+  bridge: { label: "Bridge", build: buildBridge },
+  chandelier: { label: "Chandelier", build: buildChandelier },
+  net: { label: "Net", build: buildNet }
+};
+
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d", { alpha: false });
+const params = new URLSearchParams(location.search);
+const PREVIEW = params.has("preview");
+
+const state = {
+  scene: "curtain",
+  tool: "grab",
+  softness: 50,          // slider 0..100, a multiplier on each scene's own compliance
+  windLevel: 0,
+  substeps: 12,
+  tear: 0,
+  stress: false,
+  gust: 0,
+  rng: mulberry32(20260913),
+  t: 0,
+  world: null,
+  dragging: null,
+  pointer: { x: 0, y: 0, active: false },
+  lastPointer: { x: 0, y: 0 },
+  view: { scale: 1, ox: 0, oy: 0, aspect: 16 / 9 }
+};
+
+// The softness slider is a MULTIPLIER on each scene's own compliance, not an absolute
+// one. That is not a UI preference, it is the conditioning of the solver: one XPBD sweep
+// is well behaved while alpha/(h^2 * w) is somewhere near 1, and it degenerates into a
+// hard projection as that ratio goes to zero. A cloth particle weighs a gram and a bridge
+// plank weighs ninety, so a single absolute compliance cannot put both in that band. With
+// the first version's numbers the ratio was 0.0001, the sweep was a hard projection, and a
+// one percent nudge blew a 520 particle sheet up to 136 m/s. RESULTS.md has the sweep.
+function compliance(level) {
+  return Math.pow(10, (level - 50) / 25);          // 0.01x .. 1x .. 100x
+}
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth || window.innerWidth;
+  const h = canvas.clientHeight || window.innerHeight;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  state.view.aspect = w / h;
+  state.view.scale = (h * dpr) / WORLD_H;
+  state.view.ox = 0;
+  state.view.oy = 0;
+}
+
+function toScreen(x, y) {
+  return [x * state.view.scale, y * state.view.scale];
+}
+function toWorld(cx, cy) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = canvas.width / rect.width;
+  return [((cx - rect.left) * dpr) / state.view.scale, ((cy - rect.top) * dpr) / state.view.scale];
+}
+
+function rebuild() {
+  state.world = SCENES[state.scene].build(state.view.aspect, compliance(state.softness));
+  state.dragging = null;
+  state.t = 0;
+  const el = document.getElementById("sceneName");
+  if (el) el.textContent = state.scene;
+}
+
+// Changing softness must not throw the scene away, or the slider is useless while
+// something is hanging. Rewrite the compliances in place, keeping each scene's ratios.
+function applySoftness() {
+  const base = compliance(state.softness);
+  const fresh = SCENES[state.scene].build(state.view.aspect, base);
+  const n = Math.min(fresh.constraints.length, state.world.constraints.length);
+  for (let i = 0; i < n; i++) state.world.constraints[i].alpha = fresh.constraints[i].alpha;
+}
+
+function stepOpts() {
+  // Capped at about a third of a g. At a full g the curtain folds through itself, and 2D
+  // cloth with no self-collision and no bending has no way back out of that fold: it stays
+  // creased with a thread reading 70 percent strain. Measured, in RESULTS.md.
+  const windBase = state.windLevel * 0.035;
+  const gustNow = state.gust;
+  const puff = windBase > 0
+    ? windBase * (0.65 + 0.35 * Math.sin(state.t * 2.3) * Math.sin(state.t * 0.7 + 1.1))
+    : 0;
+  return {
+    substeps: state.substeps,
+    damping: state.world.damping === undefined ? 0.35 : state.world.damping,
+    wind: puff + gustNow,
+    windY: (puff + gustNow) * 0.18 * Math.sin(state.t * 3.1),
+    tear: state.tear,
+    grab: state.dragging && state.dragging.kind === "particle"
+      ? { index: state.dragging.index, x: state.pointer.x, y: state.pointer.y }
+      : null,
+    ballGrab: state.dragging && state.dragging.kind === "obstacle"
+      ? { x: state.pointer.x, y: state.pointer.y }
+      : null
+  };
+}
+
+// --- rendering -------------------------------------------------------------
+
+function strainColor(strain) {
+  // teal at rest, amber under load, red near the tearing point
+  const t = Math.max(0, Math.min(1, strain / 0.10));
+  const hue = 172 - 172 * t;
+  const light = 45 + 25 * t;
+  return `hsl(${hue.toFixed(0)} 85% ${light.toFixed(0)}%)`;
+}
+
+function render() {
+  const W = canvas.width, H = canvas.height;
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#0d1320");
+  g.addColorStop(1, "#080b11");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  const w = state.world, P = w.particles, st = w.style;
+  const sc = state.view.scale;
+
+  if (w.bounds) {
+    const fy = w.bounds.bottom * sc;
+    const fg = ctx.createLinearGradient(0, fy, 0, H);
+    fg.addColorStop(0, "rgba(95,211,196,0.13)");
+    fg.addColorStop(1, "rgba(95,211,196,0)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, fy, W, H - fy);
+    ctx.strokeStyle = "rgba(95,211,196,0.22)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, fy); ctx.lineTo(W, fy); ctx.stroke();
+  }
+
+  // cloth quads first, so the threads sit on top of the fabric
+  if (st.kind === "cloth" && w.cells.length) {
+    for (const cell of w.cells) {
+      const a = P[cell[0]], b = P[cell[1]], c = P[cell[2]], d = P[cell[3]];
+      const area = Math.abs((b.x - a.x) * (d.y - a.y) - (d.x - a.x) * (b.y - a.y));
+      const restA = w.restArea || 0.0045;
+      const ratio = Math.max(0.25, Math.min(2.2, area / restA));
+      let light, hue = st.hue, sat = 42;
+      if (state.stress) {
+        const s = Math.max(0, ratio - 1);
+        hue = 172 - 172 * Math.min(1, s * 3);
+        sat = 80; light = 26 + 26 * Math.min(1, s * 3);
+      } else {
+        light = 16 + 20 * Math.min(1.4, ratio);
+      }
+      ctx.fillStyle = `hsl(${hue} ${sat}% ${light.toFixed(1)}%)`;
+      ctx.beginPath();
+      ctx.moveTo(a.x * sc, a.y * sc);
+      ctx.lineTo(b.x * sc, b.y * sc);
+      ctx.lineTo(c.x * sc, c.y * sc);
+      ctx.lineTo(d.x * sc, d.y * sc);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // threads
+  const lw = (st.width || 1.2) * (sc / 420);
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(1, lw);
+  if (state.stress || st.kind !== "cloth") {
+    for (const c of w.constraints) {
+      if (c.dead) continue;
+      const a = P[c.a], b = P[c.b];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const strain = (d - c.rest) / c.rest;
+      ctx.strokeStyle = state.stress ? strainColor(strain)
+        : (st.colours && c.kind ? st.colours[c.kind] : st.thread);
+      ctx.lineWidth = Math.max(1, (st.widths && c.kind ? st.widths[c.kind] : (st.width || 1.2)) * (sc / 420));
+      ctx.beginPath();
+      ctx.moveTo(a.x * sc, a.y * sc);
+      ctx.lineTo(b.x * sc, b.y * sc);
+      ctx.stroke();
+    }
+  } else {
+    ctx.strokeStyle = st.thread;
+    ctx.lineWidth = Math.max(0.6, lw * 0.5);
+    ctx.beginPath();
+    for (const c of w.constraints) {
+      if (c.dead) continue;
+      const a = P[c.a], b = P[c.b];
+      ctx.moveTo(a.x * sc, a.y * sc);
+      ctx.lineTo(b.x * sc, b.y * sc);
+    }
+    ctx.stroke();
+  }
+
+  // obstacle
+  if (w.obstacle) {
+    const ob = w.obstacle;
+    const [ox, oy] = toScreen(ob.x, ob.y);
+    const rad = ob.r * sc;
+    const grd = ctx.createRadialGradient(ox - rad * 0.35, oy - rad * 0.4, rad * 0.1, ox, oy, rad);
+    grd.addColorStop(0, "#f5e0c0");
+    grd.addColorStop(1, "#8a6a4a");
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(ox, oy, rad, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // bobs and pins
+  for (let i = 0; i < P.length; i++) {
+    const p = P[i];
+    if (p.bob) {
+      const [sx, sy] = toScreen(p.x, p.y);
+      const r = p.bob * sc;
+      const grd = ctx.createRadialGradient(sx - r * 0.35, sy - r * 0.4, r * 0.1, sx, sy, r);
+      grd.addColorStop(0, "#ffe9b8");
+      grd.addColorStop(1, "#c08840");
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill();
+    } else if (p.pinned) {
+      const [sx, sy] = toScreen(p.x, p.y);
+      ctx.fillStyle = "#f0a05a";
+      ctx.fillRect(sx - 2.2, sy - 2.2, 4.4, 4.4);
+    }
+  }
+
+  if (state.tool === "cut" && state.pointer.active) {
+    const [sx, sy] = toScreen(state.pointer.x, state.pointer.y);
+    ctx.strokeStyle = "rgba(255,120,120,0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+// --- interaction -----------------------------------------------------------
+
+function nearestParticle(x, y, maxDist) {
+  const P = state.world.particles;
+  let best = -1, bestD = maxDist * maxDist;
+  for (let i = 0; i < P.length; i++) {
+    const dx = P[i].x - x, dy = P[i].y - y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD) { bestD = d2; best = i; }
+  }
+  return best;
+}
+
+function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
+  const s1x = bx - ax, s1y = by - ay, s2x = dx - cx, s2y = dy - cy;
+  const den = -s2x * s1y + s1x * s2y;
+  if (Math.abs(den) < 1e-12) return false;
+  const s = (-s1y * (ax - cx) + s1x * (ay - cy)) / den;
+  const t = (s2x * (ay - cy) - s2y * (ax - cx)) / den;
+  return s >= 0 && s <= 1 && t >= 0 && t <= 1;
+}
+
+function cutAlong(x0, y0, x1, y1) {
+  const w = state.world, P = w.particles;
+  let cut = 0;
+  for (const c of w.constraints) {
+    if (c.dead) continue;
+    const a = P[c.a], b = P[c.b];
+    if (segmentsCross(x0, y0, x1, y1, a.x, a.y, b.x, b.y)) { c.dead = true; cut++; }
+  }
+  return cut;
+}
+
+function pointerDown(x, y) {
+  state.pointer.x = x; state.pointer.y = y; state.pointer.active = true;
+  state.lastPointer.x = x; state.lastPointer.y = y;
+  const w = state.world;
+  if (w.obstacle) {
+    const ob = w.obstacle;
+    if (Math.hypot(ob.x - x, ob.y - y) < ob.r) {
+      state.dragging = { kind: "obstacle" };
+      return;
+    }
+  }
+  if (state.tool === "grab") {
+    const i = nearestParticle(x, y, 0.14);
+    if (i >= 0) state.dragging = { kind: "particle", index: i };
+  } else if (state.tool === "cut") {
+    state.dragging = { kind: "cut" };
+    cutAlong(x - 0.012, y - 0.012, x + 0.012, y + 0.012);
+  } else if (state.tool === "pin") {
+    const i = nearestParticle(x, y, 0.14);
+    if (i >= 0) {
+      const p = w.particles[i];
+      if (p.w === 0) { p.w = 1 / p.mass; p.pinned = false; }
+      else { p.w = 0; p.pinned = true; p.vx = 0; p.vy = 0; }
+    }
+  }
+}
+
+function pointerMove(x, y) {
+  if (state.dragging && state.dragging.kind === "cut") cutAlong(state.pointer.x, state.pointer.y, x, y);
+  // A held ball is moved inside the solver (ballGrab), not here, so that letting go
+  // hands it the velocity of the throw instead of dropping it dead.
+  state.lastPointer.x = state.pointer.x; state.lastPointer.y = state.pointer.y;
+  state.pointer.x = x; state.pointer.y = y;
+}
+
+function pointerUp() {
+  state.dragging = null;
+  state.pointer.active = false;
+}
+
+if (!PREVIEW) {
+  canvas.addEventListener("pointerdown", e => {
+    canvas.setPointerCapture(e.pointerId);
+    const [x, y] = toWorld(e.clientX, e.clientY);
+    pointerDown(x, y);
+  });
+  canvas.addEventListener("pointermove", e => {
+    const [x, y] = toWorld(e.clientX, e.clientY);
+    if (state.pointer.active || state.tool === "cut") pointerMove(x, y);
+    else { state.pointer.x = x; state.pointer.y = y; }
+  });
+  canvas.addEventListener("pointerup", pointerUp);
+  canvas.addEventListener("pointercancel", pointerUp);
+}
+
+// --- chrome ----------------------------------------------------------------
+
+function buildBar() {
+  const sceneBox = document.getElementById("scenes");
+  Object.keys(SCENES).forEach((key, i) => {
+    const b = document.createElement("button");
+    b.innerHTML = `${SCENES[key].label}<kbd>${i + 1}</kbd>`;
+    b.dataset.scene = key;
+    b.setAttribute("aria-pressed", String(key === state.scene));
+    b.addEventListener("click", () => setScene(key));
+    sceneBox.appendChild(b);
+  });
+  const toolBox = document.getElementById("tools");
+  [["grab", "Grab", "G"], ["cut", "Cut", "C"], ["pin", "Pin", "P"]].forEach(([key, label, k]) => {
+    const b = document.createElement("button");
+    b.innerHTML = `${label}<kbd>${k}</kbd>`;
+    b.dataset.tool = key;
+    b.setAttribute("aria-pressed", String(key === state.tool));
+    b.addEventListener("click", () => setTool(key));
+    toolBox.appendChild(b);
+  });
+}
+
+function setScene(key) {
+  state.scene = key;
+  rebuild();
+  document.querySelectorAll("#scenes button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.scene === key)));
+}
+
+function setTool(key) {
+  state.tool = key;
+  document.querySelectorAll("#tools button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.tool === key)));
+}
+
+function wireControls() {
+  const soft = document.getElementById("soft");
+  const softVal = document.getElementById("softVal");
+  const showSoft = () => {
+    const m = compliance(state.softness);
+    softVal.textContent = (m < 0.1 ? m.toFixed(2) : m < 10 ? m.toFixed(1) : Math.round(m)) + "x";
+  };
+  soft.addEventListener("input", () => {
+    state.softness = +soft.value; applySoftness(); showSoft();
+  });
+  showSoft();
+
+  const wind = document.getElementById("wind"), windVal = document.getElementById("windVal");
+  wind.addEventListener("input", () => {
+    state.windLevel = +wind.value; windVal.textContent = String(state.windLevel);
+  });
+
+  const sub = document.getElementById("sub"), subVal = document.getElementById("subVal");
+  sub.addEventListener("input", () => {
+    state.substeps = +sub.value; subVal.textContent = String(state.substeps);
+  });
+
+  const tear = document.getElementById("tear"), tearVal = document.getElementById("tearVal");
+  tear.addEventListener("input", () => {
+    const v = +tear.value;
+    state.tear = v === 0 ? 0 : 0.02 + (v / 100) * 0.5;
+    tearVal.textContent = v === 0 ? "off" : Math.round(state.tear * 100) + "%";
+  });
+
+  document.getElementById("gust").addEventListener("click", gust);
+  document.getElementById("reset").addEventListener("click", rebuild);
+  document.getElementById("stress").addEventListener("click", toggleStress);
+  document.getElementById("measureBtn").addEventListener("click", () => togglePanel("measure"));
+  document.getElementById("helpBtn").addEventListener("click", () => togglePanel("help"));
+  document.querySelectorAll("[data-close]").forEach(b =>
+    b.addEventListener("click", () => document.getElementById(b.dataset.close).hidden = true));
+}
+
+function toggleStress() {
+  state.stress = !state.stress;
+  document.getElementById("stress").setAttribute("aria-pressed", String(state.stress));
+}
+
+function gust() {
+  state.gust = 2.6 + state.rng() * 1.8;
+  setTimeout(() => { state.gust = 0; }, 520);
+}
+
+function togglePanel(id) {
+  const el = document.getElementById(id);
+  const showing = el.hidden;
+  el.hidden = !el.hidden;
+  if (id === "measure" && showing) runMeasure();
+}
+
+if (!PREVIEW) {
+  window.addEventListener("keydown", e => {
+    if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+    const k = e.key.toLowerCase();
+    const sceneKeys = Object.keys(SCENES);
+    if (k >= "1" && k <= String(sceneKeys.length)) setScene(sceneKeys[+k - 1]);
+    else if (k === "g") setTool("grab");
+    else if (k === "c") setTool("cut");
+    else if (k === "p") setTool("pin");
+    else if (k === "w") gust();
+    else if (k === "s") toggleStress();
+    else if (k === "r") rebuild();
+    else if (k === "m") togglePanel("measure");
+    else if (k === "h") togglePanel("help");
+  });
+}
+
+// --- the measure panel -----------------------------------------------------
+// Same rigs the checkers drive, run in front of whoever opened the page.
+
+const RIG = { n: 10, L0: 0.1, mass: 0.05, alpha: 1e-4 };
+
+function analyticExtension(r) {
+  return r.alpha * r.mass * G * r.n * (r.n + 1) / 2;
+}
+
+function runMeasure() {
+  const out = document.getElementById("measureOut");
+  out.innerHTML = "<p>Running...</p>";
+  setTimeout(() => {
+    const expected = analyticExtension(RIG);
+    const run = (subs, extra) => {
+      const w = settle(makeChain(RIG), 12,
+        Object.assign({ substeps: subs, damping: 1.0, tear: 0 }, extra || {}));
+      const ext = chainLength(w) - RIG.n * RIG.L0;
+      return { ext, err: (ext - expected) / expected };
+    };
+
+    const subs = [2, 4, 8, 16, 32, 64, 128];
+    const x = subs.map(s => Object.assign({ substeps: s }, run(s)));
+    const naive = [16, 64, 256, 1024].map(s =>
+      Object.assign({ substeps: s }, run(s, { mode: "pbd", stiffness: 0.2 })));
+
+    const fmt = v => (v * 1000).toFixed(4);
+    const here = x.find(r => r.substeps === state.substeps) ||
+                 Object.assign({ substeps: state.substeps }, run(state.substeps));
+
+    let html = `<p>Your substeps slider is at <b>${state.substeps}</b>. At that setting this
+      chain hangs <b>${(here.err * 100).toFixed(1)}%</b> stretchier than the material it is
+      made of. That gap is a solver convergence error, not the material, and here is what it
+      does when you spend more solver on it.</p>`;
+
+    html += `<h3>XPBD, one sweep per substep</h3><table>
+      <tr><th>Substeps</th><th>Extension</th><th>vs statics</th><th>error ratio</th></tr>
+      <tr><td><b>statics says</b></td><td><b>${fmt(expected)} mm</b></td><td>-</td><td>-</td></tr>`;
+    x.forEach((r, i) => {
+      const pct = r.err * 100;
+      const ratio = i === 0 ? "-" : (x[i - 1].err / r.err).toFixed(2) + "x";
+      html += `<tr><td>${r.substeps}</td><td>${fmt(r.ext)} mm</td>
+        <td class="${Math.abs(pct) < 5 ? "pass" : ""}">${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%</td>
+        <td>${ratio}</td></tr>`;
+    });
+    html += `</table><p>Every doubling divides the error by four. The error is second order in
+      the substep size, so the compliance is the right answer in the limit and an
+      underestimate of the stiffness before it.</p>`;
+
+    html += `<h3>The naive solver, for contrast</h3><table>
+      <tr><th>Substeps</th><th>Extension</th><th>vs statics</th></tr>`;
+    naive.forEach(r => {
+      html += `<tr><td>${r.substeps}</td><td>${fmt(r.ext)} mm</td>
+        <td class="fail">${(r.err * 100).toFixed(1)}%</td></tr>`;
+    });
+    html += `</table><p>Both solvers converge, at the same rate. The difference is where they
+      land. XPBD converges on <b>${fmt(expected)} mm</b>, which is what the material says.
+      Naive PBD converges on <b>zero</b>: a rigid rod, whatever material you asked for.</p>`;
+
+    const pend = makePendulum({ L: 0.5, mass: 0.1, alpha: 0, theta0: 10 * Math.PI / 180 });
+    const per = measurePeriod(pend, 12, { substeps: 16, damping: 0, tear: 0, floor: false });
+    const tSmall = 2 * Math.PI * Math.sqrt(0.5 / G);
+    const tCorr = tSmall * (1 + Math.pow(10 * Math.PI / 180, 2) / 16);
+    html += `<h3>A second, unrelated check</h3>
+      <p>A stiff pendulum, half a metre, released at ten degrees. Nothing in here knows the
+      formula for a pendulum.</p><table>
+      <tr><th>Source</th><th>Period</th></tr>
+      <tr><td>small angle theory</td><td>${tSmall.toFixed(4)} s</td></tr>
+      <tr><td>with the amplitude correction</td><td>${tCorr.toFixed(4)} s</td></tr>
+      <tr><td><b>measured here</b></td><td><b>${per.period.toFixed(4)} s</b>
+        (${per.crossings} crossings, ${((per.period / tCorr - 1) * 100).toFixed(3)}% off)</td></tr></table>`;
+    out.innerHTML = html;
+  }, 30);
+}
+
+// --- loop ------------------------------------------------------------------
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(1 / 30, Math.max(1 / 240, (now - last) / 1000));
+  last = now;
+  state.t += dt;
+  step(state.world, dt, stepOpts());
+  render();
+  requestAnimationFrame(frame);
+}
+
+function boot() {
+  resize();
+  if (!PREVIEW) { buildBar(); wireControls(); }
+  const want = params.get("preview") || params.get("scene");
+  if (want && SCENES[want]) state.scene = want;
+  rebuild();
+
+  if (PREVIEW) {
+    document.documentElement.classList.add("preview");
+    state.stress = true;
+    // Settle FIRST, in still air, then let a breeze up. The card used to start the wind on
+    // frame zero against a sheet that had not fallen yet, and the thumbnail was a picture
+    // of a tangle.
+    for (let i = 0; i < 240; i++) { state.t += 1 / 60; step(state.world, 1 / 60, stepOpts()); }
+    state.windLevel = 22;
+    for (let i = 0; i < 150; i++) { state.t += 1 / 60; step(state.world, 1 / 60, stepOpts()); }
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener("resize", () => {
+  const before = state.view.aspect;
+  resize();
+  if (Math.abs(before - state.view.aspect) > 0.02) rebuild();
+});
+
+// Exposed for the checkers in ../_verify/. The analytic formulas deliberately live
+// in the checker, not here, so the comparison is against something this file does
+// not contain.
+window.__sway = {
+  physics: { makeWorld, addParticle, addConstraint, step, settle, makeChain, chainLength,
+             segmentExtensions, makePendulum, measurePeriod, G },
+  scenes: SCENES,
+  state,
+  api: {
+    setScene, setTool, gust, rebuild, toggleStress, togglePanel, runMeasure,
+    cutAlong, pointerDown, pointerMove, pointerUp, nearestParticle, compliance,
+    liveCount: () => ({
+      particles: state.world.particles.length,
+      constraints: state.world.constraints.filter(c => !c.dead).length,
+      pinned: state.world.particles.filter(p => p.w === 0).length
+    }),
+    finite: () => state.world.particles.every(p =>
+      Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.vx) && Number.isFinite(p.vy)),
+    maxStrain: () => {
+      let m = -Infinity;
+      for (const c of state.world.constraints) {
+        if (c.dead) continue;
+        const a = state.world.particles[c.a], b = state.world.particles[c.b];
+        m = Math.max(m, (Math.hypot(a.x - b.x, a.y - b.y) - c.rest) / c.rest);
+      }
+      return m;
+    }
+  }
+};
+
+boot();
+</script>
+</body>
+</html>

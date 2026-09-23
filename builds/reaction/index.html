@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<!--
+  REACTION  ...  a Gray-Scott reaction diffusion field you paint into, with a live
+  navigator for the two numbers that decide what it becomes.
+
+  WHAT IT IS
+  Two imaginary chemicals share a grid. U is fed in from everywhere at rate F. V eats
+  U to make more of itself, and is removed at rate F + k. Both spread out, but V
+  spreads at half the speed of U, and that single asymmetry is the whole reason this
+  ever makes a picture instead of a smear. Drag the crosshair on the phase map and the
+  field reorganises underneath you: worms, spots, dividing cells, lace, or nothing at
+  all. Paint on the field with the mouse to inject V and start something.
+
+      du/dt = Du * lap(u) - u*v^2 + F*(1 - u)
+      dv/dt = Dv * lap(v) + u*v^2 - (F + k)*v
+
+  Toroidal grid, explicit Euler, Du = 1.0, Dv = 0.5, dt = 1.0, nine point Laplacian
+  with weights centre -1, orthogonal 0.2, diagonal 0.05.
+
+  WHY I BUILT IT
+  Four playground builds in a row were "explain a mechanism by making it steppable",
+  which had stopped being a lane and started being a house style. This one is meant to
+  be pleasant first. It is also the thing I could recite and had never actually
+  checked: I knew the equations and had never once written down the stability limit of
+  the integrator, the shape of the region where the pattern can exist, or why anyone
+  uses a nine point stencil for a Laplacian instead of the obvious five.
+
+  WHAT IT TAUGHT ME  (all measured in _verify/, predictions written first)
+  1. There is a closed form boundary for the whole interesting region of the phase
+     plane. A spatially uniform state with any V in it exists only where
+     k <= sqrt(F)/2 - F, which is the parabola drawn on the phase map.
+  1b. EXISTING AND ATTRACTING ARE DIFFERENT CLAIMS, and running them together was
+     the biggest mistake in this build. I predicted that inside the curve a well
+     mixed run would settle into the mixture. It does not. At any mixture
+     u*v = F + k, which collapses the Jacobian to trace = k - v^2 and
+     det = (F + k)(v^2 - F), so the mixture attracts only where v^2 beats BOTH F
+     and k. Across the whole patterning band it repels. That is not a footnote,
+     it is the mechanism: a pattern is not the system settling down, it is the
+     system with nowhere to settle. Measured: over a 255 point sweep of the
+     plane, 89 of the 115 live points inside the curve went still and uniform,
+     and ZERO of the 68 outside it did. The suite reproduces that on its own
+     56 point population: 18 of 23 inside, 0 of 15 outside.
+  2. Gray-Scott is NOT a Turing instability. The red state u = 1, v = 0 is linearly
+     stable everywhere in the plane, so nothing grows from an infinitesimal seed. It
+     is excitable: the pattern needs a finite kick to get going. That is why this page
+     hands you a brush instead of a noise button.
+  3. The stability limit of explicit Euler here is dt <= 2 / (Du * 1.6) = 1.25, from
+     the most negative eigenvalue of the nine point stencil. The customary dt of 1.0
+     is not a round number someone liked, it is 80 percent of the ceiling.
+  4. The five point stencil, normalised the same way, has a ceiling of exactly 1.0, so
+     at the customary dt it sits precisely on the boundary and holds a checkerboard
+     forever. Switch the stencil in the controls and you can watch that happen. It is
+     also visibly squarer, because a five point Laplacian is a worse approximation to
+     an isotropic one.
+
+  HONEST NOTE ON THE STATE ARRAYS: u and v are never clamped during a step. Clamping
+  would hide exactly the instability this build exists to show. Clamping happens once,
+  at render time, on the way to the colour ramp.
+
+  Preset names are descriptions of what I watched this grid do at those coordinates on
+  these constants, not canonical terminology, and each description is backed by a
+  measurement in _verify/RESULTS.md.
+
+  Self-contained: no network, no dependencies, opens offline.
+  Preview contract: index.html?preview=1 (optionally &preset=slug&steps=N).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reaction, a Gray-Scott field</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #141922; --panel-2: #1b2230; --line: #2a3441;
+    --ink: #e6edf3; --dim: #8b98a8; --accent: #5fd3c4; --warn: #e6a15f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px; line-height: 1.5;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 30px 20px 60px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 22px; }
+  h1 { font-size: 25px; margin: 0 0 6px; letter-spacing: -0.015em; }
+  h1 span { color: var(--accent); }
+  header p { color: var(--dim); margin: 0; max-width: 76ch; font-size: 14px; }
+
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+  .left { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+  .fieldbox { position: relative; }
+  #field {
+    display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 12px;
+    border: 1px solid var(--line); background: #05070b; cursor: crosshair;
+    touch-action: none;
+  }
+  .hint {
+    position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--dim);
+    background: rgba(11, 14, 20, 0.72); padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line); pointer-events: none;
+  }
+
+  .side { display: flex; flex-direction: column; gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 13px 14px;
+  }
+  .card h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--dim);
+    margin: 0 0 9px; font-weight: 700;
+  }
+  #phase { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; cursor: crosshair; touch-action: none; }
+  .phaselegend { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; margin-top: 6px; }
+
+  .row { display: flex; align-items: center; gap: 9px; margin: 0 0 9px; }
+  .row:last-child { margin-bottom: 0; }
+  .row label { flex: 0 0 78px; color: var(--dim); font-size: 12px; }
+  .row input[type=range] { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
+  .row .val { flex: 0 0 52px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+  select, button {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  select { width: 100%; }
+  button:hover, select:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #06231f; border-color: var(--accent); font-weight: 650; }
+  .presetnote { margin: 8px 0 0; color: var(--dim); font-size: 12px; line-height: 1.4; }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  .buttons button { width: 100%; }
+
+  .readout {
+    display: flex; flex-wrap: wrap; gap: 4px 26px; margin: 0;
+    font-size: 12.5px; align-items: baseline;
+  }
+  .readout .stat { display: flex; gap: 7px; align-items: baseline; }
+  .readout dt { color: var(--dim); }
+  .readout dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .verdict { margin-top: 10px; font-size: 12.5px; color: var(--accent); }
+  .verdict.out { color: var(--warn); }
+
+  details { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 600; }
+  details p { color: var(--dim); font-size: 13.5px; max-width: 78ch; }
+  details code {
+    background: var(--panel-2); padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px;
+  }
+
+  /* ---- preview mode: the storybook card. Chrome off, field fills the frame. ---- */
+  body.preview { overflow: hidden; background: #05070b; }
+  body.preview .wrap { max-width: none; margin: 0; padding: 0; }
+  body.preview header, body.preview .side, body.preview details,
+  body.preview .hint, body.preview .left .card { display: none; }
+  body.preview .stage, body.preview .left { display: block; }
+  body.preview #field {
+    width: 100vw; height: 100vh; aspect-ratio: auto; border: 0; border-radius: 0;
+    object-fit: cover; cursor: default;
+  }
+  .caption { display: none; }
+  body.preview .caption {
+    display: block; position: fixed; left: 11px; bottom: 9px; z-index: 5;
+    font-size: 11.5px; letter-spacing: 0.02em; color: #dfe9ef;
+    background: rgba(5, 7, 11, 0.62); border: 1px solid rgba(120, 150, 165, 0.35);
+    padding: 3px 9px; border-radius: 999px; font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Reaction<span>.</span></h1>
+    <p>Two chemicals on a wrapping grid. One is fed in everywhere, the other eats it, and the
+       only reason any of this makes a picture is that the eater spreads at half the speed of
+       its food. Drag the crosshair on the phase map to retune the field live, and paint on the
+       field to start something.</p>
+  </header>
+
+  <div class="stage">
+    <div class="left">
+      <div class="fieldbox">
+        <canvas id="field" width="256" height="256"></canvas>
+        <div class="hint">Drag on the field to paint</div>
+      </div>
+
+      <div class="card">
+        <h2>Readout</h2>
+        <dl class="readout">
+          <div class="stat"><dt>F</dt><dd id="roF">0.0000</dd></div>
+          <div class="stat"><dt>k</dt><dd id="roK">0.0000</dd></div>
+          <div class="stat"><dt>steps</dt><dd id="roSteps">0</dd></div>
+          <div class="stat"><dt>mean v</dt><dd id="roMeanV">0.0000</dd></div>
+          <div class="stat"><dt>spread</dt><dd id="roStd">0.0000</dd></div>
+          <div class="stat"><dt>frame</dt><dd id="roMs">0.0 ms</dd></div>
+        </dl>
+        <div class="verdict" id="roVerdict">.</div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="card">
+        <h2>Phase map</h2>
+        <canvas id="phase" width="288" height="216"></canvas>
+        <div class="phaselegend"><span>k 0.030</span><span>k 0.075</span></div>
+        <div class="phaselegend"><span>F rises upward, 0.005 to 0.090</span></div>
+        <p class="presetnote">Bright is where the field has to keep making
+          structure. Dimmed is where the uniform mixture attracts and it fills up
+          and stops. Flat grey, past the curve, is where no mixture exists at all.</p>
+      </div>
+
+      <div class="card">
+        <h2>Preset</h2>
+        <select id="preset" aria-label="Preset"></select>
+        <p class="presetnote" id="presetNote">.</p>
+        <div class="buttons" style="margin-top: 9px;">
+          <button id="play" class="primary">Pause</button>
+          <button id="seed">Reseed</button>
+          <button id="clear">Clear</button>
+          <button id="stir">Stir</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Controls</h2>
+        <div class="row">
+          <label for="brush">Brush</label>
+          <input type="range" id="brush" min="1" max="24" step="1" value="7">
+          <span class="val" id="brushVal">7</span>
+        </div>
+        <div class="row">
+          <label for="speed">Speed</label>
+          <input type="range" id="speed" min="1" max="20" step="1" value="8">
+          <span class="val" id="speedVal">8</span>
+        </div>
+        <div class="row">
+          <label for="ratio">Dv / Du</label>
+          <input type="range" id="ratio" min="0.1" max="1" step="0.01" value="0.5">
+          <span class="val" id="ratioVal">0.50</span>
+        </div>
+        <div class="row">
+          <label for="dt">dt</label>
+          <input type="range" id="dt" min="0.1" max="1.6" step="0.05" value="1">
+          <span class="val" id="dtVal">1.00</span>
+        </div>
+        <div class="row">
+          <label for="stencil">Laplacian</label>
+          <select id="stencil" style="flex: 1 1 auto;">
+            <option value="9">Nine point</option>
+            <option value="5">Five point</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="palette">Palette</label>
+          <select id="palette" style="flex: 1 1 auto;"></select>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <details id="explainer">
+    <summary>What am I actually looking at</summary>
+    <p>Every cell holds two numbers, <code>u</code> and <code>v</code>. On each step <code>u</code>
+       is topped up towards 1 at rate <code>F</code>, <code>v</code> is drained at rate
+       <code>F + k</code>, and wherever they meet, the reaction <code>u + 2v -&gt; 3v</code> turns
+       food into more eater. Both spread out by diffusion, and <code>v</code> spreads at half the
+       rate of <code>u</code>. The colour is <code>v</code>.</p>
+    <p>The pale curve on the phase map is <code>k = sqrt(F)/2 - F</code>. Below and left of it the
+       equations admit a uniform mixture with some <code>v</code> in it; above and right of it
+       there is no such mixture at all. It is the boundary of the entire interesting part of the
+       plane and it drops straight out of the quadratic, with no simulation involved.</p>
+    <p>Existing and attracting are different things, and the difference is the whole map. At any
+       mixture <code>u*v = F + k</code>, which collapses the stability question to
+       <code>trace = k - v&sup2;</code> and <code>det = (F + k)(v&sup2; - F)</code>: the mixture
+       pulls the field in only where <code>v&sup2;</code> beats both <code>F</code> and
+       <code>k</code>. That is the dimmed part of the map, and a field parked there fills up and
+       goes quiet. In the bright part the mixture exists and repels, so the field is not allowed to
+       rest in it, and structure is what it does instead. A pattern is not the system settling
+       down. It is the system with nowhere to settle.</p>
+    <p>Nothing here grows out of nothing either. The all-food state is stable to small nudges
+       anywhere in the plane, which is why there is a brush: the field needs a real kick, not
+       noise. Try painting a single stroke into an empty field, then dragging the crosshair
+       slowly upward.</p>
+    <p>Two switches are there to be broken on purpose. Push <code>dt</code> past about 1.25 and the
+       integrator loses stability and the field tears itself apart, which is the exact number the
+       nine point stencil predicts. Switch the Laplacian to five point at <code>dt</code> = 1.0
+       and it sits precisely on its own stability boundary: a checkerboard appears and never
+       fades, and every shape gets noticeably squarer.</p>
+  </details>
+</div>
+<div class="caption" id="caption">Gray-Scott</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * 1. The simulation core. Pure, no DOM, exported on window.__rx so the
+ *    headless checkers drive exactly the code that ships.
+ * ------------------------------------------------------------------ */
+
+const STENCILS = {
+  // weights sum to zero in both cases, so a wrapped grid conserves mass
+  9: { c: -1, o: 0.20, d: 0.05, lamMin: -1.6 },
+  5: { c: -1, o: 0.25, d: 0.00, lamMin: -2.0 }
+};
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeField(W, H) {
+  const n = W * H;
+  const f = {
+    W: W, H: H, n: n,
+    u: new Float32Array(n), v: new Float32Array(n),
+    ua: new Float32Array(n), va: new Float32Array(n),
+    xm: new Int32Array(W), xp: new Int32Array(W),
+    ym: new Int32Array(H), yp: new Int32Array(H),
+    steps: 0
+  };
+  for (let x = 0; x < W; x++) { f.xm[x] = (x + W - 1) % W; f.xp[x] = (x + 1) % W; }
+  for (let y = 0; y < H; y++) { f.ym[y] = (y + H - 1) % H; f.yp[y] = (y + 1) % H; }
+  seedRed(f);
+  return f;
+}
+
+/** The trivial fixed point: all food, no eater. Exact for every F and k. */
+function seedRed(f) {
+  f.u.fill(1); f.v.fill(0); f.steps = 0;
+  return f;
+}
+
+/** Square block of eater, the finite kick the field needs to start. */
+function seedBlock(f, cx, cy, size, amp) {
+  const h = size >> 1;
+  for (let dy = -h; dy <= h; dy++) {
+    for (let dx = -h; dx <= h; dx++) {
+      const x = ((cx + dx) % f.W + f.W) % f.W;
+      const y = ((cy + dy) % f.H + f.H) % f.H;
+      const i = y * f.W + x;
+      f.u[i] = 0.5; f.v[i] = amp;
+    }
+  }
+  return f;
+}
+
+/** A scatter of blocks, deterministic for a given seed. */
+function seedScatter(f, seed, count, size, amp) {
+  const rnd = mulberry32(seed);
+  for (let b = 0; b < count; b++) {
+    seedBlock(f, (rnd() * f.W) | 0, (rnd() * f.H) | 0, size, amp);
+  }
+  return f;
+}
+
+/** Soft round brush, used by the pointer and by the checker's synthetic strokes. */
+function paint(f, cx, cy, radius, amp) {
+  const r2 = radius * radius;
+  const ri = Math.ceil(radius);
+  for (let dy = -ri; dy <= ri; dy++) {
+    for (let dx = -ri; dx <= ri; dx++) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const x = ((cx + dx) % f.W + f.W) % f.W;
+      const y = ((cy + dy) % f.H + f.H) % f.H;
+      const i = y * f.W + x;
+      const fall = 1 - Math.sqrt(d2 / r2);
+      const a = amp * fall;
+      if (a > f.v[i]) { f.v[i] = a; f.u[i] = Math.min(f.u[i], 1 - 0.5 * fall); }
+    }
+  }
+  return f;
+}
+
+/** Random noise in u only, so an already living field gets shaken rather than reset. */
+function stir(f, seed, amount) {
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < f.n; i++) f.u[i] += (rnd() - 0.5) * amount;
+  return f;
+}
+
+/**
+ * One explicit Euler step. Deliberately does NOT clamp u or v: clamping would
+ * conceal the integrator instability this build exists to demonstrate.
+ */
+function step(f, p) {
+  const W = f.W, H = f.H;
+  const u = f.u, v = f.v, ua = f.ua, va = f.va;
+  const xm = f.xm, xp = f.xp, ym = f.ym, yp = f.yp;
+  const st = STENCILS[p.stencil] || STENCILS[9];
+  const wo = st.o, wd = st.d;
+  const Du = p.Du, Dv = p.Dv, F = p.F, k = p.k, dt = p.dt;
+  const kill = F + k;
+
+  for (let y = 0; y < H; y++) {
+    const rc = y * W, rn = ym[y] * W, rs = yp[y] * W;
+    for (let x = 0; x < W; x++) {
+      const l = xm[x], r = xp[x];
+      const i = rc + x;
+      const uc = u[i], vc = v[i];
+
+      let lu = wo * (u[rn + x] + u[rs + x] + u[rc + l] + u[rc + r]) - uc;
+      let lv = wo * (v[rn + x] + v[rs + x] + v[rc + l] + v[rc + r]) - vc;
+      if (wd !== 0) {
+        lu += wd * (u[rn + l] + u[rn + r] + u[rs + l] + u[rs + r]);
+        lv += wd * (v[rn + l] + v[rn + r] + v[rs + l] + v[rs + r]);
+      }
+
+      const uvv = uc * vc * vc;
+      ua[i] = uc + dt * (Du * lu - uvv + F * (1 - uc));
+      va[i] = vc + dt * (Dv * lv + uvv - kill * vc);
+    }
+  }
+  f.u = ua; f.ua = u;
+  f.v = va; f.va = v;
+  f.steps++;
+  return f;
+}
+
+/** Summary statistics, accumulated in double even though the state is float32. */
+function stats(f) {
+  let su = 0, sv = 0, sv2 = 0, maxV = -Infinity, minU = Infinity, maxU = -Infinity;
+  let finite = true;
+  for (let i = 0; i < f.n; i++) {
+    const a = f.u[i], b = f.v[i];
+    if (!Number.isFinite(a) || !Number.isFinite(b)) { finite = false; break; }
+    su += a; sv += b; sv2 += b * b;
+    if (b > maxV) maxV = b;
+    if (a < minU) minU = a;
+    if (a > maxU) maxU = a;
+  }
+  if (!finite) {
+    return { finite: false, sumU: NaN, sumV: NaN, meanU: NaN, meanV: NaN,
+             stdV: NaN, maxV: NaN, minU: NaN, maxU: NaN };
+  }
+  const meanV = sv / f.n;
+  const varV = Math.max(0, sv2 / f.n - meanV * meanV);
+  return {
+    finite: true, sumU: su, sumV: sv, meanU: su / f.n, meanV: meanV,
+    stdV: Math.sqrt(varV), maxV: maxV, minU: minU, maxU: maxU
+  };
+}
+
+/**
+ * Closed form spatially uniform steady states with v != 0.
+ *   u*v = F + k                          and
+ *   (F + k)*v^2 - F*v + F*(F + k) = 0
+ * so real solutions require F >= 4*(F + k)^2, i.e. k <= sqrt(F)/2 - F.
+ * Returns null outside that region. Used only to draw the phase map; the
+ * checker searches for these numerically instead of calling this.
+ */
+function fixedPoints(F, k) {
+  const b = F + k;
+  if (F <= 0 || b <= 0) return null;
+  const disc = F * F - 4 * F * b * b;
+  if (disc < 0) return null;
+  const s = Math.sqrt(disc);
+  const vp = (F + s) / (2 * b);
+  const vm = (F - s) / (2 * b);
+  // Whether the mixture is ATTRACTING is a separate question from whether it
+  // exists, and conflating the two is the mistake that produced the second
+  // half of this build. At any nontrivial state u*v = F + k, which collapses
+  // the Jacobian to trace = k - v^2 and det = (F + k)(v^2 - F). So the mixture
+  // attracts only where v^2 beats BOTH F and k. Everywhere else the field
+  // cannot sit in it, and making structure is what it does instead.
+  const stable = vp * vp > F && vp * vp > k;
+  return { vHigh: vp, uHigh: b / vp, vLow: vm, uLow: b / vm, disc: disc,
+           stable: stable, trace: k - vp * vp, det: b * (vp * vp - F) };
+}
+
+/** The boundary curve itself, k as a function of F. */
+function kBoundary(F) { return Math.sqrt(F) / 2 - F; }
+
+/* Presets.
+ *
+ * Every one of these coordinates was CHOSEN FROM A MEASUREMENT of this grid at
+ * these constants, by sweeping 424 points of the plane and reading off the
+ * morphology of what each one produced (_verify/explore_reaction.js, and
+ * pick_presets.py which ranks the sweep into bands). The names describe the
+ * measurement.
+ *
+ * They are not remembered coordinates. The first draft of this file shipped
+ * eight that were, and two of them turned out to be dead: a completely empty
+ * field under a confident label. check_reaction.js re-measures all eight on
+ * every run and fails if any has left the band its name claims.
+ *
+ * `note` is the measured fact worth knowing about each one. `in` and `out`
+ * refer to the boundary curve k = sqrt(F)/2 - F. */
+const PRESETS = [
+  { slug: "labyrinth", name: "Labyrinth", F: 0.0580, k: 0.0612,
+    note: "one connected maze filling the field, inside the curve, nearly static" },
+  { slug: "worms",     name: "Worms",     F: 0.0460, k: 0.0638,
+    note: "separate filaments that crawl and rejoin, outside the curve" },
+  { slug: "lace",      name: "Lace",      F: 0.0400, k: 0.0638,
+    note: "an open web of about thirty pieces" },
+  { slug: "grain",     name: "Grain",     F: 0.0340, k: 0.0625,
+    note: "the finest structure on the whole plane, around sixty six blobs" },
+  { slug: "bubbles",   name: "Bubbles",   F: 0.0880, k: 0.0600,
+    note: "a dozen round blobs that settle and stop, inside the curve" },
+  { slug: "pinpricks", name: "Pinpricks", F: 0.1000, k: 0.0600,
+    note: "the same dozen blobs at a quarter of the area" },
+  { slug: "dividing",  name: "Dividing",  F: 0.0160, k: 0.0550,
+    note: "blobs that keep splitting; the mean is still climbing after 12000 steps" },
+  { slug: "restless",  name: "Restless",  F: 0.0220, k: 0.0550,
+    note: "the highest churn measured anywhere on the plane, and it never stops" }
+];
+
+/* Palettes as ramp stops [position, r, g, b]; positions are non uniform so the
+ * low end of v, where most of the structure lives, gets most of the ramp. */
+const PALETTES = [
+  { slug: "ink",   name: "Ink",   stops: [[0.00, 6, 9, 16], [0.18, 12, 40, 58], [0.42, 26, 116, 122],
+                                          [0.66, 122, 200, 168], [0.85, 226, 226, 178], [1.00, 250, 250, 240]] },
+  { slug: "ember", name: "Ember", stops: [[0.00, 8, 5, 6], [0.20, 54, 12, 20], [0.45, 136, 34, 26],
+                                          [0.68, 212, 96, 32], [0.86, 244, 178, 96], [1.00, 253, 236, 206]] },
+  { slug: "frost", name: "Frost", stops: [[0.00, 6, 8, 22], [0.20, 24, 30, 82], [0.45, 40, 96, 172],
+                                          [0.70, 92, 178, 224], [0.88, 186, 228, 244], [1.00, 250, 253, 255]] },
+  { slug: "moss",  name: "Moss",  stops: [[0.00, 6, 10, 8], [0.20, 18, 44, 26], [0.46, 52, 102, 44],
+                                          [0.70, 128, 168, 62], [0.88, 208, 214, 132], [1.00, 246, 248, 220]] }
+];
+
+const V_CEIL = 0.42;   // v above this reads as full white on the ramp
+
+function buildLUT(stops) {
+  const lut = new Uint8ClampedArray(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let a = stops[0], b = stops[stops.length - 1];
+    for (let s = 0; s < stops.length - 1; s++) {
+      if (t >= stops[s][0] && t <= stops[s + 1][0]) { a = stops[s]; b = stops[s + 1]; break; }
+    }
+    const span = b[0] - a[0];
+    const q = span > 0 ? (t - a[0]) / span : 0;
+    lut[i * 3] = a[1] + (b[1] - a[1]) * q;
+    lut[i * 3 + 1] = a[2] + (b[2] - a[2]) * q;
+    lut[i * 3 + 2] = a[3] + (b[3] - a[3]) * q;
+  }
+  return lut;
+}
+
+/** v -> RGBA into an ImageData buffer. Clamping lives here and only here. */
+function paintImage(f, lut, img) {
+  const d = img.data, v = f.v, n = f.n, scale = 255 / V_CEIL;
+  for (let i = 0; i < n; i++) {
+    let t = v[i] * scale;
+    t = t !== t ? 0 : (t < 0 ? 0 : (t > 255 ? 255 : t));   // NaN, then range
+    const q = (t | 0) * 3;
+    const j = i << 2;
+    d[j] = lut[q]; d[j + 1] = lut[q + 1]; d[j + 2] = lut[q + 2]; d[j + 3] = 255;
+  }
+  return img;
+}
+
+window.__rx = {
+  makeField, seedRed, seedBlock, seedScatter, paint, stir, step, stats,
+  fixedPoints, kBoundary, buildLUT, paintImage, mulberry32,
+  STENCILS, PRESETS, PALETTES, V_CEIL
+};
+
+/* ------------------------------------------------------------------ *
+ * 2. The page.
+ * ------------------------------------------------------------------ */
+
+const qs = new URLSearchParams(location.search);
+const PREVIEW = qs.has("preview");
+const SIZE = PREVIEW ? parseInt(qs.get("size") || "224", 10) : 256;
+
+const el = id => document.getElementById(id);
+const fieldCv = el("field");
+fieldCv.width = SIZE; fieldCv.height = SIZE;
+const fctx = fieldCv.getContext("2d", { alpha: false });
+const img = fctx.createImageData(SIZE, SIZE);
+
+const params = { F: 0.0545, k: 0.0620, Du: 1.0, Dv: 0.5, dt: 1.0, stencil: 9 };
+let field = makeField(SIZE, SIZE);
+let lut = buildLUT(PALETTES[0].stops);
+let paused = false;
+let stepsPerFrame = 8;
+let brush = 7;
+let lastMs = 0;
+let statTick = 0;
+let cachedStats = { meanV: 0, stdV: 0, finite: true };
+
+/* ---- phase map ---- */
+const K_LO = 0.030, K_HI = 0.075, F_LO = 0.005, F_HI = 0.090;
+const phaseCv = el("phase");
+const pctx = phaseCv ? phaseCv.getContext("2d") : null;
+
+function drawPhase() {
+  if (!pctx) return;
+  const W = phaseCv.width, H = phaseCv.height;
+  const im = pctx.createImageData(W, H);
+  const d = im.data;
+  for (let py = 0; py < H; py++) {
+    const F = F_HI - (py + 0.5) / H * (F_HI - F_LO);
+    for (let px = 0; px < W; px++) {
+      const k = K_LO + (px + 0.5) / W * (K_HI - K_LO);
+      const fp = fixedPoints(F, k);
+      const j = (py * W + px) << 2;
+      if (!fp) {
+        // outside: no uniform state with any v in it. Flat, cool, quiet.
+        d[j] = 22; d[j + 1] = 27; d[j + 2] = 36; d[j + 3] = 255;
+      } else {
+        const t = Math.max(0, Math.min(1, fp.vHigh / 0.45));
+        const q = (t * 255 | 0) * 3;
+        // Where the mixture is ATTRACTING the field fills up and goes still,
+        // so that sub region is dimmed: it is the quiet part of the map.
+        const g = fp.stable ? 0.34 : 1;
+        d[j] = lut[q] * g; d[j + 1] = lut[q + 1] * g; d[j + 2] = lut[q + 2] * g; d[j + 3] = 255;
+      }
+    }
+  }
+  pctx.putImageData(im, 0, 0);
+
+  // the boundary curve, drawn from the closed form
+  pctx.strokeStyle = "rgba(255,255,255,0.75)";
+  pctx.lineWidth = 1.25;
+  pctx.beginPath();
+  let started = false;
+  for (let py = 0; py < H; py++) {
+    const F = F_HI - (py + 0.5) / H * (F_HI - F_LO);
+    const kb = kBoundary(F);
+    if (kb < K_LO || kb > K_HI) { started = false; continue; }
+    const px = (kb - K_LO) / (K_HI - K_LO) * W;
+    if (!started) { pctx.moveTo(px, py); started = true; } else pctx.lineTo(px, py);
+  }
+  pctx.stroke();
+
+  // presets
+  for (const p of PRESETS) {
+    const px = (p.k - K_LO) / (K_HI - K_LO) * W;
+    const py = (F_HI - p.F) / (F_HI - F_LO) * H;
+    pctx.fillStyle = "rgba(255,255,255,0.55)";
+    pctx.beginPath(); pctx.arc(px, py, 2, 0, 6.2832); pctx.fill();
+  }
+
+  // crosshair
+  const cx = (params.k - K_LO) / (K_HI - K_LO) * W;
+  const cy = (F_HI - params.F) / (F_HI - F_LO) * H;
+  pctx.strokeStyle = "#0b0e14"; pctx.lineWidth = 3.5;
+  pctx.beginPath(); pctx.arc(cx, cy, 6, 0, 6.2832); pctx.stroke();
+  pctx.strokeStyle = "#5fd3c4"; pctx.lineWidth = 1.75;
+  pctx.beginPath(); pctx.arc(cx, cy, 6, 0, 6.2832); pctx.stroke();
+  pctx.beginPath();
+  pctx.moveTo(cx - 11, cy); pctx.lineTo(cx - 7, cy);
+  pctx.moveTo(cx + 7, cy); pctx.lineTo(cx + 11, cy);
+  pctx.moveTo(cx, cy - 11); pctx.lineTo(cx, cy - 7);
+  pctx.moveTo(cx, cy + 7); pctx.lineTo(cx, cy + 11);
+  pctx.stroke();
+}
+
+/* ---- readout ---- */
+function updateReadout() {
+  if (PREVIEW) return;
+  el("roF").textContent = params.F.toFixed(4);
+  el("roK").textContent = params.k.toFixed(4);
+  el("roSteps").textContent = field.steps.toLocaleString();
+  el("roMeanV").textContent = cachedStats.finite ? cachedStats.meanV.toFixed(4) : "not finite";
+  el("roStd").textContent = cachedStats.finite ? cachedStats.stdV.toFixed(4) : "not finite";
+  el("roMs").textContent = lastMs.toFixed(1) + " ms";
+
+  const v = el("roVerdict");
+  const fp = fixedPoints(params.F, params.k);
+  if (!cachedStats.finite) {
+    v.textContent = "Field is no longer finite. dt is past the stability limit; press Clear.";
+    v.className = "verdict out";
+  } else if (fp && fp.stable) {
+    v.textContent = "Inside the curve, and the uniform mixture at v = " + fp.vHigh.toFixed(3) +
+                    " is ATTRACTING here. Expect the field to fill up and go still.";
+    v.className = "verdict";
+  } else if (fp) {
+    v.textContent = "Inside the curve: a uniform mixture exists at v = " + fp.vHigh.toFixed(3) +
+                    ", but it repels. The field cannot sit in it, so it makes structure instead.";
+    v.className = "verdict";
+  } else {
+    v.textContent = "Outside the curve: no uniform mixture exists here at all, so nothing can come to rest.";
+    v.className = "verdict out";
+  }
+}
+
+/* ---- main loop ---- */
+function frame() {
+  if (!paused) {
+    const t0 = performance.now();
+    for (let s = 0; s < stepsPerFrame; s++) step(field, params);
+    lastMs = performance.now() - t0;
+  }
+  fctx.putImageData(paintImage(field, lut, img), 0, 0);
+  if (!PREVIEW && (statTick++ % 6 === 0)) { cachedStats = stats(field); updateReadout(); }
+  requestAnimationFrame(frame);
+}
+
+/* ---- seeding ---- */
+function applyPreset(slug, reseed) {
+  const p = PRESETS.find(x => x.slug === slug) || PRESETS[0];
+  params.F = p.F; params.k = p.k;
+  if (reseed) doSeed();
+  const note = el("presetNote");
+  if (note) note.textContent = "Measured: " + p.note + ".";
+  drawPhase();
+  updateReadout();
+  return p;
+}
+
+function doSeed(kind) {
+  seedRed(field);
+  if (kind === "block") {
+    seedBlock(field, SIZE >> 1, SIZE >> 1, Math.max(6, SIZE >> 5), 0.5);
+  } else if (kind === "dense") {
+    // Preview only. Nucleating everywhere at once means the card shows a full
+    // frame of pattern after a few hundred steps instead of a few thousand,
+    // which is the difference between a thumbnail and a smudge.
+    seedScatter(field, 20260825, 90, 5, 0.5);
+  } else {
+    seedScatter(field, 20260825, 14, Math.max(5, SIZE >> 6) * 2, 0.5);
+  }
+}
+
+/* ---- pointer painting ---- */
+function fieldXY(ev) {
+  const r = fieldCv.getBoundingClientRect();
+  return {
+    x: Math.floor((ev.clientX - r.left) / r.width * SIZE),
+    y: Math.floor((ev.clientY - r.top) / r.height * SIZE)
+  };
+}
+let painting = false;
+fieldCv.addEventListener("pointerdown", ev => {
+  if (PREVIEW) return;
+  painting = true; fieldCv.setPointerCapture(ev.pointerId);
+  const p = fieldXY(ev); paint(field, p.x, p.y, brush, 0.9);
+});
+fieldCv.addEventListener("pointermove", ev => {
+  if (!painting) return;
+  const p = fieldXY(ev); paint(field, p.x, p.y, brush, 0.9);
+});
+fieldCv.addEventListener("pointerup", () => { painting = false; });
+fieldCv.addEventListener("pointercancel", () => { painting = false; });
+
+/* ---- phase map dragging ---- */
+function phaseXY(ev) {
+  const r = phaseCv.getBoundingClientRect();
+  const fx = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+  const fy = Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height));
+  return { k: K_LO + fx * (K_HI - K_LO), F: F_HI - fy * (F_HI - F_LO) };
+}
+let dragging = false;
+function setFromPhase(ev) {
+  const p = phaseXY(ev);
+  params.k = p.k; params.F = p.F;
+  drawPhase(); updateReadout();
+}
+if (phaseCv && !PREVIEW) {
+  phaseCv.addEventListener("pointerdown", ev => {
+    dragging = true; phaseCv.setPointerCapture(ev.pointerId); setFromPhase(ev);
+  });
+  phaseCv.addEventListener("pointermove", ev => { if (dragging) setFromPhase(ev); });
+  phaseCv.addEventListener("pointerup", () => { dragging = false; });
+  phaseCv.addEventListener("pointercancel", () => { dragging = false; });
+}
+
+/* ---- controls ---- */
+function wire() {
+  const presetSel = el("preset");
+  for (const p of PRESETS) {
+    const o = document.createElement("option");
+    o.value = p.slug; o.textContent = p.name;
+    presetSel.appendChild(o);
+  }
+  presetSel.value = "labyrinth";
+  presetSel.addEventListener("change", () => applyPreset(presetSel.value, true));
+
+  const palSel = el("palette");
+  for (const p of PALETTES) {
+    const o = document.createElement("option");
+    o.value = p.slug; o.textContent = p.name;
+    palSel.appendChild(o);
+  }
+  palSel.addEventListener("change", () => {
+    const p = PALETTES.find(x => x.slug === palSel.value) || PALETTES[0];
+    lut = buildLUT(p.stops); drawPhase();
+  });
+
+  el("play").addEventListener("click", () => {
+    paused = !paused;
+    el("play").textContent = paused ? "Play" : "Pause";
+  });
+  el("seed").addEventListener("click", () => {
+    doSeed(); cachedStats = stats(field); updateReadout();
+  });
+  el("clear").addEventListener("click", () => {
+    seedRed(field); cachedStats = stats(field); updateReadout();
+  });
+  el("stir").addEventListener("click", () => {
+    stir(field, (Math.random() * 1e9) | 0, 0.14);
+    cachedStats = stats(field); updateReadout();
+  });
+
+  const bind = (id, valId, fmt, apply) => {
+    const inp = el(id);
+    const show = () => { el(valId).textContent = fmt(parseFloat(inp.value)); };
+    inp.addEventListener("input", () => { apply(parseFloat(inp.value)); show(); });
+    show();
+  };
+  bind("brush", "brushVal", v => String(v | 0), v => { brush = v; });
+  bind("speed", "speedVal", v => String(v | 0), v => { stepsPerFrame = v | 0; });
+  bind("ratio", "ratioVal", v => v.toFixed(2), v => { params.Dv = params.Du * v; });
+  bind("dt", "dtVal", v => v.toFixed(2), v => { params.dt = v; });
+
+  el("stencil").addEventListener("change", () => {
+    params.stencil = parseInt(el("stencil").value, 10);
+  });
+}
+
+/* ---- boot ---- */
+if (PREVIEW) {
+  document.body.classList.add("preview");
+  const wanted = qs.get("preset") || "labyrinth";
+  const p = applyPreset(wanted, false);
+  const palSlug = qs.get("palette");
+  if (palSlug) {
+    const pal = PALETTES.find(x => x.slug === palSlug);
+    if (pal) lut = buildLUT(pal.stops);
+  }
+  doSeed(qs.get("seed") || "dense");
+  // Run forward under a wall clock budget so the card is never a blank frame,
+  // and never a hung one either. Then keep stepping hard in the animation loop
+  // so a card someone leaves on screen finishes settling in front of them
+  // rather than freezing half formed.
+  const want = parseInt(qs.get("steps") || "6000", 10);
+  const budgetMs = parseInt(qs.get("budget") || "650", 10);
+  const t0 = performance.now();
+  for (let s = 0; s < want; s++) {
+    step(field, params);
+    if ((s & 63) === 63 && performance.now() - t0 > budgetMs) break;
+  }
+  const cap = el("caption");
+  if (cap) cap.textContent = "Gray-Scott reaction diffusion  ·  F " + params.F.toFixed(4) +
+                             "  ·  k " + params.k.toFixed(4);
+  stepsPerFrame = 24;
+} else {
+  wire();
+  applyPreset("labyrinth", true);
+  cachedStats = stats(field);
+  updateReadout();
+}
+
+window.__rxApp = {
+  get field() { return field; },
+  get params() { return params; },
+  get paused() { return paused; },
+  get stepsPerFrame() { return stepsPerFrame; },
+  get brush() { return brush; },
+  get lastStats() { return cachedStats; },
+  fixedPoints: fixedPoints,
+  size: SIZE
+};
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

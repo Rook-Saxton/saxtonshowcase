@@ -1,0 +1,1142 @@
+<!--
+  LAMPLIGHTER
+  projects/playground/lamplighter/index.html
+  Built 2026-09-13. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  A small, gentle platformer. You are a lamplighter carrying a flame through dark rooms. Touch a
+  lantern and it catches, and the light it throws actually reveals the geometry around it, so a
+  room you have finished looks nothing like the room you walked into. Five rooms. No enemies, no
+  lives, no score. Fall off the bottom and you are back at the start of the room instantly.
+
+  Arrow keys or WASD to move, Space / W / Up to jump, R to restart a room, F for the feel panel.
+
+  WHY IT EXISTS
+  The playtime log had four builds in a row that were all "explain a mechanism by making it
+  steppable", and said in its own standing note that the house style was worth breaking on purpose
+  at least once. So this is a game first. The mechanism is underneath it rather than on top of it,
+  and you have to open a drawer to see any of it.
+
+  WHAT I LEARNED, AND IT IS THE REASON I PICKED A PLATFORMER
+  Every tutorial derives a jump from two designer-facing numbers, a height h and a time to the top
+  t, using schoolbook kinematics: v0 = 2h/t and g = 2h/t^2. I could recite that. What I had never
+  checked is whether a game running a FIXED TIMESTEP actually reaches h, and it does not.
+
+  With N = t/dt physics steps to the apex, semi-implicit (symplectic) Euler lands at
+
+      y_N = g * dt^2 * N(N-1) / 2        against the continuous  h = g * dt^2 * N^2 / 2
+
+  a ratio of exactly (N-1)/N. So the jump UNDERSHOOTS the requested height by exactly 1/N, and the
+  error depends only on how many steps the jump takes, never on the height. At the default 0.4 s
+  apex that is 4.17 percent. Wind the time-to-apex slider down to 0.1 s and it is 16.7 percent, a
+  miss of more than half a tile, which is the difference between a level being possible and not.
+
+  Swapping the two integration lines around (position before velocity, explicit Euler) sums
+  k = 0..n-1 instead of k = 1..n and OVERSHOOTS by exactly 1/N. Same magnitude, opposite sign. The
+  feel panel has a toggle for that, and the apex guide line makes it visible rather than a claim.
+
+  The fix is to solve the discrete equation instead of the continuous one, which turns out to be a
+  literal off-by-one hiding inside a formula that is printed correctly everywhere:
+
+      v0 = 2h / ((N-1) * dt)         not        v0 = 2h / (N * dt)
+
+  This game uses the corrected form, so when the panel says the jump is 3.3 tiles high, it is.
+
+  WHAT BIT ME, all of it after the first suite run, all of it in _verify/RESULTS.md
+  1. Coyote Ridge shipped with no P in its tile grid, and the engine did not care: a missing spawn
+     defaulted to (0,0), so the player started in the corner and fell onto something. The only
+     thing that noticed was the reachability prover's replay check. Sim now throws instead.
+  2. Room four's one-way platforms were four tiles apart and the jump clears three. The prover
+     reported two lanterns unreachable after expanding 222 perches, before a person ever played it.
+  3. Three of my measurements were wrong in ways that made the BUILD look wrong. The apex finder
+     used a bare `>= 0` on a velocity that lands at 1e-13 rather than zero, and reported the N=24
+     apex a step late while getting N=12 and N=6 right. The descent was timed by interpolating the
+     crossing of the launch height, which is also the floor, so it interpolated against a value the
+     landing collision had clamped. On the strength of those two I declared a passing prediction a
+     failure and wrote a confident paragraph explaining the failure. Both instruments, no defect.
+  4. The panel said the jump was "exact" while the guide line in the room read +1.3 px, because
+     apex hang adds height and the prediction did not include it. Two numbers now, not one.
+
+  HOW IT IS CHECKED
+  _verify/PREDICTIONS_lamplighter.md was written before this file existed and holds hand-derived
+  point estimates for all of the above. _verify/check_lamplighter.js drives THIS engine headlessly
+  and grades them, with five negative controls that must fail. It also contains a reachability
+  prover: a breadth-first search over the real physics that proves every lantern in every room can
+  actually be reached and exports a replayable clear script for each, rather than me eyeballing the
+  tile grids and hoping. _verify/check_lamplighter_ui.js drives the page with a real keyboard.
+  101 assertions across the two, green, with six negative controls.
+
+  ONE DESIGN NOTE, since the reasoning is invisible in the code
+  The coyote and buffer windows are integer FRAME counts rather than seconds. A seconds version
+  compared with `> 0` puts the acceptance boundary on an exact float subtraction (0.1 minus six
+  sixtieths) and makes the last frame of grace depend on rounding. Frames make the boundary
+  decidable, which is what let the suite assert it at all.
+-->
+<meta charset="utf-8">
+<title>Lamplighter</title>
+<style>
+  :root {
+    --ink: #0a0e1a;
+    --ink-2: #121829;
+    --line: #263149;
+    --text: #c8d2e8;
+    --dim: #6b7794;
+    --warm: #ffb347;
+    --warm-dim: #b07a34;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--ink);
+    color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 18px 16px 40px; }
+
+  .wrap { width: 100%; max-width: 700px; }
+
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  h1 { font-size: 17px; margin: 0; letter-spacing: .14em; text-transform: uppercase; color: var(--warm); font-weight: 600; }
+  header .sub { color: var(--dim); font-size: 12.5px; }
+
+  .stage { position: relative; width: 100%; }
+  canvas#view {
+    display: block; width: 100%; height: auto; aspect-ratio: 672 / 384;
+    background: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+    image-rendering: auto; touch-action: none; outline: none;
+  }
+  canvas#view:focus-visible { border-color: var(--warm-dim); }
+
+  .hud {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-top: 10px; font-size: 12.5px; color: var(--dim);
+  }
+  .hud .roomname { color: var(--text); }
+  .hud .lanterns { color: var(--warm); font-variant-numeric: tabular-nums; }
+  .hud .spacer { flex: 1 1 auto; }
+
+  button, select {
+    font: inherit; font-size: 12.5px;
+    background: var(--ink-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 5px 10px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--warm-dim); color: #fff; }
+  button[aria-pressed="true"] { border-color: var(--warm-dim); color: var(--warm); }
+
+  .panel {
+    margin-top: 14px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--ink-2); padding: 14px 16px 16px;
+  }
+  .panel[hidden] { display: none; }
+  .panel h2 { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 0 0 4px; font-weight: 600; }
+  .panel .lede { color: var(--dim); font-size: 12.5px; margin: 0 0 14px; max-width: 60ch; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 22px; }
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+  .row label { color: var(--text); font-size: 12.5px; }
+  .row .val { color: var(--warm); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; }
+  .row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--warm); margin: 0; }
+  .row.check { grid-template-columns: auto 1fr; }
+  .row.check input { accent-color: var(--warm); margin: 0; }
+
+  .readout {
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+    font-size: 12.5px; color: var(--dim); line-height: 1.7;
+  }
+  .readout b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .readout .hit { color: #7fd18f; }
+  .readout .miss { color: #e88a6a; }
+  .readout p { margin: 0 0 6px; }
+  .readout p:last-child { margin-bottom: 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--warm); }
+
+  .note { margin-top: 16px; color: var(--dim); font-size: 12.5px; line-height: 1.65; max-width: 66ch; }
+  .note b { color: var(--text); font-weight: 600; }
+
+  /* Preview mode: the index card renders this page in a short 2:1 frame. Strip the chrome and
+     let the canvas fill the band, so the thumbnail is the game and not a header. */
+  html.preview, body.preview { padding: 0; margin: 0; background: var(--ink); overflow: hidden; }
+  body.preview .wrap { max-width: none; }
+  body.preview header, body.preview .hud, body.preview .panel, body.preview .note { display: none !important; }
+  body.preview canvas#view { border: 0; border-radius: 0; width: 100vw; height: auto; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Lamplighter</h1>
+    <span class="sub">light every lantern &middot; arrows or WASD &middot; space to jump &middot; R restarts &middot; F for feel</span>
+  </header>
+
+  <div class="stage">
+    <canvas id="view" width="672" height="384" tabindex="0" aria-label="Lamplighter game"></canvas>
+  </div>
+
+  <div class="hud">
+    <span class="roomname" id="roomName">First Light</span>
+    <span class="lanterns" id="lanternCount">0 / 3 lit</span>
+    <span class="spacer"></span>
+    <select id="roomPick" aria-label="Jump to room"></select>
+    <button id="restartBtn" type="button">Restart room (R)</button>
+    <button id="feelBtn" type="button" aria-pressed="false">Feel panel (F)</button>
+  </div>
+
+  <section class="panel" id="panel" hidden>
+    <h2>The jump, and why it is where it is</h2>
+    <p class="lede">
+      Nothing here is tuned by hand. You give it a height and a time to the top, and the gravity and
+      the launch speed are solved from those. The dashed line in the room is the height you asked
+      for; the thin line is where the last jump actually topped out.
+    </p>
+
+    <div class="grid">
+      <div class="row">
+        <label for="sHeight">Jump height</label><span class="val" id="vHeight">80 px</span>
+        <input type="range" id="sHeight" min="36" max="140" step="1" value="80">
+      </div>
+      <div class="row">
+        <label for="sApex">Time to the top</label><span class="val" id="vApex">0.400 s</span>
+        <input type="range" id="sApex" min="0.10" max="0.60" step="0.01" value="0.40">
+      </div>
+      <div class="row">
+        <label for="sFall">Fall gravity &times;</label><span class="val" id="vFall">1.90</span>
+        <input type="range" id="sFall" min="1" max="3" step="0.05" value="1.9">
+      </div>
+      <div class="row">
+        <label for="sCut">Release cut</label><span class="val" id="vCut">0.45</span>
+        <input type="range" id="sCut" min="0" max="1" step="0.05" value="0.45">
+      </div>
+      <div class="row">
+        <label for="sCoyote">Coyote time</label><span class="val" id="vCoyote">6 frames</span>
+        <input type="range" id="sCoyote" min="0" max="14" step="1" value="6">
+      </div>
+      <div class="row">
+        <label for="sBuffer">Jump buffer</label><span class="val" id="vBuffer">8 frames</span>
+        <input type="range" id="sBuffer" min="0" max="16" step="1" value="8">
+      </div>
+      <div class="row check">
+        <input type="checkbox" id="cHang" checked><label for="cHang">Apex hang (half gravity near the top)</label>
+      </div>
+      <div class="row check">
+        <input type="checkbox" id="cNaive"><label for="cNaive">Use the textbook impulse <code>2h/t</code></label>
+      </div>
+      <div class="row check">
+        <input type="checkbox" id="cExplicit"><label for="cExplicit">Integrate position before velocity</label>
+      </div>
+      <div class="row check">
+        <input type="checkbox" id="cGuide" checked><label for="cGuide">Show the apex guide</label>
+      </div>
+    </div>
+
+    <div class="readout" id="readout"></div>
+  </section>
+
+  <p class="note">
+    <b>Try this.</b> Tick the textbook impulse and watch the flame stop reaching the dashed line, then
+    drag the time to the top down towards 0.1 s and watch the gap open up to more than half a tile.
+    The error is exactly <code>1/N</code>, where <code>N</code> is how many sixtieths of a second the jump
+    spends going up, which is why a snappy jump is where it bites and a floaty one hides it.
+  </p>
+</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ *  Constants and level data
+ * ------------------------------------------------------------------ */
+
+const TILE = 24;
+const DT = 1 / 60;                 // fixed physics step. Everything below assumes it.
+const COLS = 28, ROWS = 16;
+const VIEW_W = COLS * TILE, VIEW_H = ROWS * TILE;
+
+const DEFAULTS = {
+  jumpHeight:     80,       // px, the height the designer is asking for
+  timeToApex:     0.40,     // s
+  fallMultiplier: 1.9,      // gravity scale while falling
+  jumpCut:        0.45,     // vy multiplier when the button is released on the way up
+  coyoteFrames:   6,        // integer frames, deliberately not seconds
+  bufferFrames:   8,
+  apexHang:       true,
+  hangThreshold:  60,       // px/s: below this vertical speed, gravity is scaled
+  hangScale:      0.5,
+  impulseMode:    "corrected",   // "corrected" | "naive"
+  integrator:     "symplectic",  // "symplectic" | "explicit"
+  maxSpeed:       165,
+  groundAccel:    1500,
+  airAccel:       1000,
+  groundFriction: 1800,
+  airFriction:    400,
+  maxFall:        900,
+};
+
+/* A bare room with a floor and nothing else, used by measuredApex to run the
+   real physics for a prediction instead of keeping a second copy of it. */
+const PREDICT_LEVEL = {
+  name: "predict",
+  rows: [
+    "............................", "............................",
+    "............................", "............................",
+    "............................", "............................",
+    "............................", "............................",
+    "............................", "............................",
+    "............................", "............................",
+    "..............P.............", "############################",
+    "############################", "############################",
+  ],
+};
+
+/* Legend:  # solid   - one-way platform   L lantern   P spawn   . empty  */
+const LEVELS = [
+  {
+    name: "First Light",
+    rows: [
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      ".................L..........",
+      "...............#####........",
+      ".........L..................",
+      ".......#####................",
+      "..P.....................L...",
+      "############################",
+      "############################",
+      "############################",
+    ],
+  },
+  {
+    name: "The Steps",
+    rows: [
+      "............................",
+      "............................",
+      "............................",
+      "......................L.....",
+      "....................######..",
+      "................L...........",
+      "..............######........",
+      "..........L.................",
+      "........######..............",
+      "....L.......................",
+      "..#####.....................",
+      "............................",
+      "P...........................",
+      "############################",
+      "############################",
+      "############################",
+    ],
+  },
+  {
+    name: "Coyote Ridge",
+    rows: [
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      "..................L.........",
+      "..............######........",
+      ".........L...........L......",
+      ".......#####.......######...",
+      ".L.P........................",
+      "######......................",
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+    ],
+  },
+  {
+    // The one-way platforms were four tiles apart in the first draft, and the
+    // jump clears three. The reachability prover in _verify found it before a
+    // person could: two lanterns unreachable after expanding 222 perches.
+    name: "Through the Floor",
+    rows: [
+      "............................",
+      "............................",
+      "............................",
+      "............................",
+      ".................L..........",
+      "..............--------......",
+      ".......L....................",
+      "....--------................",
+      "..................L.........",
+      "...............--------.....",
+      "........L...................",
+      ".....--------...............",
+      "..P.....................L...",
+      "############################",
+      "############################",
+      "############################",
+    ],
+  },
+  {
+    name: "The Long Dark",
+    rows: [
+      "............................",
+      "............................",
+      "............................",
+      "......................L.....",
+      "....................######..",
+      "............................",
+      "..............L.............",
+      "..........-------...........",
+      "............................",
+      "....L.................L.....",
+      "..#####.............######..",
+      "............................",
+      "P..........L................",
+      "#######..#######............",
+      "#######..#######............",
+      "#######..#######............",
+    ],
+  },
+];
+
+/* ------------------------------------------------------------------ *
+ *  The jump derivation. This is the whole point of the build.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Solve gravity and launch speed from a designer-facing height and time-to-apex.
+ *
+ * "naive" is the schoolbook continuous-time answer that every tutorial prints.
+ * "corrected" solves the DISCRETE recurrence the fixed-timestep loop actually runs,
+ * which needs (N-1) where the continuous form has N.
+ */
+function deriveJump(cfg, dt) {
+  const h = cfg.jumpHeight;
+  const t = cfg.timeToApex;
+  const N = Math.max(2, Math.round(t / dt));
+  if (cfg.impulseMode === "naive") {
+    return { N, gravity: 2 * h / (t * t), impulse: 2 * h / t };
+  }
+  const gravity = 2 * h / (dt * dt * N * (N - 1));
+  return { N, gravity, impulse: N * gravity * dt };
+}
+
+/**
+ * What the integrator alone will reach: the closed form, with no feel modifiers.
+ * This is the number the panel leads with, because it is the 1/N story on its own.
+ */
+function predictApex(cfg, dt) {
+  const { N } = deriveJump(cfg, dt);
+  const h = cfg.jumpHeight;
+  if (cfg.impulseMode === "corrected") return h;
+  return cfg.integrator === "explicit" ? h * (N + 1) / N : h * (N - 1) / N;
+}
+
+/**
+ * What the player will ACTUALLY reach, apex hang and all, measured by running
+ * the real Sim rather than by a second copy of the physics that could drift
+ * away from the first one. Kept separate from predictApex so the panel can show
+ * the integrator's error and the hang bonus as two numbers instead of one
+ * muddled one: apex hang adds a little height, and reporting "exact" while the
+ * guide line in the room reads +1.3 is just a contradiction on screen.
+ */
+function measuredApex(cfg, dt) {
+  const s = new Sim(PREDICT_LEVEL, cfg);
+  for (let i = 0; i < 20; i++) s.step({});
+  const launch = s.y;
+  let best = 0;
+  for (let i = 0; i < 400; i++) {
+    s.step({ jump: true });
+    const got = launch - s.y;
+    if (got > best) best = got;
+    if (i > 4 && s.grounded) break;
+  }
+  return best;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Sim: pure physics + level state. No DOM, no canvas, no randomness.
+ *  The checker drives this exact class, not a copy of it.
+ * ------------------------------------------------------------------ */
+
+const PLAYER_W = 16, PLAYER_H = 20;
+const EPS = 0.0001;
+
+function approach(v, target, delta) {
+  if (v < target) return Math.min(v + delta, target);
+  if (v > target) return Math.max(v - delta, target);
+  return target;
+}
+
+class Sim {
+  constructor(level, cfg) {
+    this.cfg = Object.assign({}, DEFAULTS, cfg || {});
+    this.setLevel(level);
+  }
+
+  setLevel(level) {
+    this.level = level;
+    this.rows = level.rows;
+    this.h = this.rows.length;
+    this.w = this.rows[0].length;
+    this.spawn = null;
+    this.lanterns = [];
+    for (let r = 0; r < this.h; r++) {
+      for (let c = 0; c < this.w; c++) {
+        const ch = this.rows[r][c];
+        if (ch === "P") {
+          // Fail loudly on a second spawn rather than quietly taking the last one.
+          if (this.spawn) throw new Error(`level "${level.name}" has more than one spawn marker`);
+          this.spawn = {
+            x: c * TILE + (TILE - PLAYER_W) / 2,
+            y: r * TILE + TILE - PLAYER_H,
+          };
+        } else if (ch === "L") {
+          this.lanterns.push({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2, lit: false, col: c, row: r });
+        }
+      }
+    }
+    /* A missing spawn used to default to (0,0), which is not an error anywhere
+       you can see it: the player just starts in the corner and falls onto
+       something. Coyote Ridge shipped without its P for exactly one test run,
+       and the only thing that noticed was the reachability prover's replay
+       check, and only because the search had settled the fall first and the
+       replay had not. Silent fallbacks are worse than crashes. */
+    if (!this.spawn) throw new Error(`level "${level.name}" has no spawn marker`);
+    // Deliberately NOT requiring lanterns: a level with none is a legitimate
+    // physics sandbox, and the verification suite uses three of them. "Every
+    // playable room has lanterns" is a fact about the room list, and it is
+    // asserted there (check S0) rather than here.
+    this.reset();
+  }
+
+  reset() {
+    this.x = this.spawn.x; this.y = this.spawn.y;
+    this.vx = 0; this.vy = 0;
+    this.grounded = false;
+    this.facing = 1;
+    this.coyote = 0;
+    this.buffer = 0;
+    this._prevJump = false;
+    this.frame = 0;
+    this.launchY = this.y;
+    this.apexY = this.y;
+    this.lastApexHeight = 0;
+    this.deaths = 0;
+    this.jump = deriveJump(this.cfg, DT);
+    for (const l of this.lanterns) l.lit = false;
+  }
+
+  /** Reset the body but keep which lanterns are lit. Used on a fall. */
+  respawn() {
+    this.x = this.spawn.x; this.y = this.spawn.y;
+    this.vx = 0; this.vy = 0;
+    this.grounded = false;
+    this.coyote = 0; this.buffer = 0;
+    this.launchY = this.y; this.apexY = this.y;
+    // Without this the guide keeps drawing the apex of a jump that happened in
+    // a different part of the room, which reads as a measurement rather than as
+    // leftovers.
+    this.lastApexHeight = 0;
+    this.deaths++;
+  }
+
+  setConfig(patch) {
+    Object.assign(this.cfg, patch);
+    this.jump = deriveJump(this.cfg, DT);
+  }
+
+  tileAt(c, r) {
+    if (r < 0 || r >= this.h || c < 0 || c >= this.w) return r >= this.h ? "." : "#";
+    return this.rows[r][c];
+  }
+  isSolid(c, r) { return this.tileAt(c, r) === "#"; }
+  isOneWay(c, r) { return this.tileAt(c, r) === "-"; }
+
+  moveX(dx) {
+    if (dx === 0) return;
+    this.x += dx;
+    const r0 = Math.floor(this.y / TILE);
+    const r1 = Math.floor((this.y + PLAYER_H - EPS) / TILE);
+    if (dx > 0) {
+      const c = Math.floor((this.x + PLAYER_W - EPS) / TILE);
+      for (let r = r0; r <= r1; r++) {
+        if (this.isSolid(c, r)) { this.x = c * TILE - PLAYER_W; this.vx = 0; return; }
+      }
+    } else {
+      const c = Math.floor(this.x / TILE);
+      for (let r = r0; r <= r1; r++) {
+        if (this.isSolid(c, r)) { this.x = (c + 1) * TILE; this.vx = 0; return; }
+      }
+    }
+  }
+
+  moveY(dy) {
+    if (dy === 0) return;
+    const prevBottom = this.y + PLAYER_H;
+    this.y += dy;
+    const c0 = Math.floor(this.x / TILE);
+    const c1 = Math.floor((this.x + PLAYER_W - EPS) / TILE);
+    if (dy > 0) {
+      const r = Math.floor((this.y + PLAYER_H - EPS) / TILE);
+      for (let c = c0; c <= c1; c++) {
+        const solid = this.isSolid(c, r);
+        // A one-way platform only exists for you if your feet were above its lip before the move.
+        const oneWay = this.isOneWay(c, r) && prevBottom <= r * TILE + 0.5;
+        if (solid || oneWay) {
+          this.y = r * TILE - PLAYER_H; this.vy = 0; this.grounded = true; return;
+        }
+      }
+    } else {
+      const r = Math.floor(this.y / TILE);
+      for (let c = c0; c <= c1; c++) {
+        if (this.isSolid(c, r)) { this.y = (r + 1) * TILE; this.vy = 0; return; }
+      }
+    }
+  }
+
+  /**
+   * One fixed physics step.
+   * input: { left, right, jump }  -- jump is the HELD state; edges are found here.
+   */
+  step(input) {
+    const c = this.cfg;
+    const held = !!(input && input.jump);
+    const pressed = held && !this._prevJump;
+    const released = !held && this._prevJump;
+    this._prevJump = held;
+
+    const wasGrounded = this.grounded;
+    if (wasGrounded) this.coyote = c.coyoteFrames;
+    if (pressed) this.buffer = c.bufferFrames;
+
+    // Horizontal: accelerate toward a target speed, never snap to it.
+    const dir = ((input && input.right) ? 1 : 0) - ((input && input.left) ? 1 : 0);
+    const accel = wasGrounded ? c.groundAccel : c.airAccel;
+    const drag = wasGrounded ? c.groundFriction : c.airFriction;
+    if (dir !== 0) {
+      this.vx = approach(this.vx, dir * c.maxSpeed, accel * DT);
+      this.facing = dir;
+    } else {
+      this.vx = approach(this.vx, 0, drag * DT);
+    }
+
+    // Variable jump height: releasing early cuts the rise. Never touches a fall.
+    if (released && this.vy < 0) this.vy *= c.jumpCut;
+
+    let jumped = false;
+    if (this.buffer > 0 && (wasGrounded || this.coyote > 0)) {
+      this.vy = -this.jump.impulse;
+      this.buffer = 0;
+      this.coyote = 0;
+      this.launchY = this.y;
+      this.apexY = this.y;
+      jumped = true;
+    }
+
+    let g = this.jump.gravity;
+    if (this.vy > 0) g *= c.fallMultiplier;
+    if (c.apexHang && !wasGrounded && Math.abs(this.vy) < c.hangThreshold) g *= c.hangScale;
+
+    let dy;
+    if (c.integrator === "explicit") {
+      dy = this.vy * DT;
+      this.vy += g * DT;
+      if (this.vy > c.maxFall) this.vy = c.maxFall;
+    } else {
+      this.vy += g * DT;
+      if (this.vy > c.maxFall) this.vy = c.maxFall;
+      dy = this.vy * DT;
+    }
+
+    this.grounded = false;
+    this.moveX(this.vx * DT);
+    this.moveY(dy);
+
+    if (this.y < this.apexY) this.apexY = this.y;
+    if (this.grounded || this.vy > 0) this.lastApexHeight = this.launchY - this.apexY;
+
+    // Coyote only decays on frames that were ALREADY airborne, so the frame you walk off
+    // the ledge does not silently spend one of the six.
+    if (!this.grounded && !wasGrounded) this.coyote = Math.max(0, this.coyote - 1);
+    if (!pressed) this.buffer = Math.max(0, this.buffer - 1);
+
+    this.frame++;
+
+    // Lanterns catch on overlap.
+    let litNow = null;
+    for (const l of this.lanterns) {
+      if (l.lit) continue;
+      if (Math.abs((this.x + PLAYER_W / 2) - l.x) < PLAYER_W / 2 + 10 &&
+          Math.abs((this.y + PLAYER_H / 2) - l.y) < PLAYER_H / 2 + 10) {
+        l.lit = true; litNow = l;
+      }
+    }
+
+    let fell = false;
+    if (this.y > this.h * TILE + 60) { this.respawn(); fell = true; }
+
+    return { jumped, litNow, fell };
+  }
+
+  litCount() { return this.lanterns.filter(l => l.lit).length; }
+  complete() { return this.lanterns.length > 0 && this.litCount() === this.lanterns.length; }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Rendering
+ * ------------------------------------------------------------------ */
+
+const COLD_FILL = "#161d2f", COLD_EDGE = "#222c46";
+const WARM_FILL = "#4a3524", WARM_EDGE = "#8d6338";
+const ONEWAY_COLD = "#1e2740", ONEWAY_WARM = "#6d5130";
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  return c;
+}
+
+class Renderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.lightCv = makeCanvas(VIEW_W, VIEW_H);
+    this.lightCx = this.lightCv.getContext("2d");
+    this.warmCv = makeCanvas(VIEW_W, VIEW_H);
+    this.warmCx = this.warmCv.getContext("2d");
+    this.embers = [];
+    this.t = 0;
+  }
+
+  drawWorld(cx, sim, warm) {
+    const fill = warm ? WARM_FILL : COLD_FILL;
+    const edge = warm ? WARM_EDGE : COLD_EDGE;
+    const owc = warm ? ONEWAY_WARM : ONEWAY_COLD;
+    cx.clearRect(0, 0, VIEW_W, VIEW_H);
+    for (let r = 0; r < sim.h; r++) {
+      for (let c = 0; c < sim.w; c++) {
+        const ch = sim.rows[r][c];
+        const x = c * TILE, y = r * TILE;
+        if (ch === "#") {
+          cx.fillStyle = fill;
+          cx.fillRect(x, y, TILE, TILE);
+          // Only cap the tiles that have sky above them, so a slab reads as one mass.
+          if (!sim.isSolid(c, r - 1)) {
+            cx.fillStyle = edge;
+            cx.fillRect(x, y, TILE, 3);
+          }
+        } else if (ch === "-") {
+          cx.fillStyle = owc;
+          cx.fillRect(x, y, TILE, 5);
+          cx.fillStyle = edge;
+          cx.fillRect(x, y, TILE, 2);
+        }
+      }
+    }
+  }
+
+  /** Paint every light source into the mask canvas, additively. */
+  drawLights(sim, flicker) {
+    const cx = this.lightCx;
+    cx.globalCompositeOperation = "source-over";
+    cx.clearRect(0, 0, VIEW_W, VIEW_H);
+    cx.globalCompositeOperation = "lighter";
+    const blob = (x, y, radius, strength) => {
+      const g = cx.createRadialGradient(x, y, 0, x, y, radius);
+      g.addColorStop(0, `rgba(255,255,255,${strength})`);
+      g.addColorStop(0.45, `rgba(255,255,255,${strength * 0.42})`);
+      g.addColorStop(1, "rgba(255,255,255,0)");
+      cx.fillStyle = g;
+      cx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    };
+    for (const l of sim.lanterns) {
+      if (!l.lit) continue;
+      blob(l.x, l.y, 150 + flicker * 7, 0.95);
+    }
+    blob(sim.x + PLAYER_W / 2, sim.y + PLAYER_H / 2 - 8, 82 + flicker * 5, 0.8);
+    cx.globalCompositeOperation = "source-over";
+  }
+
+  drawLantern(cx, l, flicker) {
+    const { x, y } = l;
+    if (!l.lit) {
+      cx.strokeStyle = "#3a4664"; cx.lineWidth = 1.5;
+      cx.beginPath(); cx.arc(x, y, 5.5, 0, Math.PI * 2); cx.stroke();
+      cx.fillStyle = "#232c44";
+      cx.fillRect(x - 1, y - 11, 2, 5);
+      return;
+    }
+    const g = cx.createRadialGradient(x, y, 0, x, y, 16);
+    g.addColorStop(0, "rgba(255,233,180,0.95)");
+    g.addColorStop(0.4, "rgba(255,175,71,0.55)");
+    g.addColorStop(1, "rgba(255,140,40,0)");
+    cx.fillStyle = g;
+    cx.beginPath(); cx.arc(x, y, 16, 0, Math.PI * 2); cx.fill();
+    cx.fillStyle = "#ffe6ad";
+    cx.beginPath(); cx.arc(x, y, 3.6 + flicker * 0.5, 0, Math.PI * 2); cx.fill();
+    cx.strokeStyle = "#c98c3f"; cx.lineWidth = 1.5;
+    cx.beginPath(); cx.arc(x, y, 6.5, 0, Math.PI * 2); cx.stroke();
+    cx.fillStyle = "#b8813c";
+    cx.fillRect(x - 1, y - 12, 2, 5);
+  }
+
+  drawPlayer(cx, sim, squash, flicker) {
+    const cxp = sim.x + PLAYER_W / 2;
+    const byp = sim.y + PLAYER_H;
+    const sy = squash, sx = 2 - squash;
+    cx.save();
+    cx.translate(cxp, byp);
+    cx.scale(sx, sy);
+    // body
+    cx.fillStyle = "#e9dcc2";
+    cx.beginPath();
+    cx.moveTo(-PLAYER_W / 2, 0);
+    cx.lineTo(PLAYER_W / 2, 0);
+    cx.lineTo(PLAYER_W / 2, -PLAYER_H + 6);
+    cx.quadraticCurveTo(0, -PLAYER_H - 2, -PLAYER_W / 2, -PLAYER_H + 6);
+    cx.closePath();
+    cx.fill();
+    // eyes, facing
+    cx.fillStyle = "#2a2416";
+    const ex = sim.facing * 2.4;
+    cx.beginPath(); cx.arc(ex - 3, -PLAYER_H + 9, 1.5, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc(ex + 3, -PLAYER_H + 9, 1.5, 0, Math.PI * 2); cx.fill();
+    cx.restore();
+    // the flame it carries
+    const fx = cxp, fy = sim.y - 4 - (squash - 1) * 6;
+    const fg = cx.createRadialGradient(fx, fy, 0, fx, fy, 11);
+    fg.addColorStop(0, "rgba(255,244,214,0.98)");
+    fg.addColorStop(0.35, "rgba(255,178,71,0.7)");
+    fg.addColorStop(1, "rgba(255,120,30,0)");
+    cx.fillStyle = fg;
+    cx.beginPath(); cx.arc(fx, fy, 11, 0, Math.PI * 2); cx.fill();
+    cx.fillStyle = "#fff0c8";
+    cx.beginPath();
+    cx.ellipse(fx, fy, 2.1 + flicker * 0.3, 3.4 + flicker * 0.7, 0, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  spawnEmbers(sim) {
+    for (const l of sim.lanterns) {
+      if (!l.lit) continue;
+      if (Math.random() < 0.06) {
+        this.embers.push({ x: l.x + (Math.random() - 0.5) * 6, y: l.y - 2, vy: -8 - Math.random() * 12, vx: (Math.random() - 0.5) * 8, life: 1 });
+      }
+    }
+    for (const e of this.embers) { e.x += e.vx * DT; e.y += e.vy * DT; e.life -= DT * 0.5; }
+    this.embers = this.embers.filter(e => e.life > 0);
+    if (this.embers.length > 220) this.embers.splice(0, this.embers.length - 220);
+  }
+
+  drawEmbers(cx) {
+    for (const e of this.embers) {
+      cx.fillStyle = `rgba(255,186,96,${Math.max(0, e.life) * 0.7})`;
+      cx.fillRect(e.x, e.y, 1.6, 1.6);
+    }
+  }
+
+  drawGuide(cx, sim, show) {
+    if (!show || sim.lastApexHeight <= 0) return;
+    const want = sim.launchY - sim.cfg.jumpHeight + PLAYER_H;
+    const got = sim.apexY + PLAYER_H;
+    cx.save();
+    cx.setLineDash([5, 5]);
+    cx.strokeStyle = "rgba(200,214,232,0.42)";
+    cx.lineWidth = 1;
+    cx.beginPath(); cx.moveTo(0, Math.round(want) + 0.5); cx.lineTo(VIEW_W, Math.round(want) + 0.5); cx.stroke();
+    cx.setLineDash([]);
+    cx.strokeStyle = "rgba(255,179,71,0.85)";
+    cx.beginPath(); cx.moveTo(0, Math.round(got) + 0.5); cx.lineTo(VIEW_W, Math.round(got) + 0.5); cx.stroke();
+    cx.restore();
+    // The two lines can sit a few pixels apart, so each label goes on the side
+    // AWAY from the other line. Centring both above their own line put the apex
+    // caption straight through the dashed target line on every undershoot.
+    const apexIsBelow = got > want;
+    const apexLabelY = Math.round(got) + (apexIsBelow ? 13 : -6);
+    const wantLabelY = Math.round(want) + (apexIsBelow ? -6 : 13);
+    const delta = sim.lastApexHeight - sim.cfg.jumpHeight;
+    cx.fillStyle = Math.abs(delta) < 0.5 ? "rgba(127,209,143,0.95)" : "rgba(232,138,106,0.95)";
+    cx.font = "11px ui-monospace, Menlo, Consolas, monospace";
+    cx.textAlign = "right";
+    const label = `${sim.lastApexHeight.toFixed(1)} px  (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`;
+    cx.fillText(label, VIEW_W - 8, apexLabelY);
+    cx.textAlign = "left";
+    cx.fillStyle = "rgba(200,214,232,0.6)";
+    cx.fillText(`asked for ${sim.cfg.jumpHeight.toFixed(0)} px`, 8, wantLabelY);
+  }
+
+  render(sim, opts) {
+    const cx = this.ctx;
+    this.t += DT;
+    const flicker = Math.sin(this.t * 9.1) * 0.5 + Math.sin(this.t * 3.7) * 0.5;
+
+    cx.fillStyle = "#0a0e1a";
+    cx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+    // Cold pass: the room as it is in the dark.
+    this.drawWorld(cx, sim, false);
+
+    // Warm pass, masked to the light. destination-in keeps only what the mask covers,
+    // with the gradient's alpha, so the edge is soft instead of a hard circle.
+    this.drawLights(sim, flicker);
+    this.drawWorld(this.warmCx, sim, true);
+    this.warmCx.globalCompositeOperation = "destination-in";
+    this.warmCx.drawImage(this.lightCv, 0, 0);
+    this.warmCx.globalCompositeOperation = "source-over";
+    cx.drawImage(this.warmCv, 0, 0);
+
+    // Bloom.
+    cx.save();
+    cx.globalCompositeOperation = "lighter";
+    cx.globalAlpha = 0.30;
+    cx.drawImage(this.lightCv, 0, 0);
+    cx.restore();
+
+    // A warm wash over the lit area so the air itself looks lit, not just the stone.
+    cx.save();
+    cx.globalCompositeOperation = "lighter";
+    cx.globalAlpha = 0.12;
+    cx.fillStyle = "#ff9a3c";
+    cx.globalCompositeOperation = "source-atop";
+    cx.restore();
+
+    this.spawnEmbers(sim);
+    this.drawEmbers(cx);
+    for (const l of sim.lanterns) this.drawLantern(cx, l, flicker);
+    this.drawGuide(cx, sim, opts && opts.guide);
+    this.drawPlayer(cx, sim, (opts && opts.squash) || 1, flicker);
+
+    // Vignette.
+    const vg = cx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.34, VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.95);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(0,0,0,0.55)");
+    cx.fillStyle = vg;
+    cx.fillRect(0, 0, VIEW_W, VIEW_H);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Game: input, loop, UI
+ * ------------------------------------------------------------------ */
+
+class Game {
+  constructor(canvas) {
+    this.roomIndex = 0;
+    this.sim = new Sim(LEVELS[0], {});
+    this.renderer = new Renderer(canvas);
+    this.input = { left: false, right: false, jump: false };
+    this.acc = 0;
+    this.last = 0;
+    this.squash = 1;
+    /* Off while you are just playing. Two full-width measurement lines across
+       the room is the laboratory look this build was meant to get away from, so
+       the guide comes up with the feel panel and goes away with it. */
+    this.guide = false;
+    this.transition = 0;
+    this.running = false;
+  }
+
+  loadRoom(i) {
+    this.roomIndex = ((i % LEVELS.length) + LEVELS.length) % LEVELS.length;
+    const cfg = this.sim ? this.sim.cfg : {};
+    this.sim = new Sim(LEVELS[this.roomIndex], cfg);
+    this.transition = 0;
+    if (this.onRoom) this.onRoom();
+  }
+
+  restart() { this.sim.reset(); this.transition = 0; if (this.onRoom) this.onRoom(); }
+
+  fixedStep() {
+    const r = this.sim.step(this.input);
+    if (r.jumped) this.squash = 1.22;
+    if (r.fell) this.squash = 1;
+    if (this.sim.grounded && this.squash > 1.0) this.squash = 0.82;
+    this.squash += (1 - this.squash) * 0.22;
+    if (this.transition === 0 && this.sim.complete()) this.transition = 1;
+    if (this.transition > 0) {
+      this.transition++;
+      if (this.transition > 78) this.loadRoom(this.roomIndex + 1);
+    }
+    if (r.litNow && this.onLit) this.onLit();
+  }
+
+  /** Frame delta in seconds. The accumulator is what makes the physics framerate independent. */
+  advance(dtReal) {
+    this.acc += Math.min(dtReal, 0.25);
+    let steps = 0;
+    while (this.acc >= DT && steps < 8) { this.fixedStep(); this.acc -= DT; steps++; }
+    this.renderer.render(this.sim, { squash: this.squash, guide: this.guide });
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    const frame = (now) => {
+      if (!this.running) return;
+      const dt = this.last ? (now - this.last) / 1000 : DT;
+      this.last = now;
+      this.advance(dt);
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Boot
+ * ------------------------------------------------------------------ */
+
+const qs = new URLSearchParams(location.search);
+const previewFlag = qs.get("preview");
+const canvas = document.getElementById("view");
+const game = new Game(canvas);
+
+/* ---- preview mode for the storybook index card ---- */
+if (previewFlag) {
+  document.documentElement.classList.add("preview");
+  document.body.classList.add("preview");
+  const wanted = parseInt(previewFlag, 10);
+  const room = Number.isFinite(wanted) && wanted >= 1 && wanted <= LEVELS.length ? wanted - 1 : 1;
+  game.loadRoom(room);
+  // Light the room so the card shows the payoff rather than a dark grid, and drop the
+  // player somewhere photogenic.
+  for (const l of game.sim.lanterns) l.lit = true;
+  // Stand the player on the ledge under a middle lantern, so the card shows a
+  // lit room with someone in it rather than an empty grid.
+  const perch = game.sim.lanterns[1] || game.sim.lanterns[0];
+  game.sim.x = perch ? perch.x - 44 : game.sim.spawn.x;
+  game.sim.y = perch ? (perch.row + 1) * TILE - PLAYER_H : game.sim.spawn.y;
+  game.sim.facing = 1;
+  game.guide = false;
+  game.transition = -1;              // never advance rooms in a preview
+  const previewFrame = () => {
+    game.sim.frame++;
+    game.renderer.render(game.sim, { squash: 1, guide: false });
+    requestAnimationFrame(previewFrame);
+  };
+  // Pre-seed embers so the very first painted frame already has them.
+  for (let i = 0; i < 90; i++) game.renderer.spawnEmbers(game.sim);
+  requestAnimationFrame(previewFrame);
+} else {
+  bootInteractive();
+}
+
+function bootInteractive() {
+  const el = id => document.getElementById(id);
+  const roomName = el("roomName"), lanternCount = el("lanternCount"), roomPick = el("roomPick");
+  const panel = el("panel"), feelBtn = el("feelBtn"), readout = el("readout");
+
+  LEVELS.forEach((lv, i) => {
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = `${i + 1}. ${lv.name}`;
+    roomPick.appendChild(o);
+  });
+
+  const syncHud = () => {
+    roomName.textContent = game.sim.level.name;
+    lanternCount.textContent = `${game.sim.litCount()} / ${game.sim.lanterns.length} lit`;
+    roomPick.value = String(game.roomIndex);
+  };
+  game.onRoom = syncHud;
+  game.onLit = syncHud;
+
+  /* ---- input ---- */
+  const KEYMAP = {
+    ArrowLeft: "left", KeyA: "left",
+    ArrowRight: "right", KeyD: "right",
+    ArrowUp: "jump", KeyW: "jump", Space: "jump", KeyZ: "jump",
+  };
+  const setKey = (code, down, ev) => {
+    const act = KEYMAP[code];
+    if (act) { game.input[act] = down; if (ev) ev.preventDefault(); return true; }
+    return false;
+  };
+  window.addEventListener("keydown", (e) => {
+    if (e.repeat) { if (KEYMAP[e.code]) e.preventDefault(); return; }
+    if (setKey(e.code, true, e)) return;
+    if (e.code === "KeyR") { game.restart(); e.preventDefault(); }
+    if (e.code === "KeyF") { togglePanel(); e.preventDefault(); }
+  });
+  window.addEventListener("keyup", (e) => setKey(e.code, false, e));
+  window.addEventListener("blur", () => { game.input.left = game.input.right = game.input.jump = false; });
+  canvas.addEventListener("pointerdown", () => canvas.focus());
+
+  /* ---- panel ---- */
+  function togglePanel() {
+    const open = panel.hasAttribute("hidden");
+    if (open) panel.removeAttribute("hidden"); else panel.setAttribute("hidden", "");
+    feelBtn.setAttribute("aria-pressed", String(open));
+    game.guide = open && el("cGuide").checked;
+  }
+  feelBtn.addEventListener("click", togglePanel);
+  el("restartBtn").addEventListener("click", () => { game.restart(); canvas.focus(); });
+  roomPick.addEventListener("change", () => { game.loadRoom(parseInt(roomPick.value, 10)); canvas.focus(); });
+
+  const controls = [
+    ["sHeight", "vHeight", v => `${v.toFixed(0)} px`, v => ({ jumpHeight: v })],
+    ["sApex", "vApex", v => `${v.toFixed(3)} s`, v => ({ timeToApex: v })],
+    ["sFall", "vFall", v => v.toFixed(2), v => ({ fallMultiplier: v })],
+    ["sCut", "vCut", v => v.toFixed(2), v => ({ jumpCut: v })],
+    ["sCoyote", "vCoyote", v => `${v.toFixed(0)} frames`, v => ({ coyoteFrames: Math.round(v) })],
+    ["sBuffer", "vBuffer", v => `${v.toFixed(0)} frames`, v => ({ bufferFrames: Math.round(v) })],
+  ];
+  for (const [sid, vid, fmt, patch] of controls) {
+    const s = el(sid), v = el(vid);
+    const apply = () => {
+      const n = parseFloat(s.value);
+      v.textContent = fmt(n);
+      game.sim.setConfig(patch(n));
+      updateReadout();
+    };
+    s.addEventListener("input", apply);
+    apply();
+  }
+  const checks = [
+    ["cHang", v => ({ apexHang: v })],
+    ["cNaive", v => ({ impulseMode: v ? "naive" : "corrected" })],
+    ["cExplicit", v => ({ integrator: v ? "explicit" : "symplectic" })],
+  ];
+  for (const [cid, patch] of checks) {
+    const c = el(cid);
+    c.addEventListener("change", () => { game.sim.setConfig(patch(c.checked)); updateReadout(); });
+  }
+  el("cGuide").addEventListener("change", (e) => {
+    game.guide = e.target.checked && !panel.hasAttribute("hidden");
+  });
+
+  function updateReadout() {
+    const cfg = game.sim.cfg;
+    const j = deriveJump(cfg, DT);
+    const expect = predictApex(cfg, DT);
+    const err = (expect - cfg.jumpHeight) / cfg.jumpHeight * 100;
+    const exact = Math.abs(err) < 1e-9;
+    const real = measuredApex(cfg, DT);
+    const bonus = real - expect;
+    readout.innerHTML =
+      `<p>Solved from your two numbers: gravity <b>${j.gravity.toFixed(1)}</b> px/s&sup2;, ` +
+      `launch speed <b>${j.impulse.toFixed(1)}</b> px/s, ` +
+      `<b>N = ${j.N}</b> physics steps to the top.</p>` +
+      `<p>Predicted apex <b>${expect.toFixed(3)}</b> px against the <b>${cfg.jumpHeight.toFixed(0)}</b> px you asked for: ` +
+      (exact
+        ? `<span class="hit">exact</span>.</p>`
+        : `<span class="miss">${err > 0 ? "+" : ""}${err.toFixed(2)}%</span>, which is ${err > 0 ? "+" : "&minus;"}1/N.</p>`) +
+      `<p>${cfg.impulseMode === "naive"
+        ? `Textbook impulse <code>2h/t</code>. The continuous formula does not know about the timestep, so ` +
+          `${cfg.integrator === "explicit" ? "ordering position first overshoots" : "ordering velocity first undershoots"} by exactly one part in N.`
+        : `Discrete-corrected impulse <code>2h/((N-1)&middot;dt)</code>, which is what a fixed timestep actually needs.`}</p>` +
+      (Math.abs(bonus) > 0.005
+        ? `<p>Apex hang buys a further <b>${bonus.toFixed(2)}</b> px on top of that, by halving gravity near the top, ` +
+          `so the line you will actually see in the room is <b>${real.toFixed(2)}</b> px. Measured by running the game's own physics, not predicted.</p>`
+        : '');
+  }
+  updateReadout();
+
+  syncHud();
+  game.start();
+  canvas.focus();
+}
+
+/* Exposed so the verification suite drives the real engine rather than a copy of it. */
+window.__lamp = { Sim, Game, Renderer, deriveJump, predictApex, measuredApex, DEFAULTS, LEVELS, PREDICT_LEVEL, TILE, DT, PLAYER_W, PLAYER_H, game };
+</script>

@@ -1,0 +1,943 @@
+<!doctype html>
+<!--
+  CLOTH
+  A Verlet cloth and rope sandbox. Playground build, 2026-09-19.
+
+  WHAT IT IS
+  Five hanging things made of points and sticks: a flag, a curtain, a net, a suspension span and
+  a rack of ropes. Grab any of them and swing it, cut the threads with the scissors, pin or
+  unpin a point, turn the wind up. The threads are coloured by strain, so you can see the load
+  path travel through the fabric when you pull on a corner, and the cloth tears when a thread is
+  stretched past its limit.
+
+  HOW IT WORKS
+  Position Verlet integration plus Gauss-Seidel distance-constraint relaxation. There are no
+  velocities stored anywhere: a point knows only where it is and where it was, and the gap
+  between those two IS its velocity. Constraints are satisfied by moving points, not by applying
+  forces, which is what makes cloth this cheap and this stable.
+
+  WHY I BUILT IT
+  Every build in this folder so far has been a mechanism taken apart and made steppable, with the
+  proof panel built into the toy. The playtime log said to break that on purpose at least once
+  and make something whose point is that it is pleasant. So this one has no lab in it. The
+  verification is real and it is thorough, and it lives in _verify/ where it belongs instead of
+  on screen.
+
+  WHAT IT TAUGHT ME
+  Three things, all measured in _verify/check_cloth.js against closed forms written down first
+  in _verify/PREDICTIONS_cloth.md:
+
+  1. The line everybody writes to start a Verlet particle at rest, prev = current, does not start
+     it at rest. Setting the previous position equal to the current one hands the first step a
+     whole a*dt^2 where it should get half of one, so the particle carries a free half step of
+     velocity forever and runs AHEAD of the truth by exactly a*dt*t/2. Measured: 508.333333 px
+     where the real answer is 500. I had the sign of that backwards when I wrote the prediction
+     down, which is the single most useful thing that happened in this build. Verlet integrates
+     constant acceleration EXACTLY, so starting from prev = x - v*dt + a*dt^2/2 is right to float
+     precision at every timestep. The whole error in the standard recipe is in line one.
+
+  2. Damping written as v *= 0.99 once per step is a frame-rate dial wearing a physics label.
+     Halving the timestep squares the decay over the same second of simulated time. Nobody
+     notices because nobody changes their timestep.
+
+  3. A relaxation sweep carries a disturbance ALL the way downstream in sweep order and exactly
+     one stick upstream per pass. So the same solver, the same iteration count and the same tug
+     move 19 points or 2 depending only on which end of the chain you tugged. There is a third
+     case I did not see coming: a tug on the point next to a PINNED anchor is absorbed entirely
+     by that one stick, because a pinned end takes the whole correction and puts its neighbour
+     back exactly where it was, leaving nothing at all for the rest of the sweep to carry.
+
+  4. Constraint projection is not energy neutral, and it leans toward losing. A pendulum with
+     damping switched off still bleeds amplitude, which is why the 90 degree period comes out
+     5 percent short. The drift falls with the timestep, so it is discretisation and not a bug.
+
+  Self-contained, offline, no dependencies. Add ?preview=1 for the storybook thumbnail.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloth</title>
+<style>
+  :root {
+    --ink: #e8edf5;
+    --dim: #8a94a6;
+    --panel: rgba(16, 20, 28, 0.82);
+    --edge: rgba(255, 255, 255, 0.10);
+    --hot: #ffb454;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #080a0f; color: var(--ink);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+  .chrome { position: fixed; inset: 0; pointer-events: none; }
+  .chrome > * { pointer-events: auto; }
+
+  .brand {
+    position: absolute; top: 16px; left: 18px;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .brand b { font-size: 17px; font-weight: 650; letter-spacing: 0.02em; }
+  .brand span { color: var(--dim); font-size: 12px; }
+
+  .panel {
+    position: absolute; left: 14px; bottom: 14px; right: 14px;
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
+    padding: 11px 13px; backdrop-filter: blur(9px);
+    display: flex; flex-wrap: wrap; gap: 9px 16px; align-items: center;
+  }
+  .grp { display: flex; align-items: center; gap: 7px; }
+  .grp > label { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
+
+  button, select {
+    font: inherit; color: var(--ink); background: rgba(255,255,255,0.05);
+    border: 1px solid var(--edge); border-radius: 8px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover, select:hover { background: rgba(255,255,255,0.11); }
+  button[aria-pressed="true"] { background: var(--hot); color: #17120a; border-color: var(--hot); font-weight: 600; }
+  select { padding-right: 8px; }
+
+  .seg { display: flex; gap: 4px; }
+
+  input[type=range] { width: 92px; accent-color: var(--hot); }
+  output { color: var(--ink); font-variant-numeric: tabular-nums; font-size: 12px; min-width: 34px; }
+
+  .hint {
+    position: absolute; top: 16px; right: 18px; text-align: right;
+    color: var(--dim); font-size: 11.5px; line-height: 1.7; max-width: 42vw;
+  }
+  .hint kbd {
+    font: inherit; background: rgba(255,255,255,0.08); border: 1px solid var(--edge);
+    border-radius: 5px; padding: 0 5px;
+  }
+  .stat { position: absolute; bottom: 74px; left: 18px; color: var(--dim); font-size: 11px;
+          font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 720px) {
+    .hint { display: none; }
+    .panel { gap: 7px 11px; padding: 9px; }
+    input[type=range] { width: 68px; }
+  }
+
+  /* Preview mode for the storybook index: just the fabric, no furniture. */
+  body.preview .chrome { display: none; }
+  body.preview canvas { cursor: default; }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="chrome">
+  <div class="brand"><b>Cloth</b><span>points, sticks, and nothing else</span></div>
+
+  <div class="hint">
+    <kbd>drag</kbd> to grab &nbsp; <kbd>shift</kbd>+drag to cut<br>
+    <kbd>1</kbd>..<kbd>5</kbd> presets &nbsp; <kbd>space</kbd> gust &nbsp; <kbd>R</kbd> reset
+  </div>
+
+  <div class="stat" id="stat"></div>
+
+  <div class="panel">
+    <div class="grp">
+      <label for="preset">Scene</label>
+      <select id="preset">
+        <option value="flag">Flag</option>
+        <option value="curtain">Curtain</option>
+        <option value="net">Net</option>
+        <option value="span">Span</option>
+        <option value="ropes">Ropes</option>
+      </select>
+    </div>
+
+    <div class="grp">
+      <label>Tool</label>
+      <div class="seg">
+        <button id="tool-grab" aria-pressed="true">Grab</button>
+        <button id="tool-cut" aria-pressed="false">Cut</button>
+        <button id="tool-pin" aria-pressed="false">Pin</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <label for="wind">Wind</label>
+      <input type="range" id="wind" min="0" max="2600" step="20" value="900">
+      <output id="wind-o"></output>
+    </div>
+
+    <div class="grp">
+      <label for="grav">Gravity</label>
+      <input type="range" id="grav" min="0" max="2600" step="20" value="1400">
+      <output id="grav-o"></output>
+    </div>
+
+    <div class="grp">
+      <label for="iters">Stiffness</label>
+      <input type="range" id="iters" min="1" max="24" step="1" value="8">
+      <output id="iters-o"></output>
+    </div>
+
+    <div class="grp">
+      <label for="tear">Tear at</label>
+      <input type="range" id="tear" min="12" max="80" step="1" value="30">
+      <output id="tear-o"></output>
+    </div>
+
+    <div class="grp">
+      <button id="fill" aria-pressed="true">Shade</button>
+      <button id="gust">Gust</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * The engine. Pure, no DOM, exposed on window.__cloth so the checker
+ * in _verify/ can run closed-form experiments against the code that
+ * actually ships rather than against a copy of it.
+ * ------------------------------------------------------------------ */
+
+const DEFAULTS = {
+  gravity: 1400,          // px/s^2, positive is down
+  wind: 0,                // px/s^2, positive is right
+  flutter: 0,             // per-point wind variation, 0..1 of wind
+  damping: 0.995,         // velocity multiplier
+  dampingMode: "perStep", // "perStep" is the classic and is frame-rate dependent.
+                          // "perSecond" raises it to dt*dampingRate instead.
+  dampingRate: 60,
+  iterations: 6,
+  tearScale: 3.0,         // a stick dies past rest * tearScale. Infinity never tears.
+  integrator: "corrected",// "corrected" or "naive". See the header comment.
+  bounds: null,           // {x0,y0,x1,y1} or null for a free field
+  restitution: 0.25,
+  friction: 0.86,
+  seed: 20260919
+};
+
+class World {
+  constructor(opts) {
+    Object.assign(this, DEFAULTS, opts || {});
+    this.n = 0;
+    this.x = []; this.y = []; this.ox = []; this.oy = [];
+    this.pin = [];
+    this.sticks = [];       // {a, b, rest, dead, scale}
+    this.quads = [];        // {p:[4 point ids], s:[4 stick ids], area0}
+    this.t = 0;
+    this.tears = 0;
+  }
+
+  /* Acceleration felt by point i at time t. Kept as one function so the
+   * corrected start-up below uses exactly the same expression the first
+   * real step will use. */
+  ax(i, t) {
+    if (!this.wind) return 0;
+    const gust = 0.62 + 0.38 * Math.sin(t * 1.7 + 0.6) * Math.sin(t * 0.53 + 1.9);
+    if (!this.flutter) return this.wind * gust;
+    // Turbulence indexed by POSITION, not by point number. Phase per index gives
+    // every point its own private wobble and the sheet just buzzes; phase per
+    // position gives a wave that travels across the fabric, which is the thing
+    // that actually looks like wind.
+    const turb = Math.sin(this.x[i] * 0.026 + t * 2.7) * Math.cos(this.y[i] * 0.034 - t * 1.9);
+    return this.wind * (gust + this.flutter * turb);
+  }
+  ay(i, t) {
+    if (!this.wind || !this.flutter) return this.gravity;
+    const turb = Math.sin(this.y[i] * 0.038 + t * 3.1) * Math.cos(this.x[i] * 0.021 - t * 2.3);
+    return this.gravity + this.wind * this.flutter * 0.7 * turb;
+  }
+
+  /* dt is needed here and not only in step(), because a correct Verlet
+   * start-up has to know the step size it is starting into. That is the
+   * whole finding of P1/P2 in the predictions file. */
+  addPoint(px, py, o) {
+    o = o || {};
+    const i = this.n++;
+    const dt = o.dt !== undefined ? o.dt : (this.dt || 1 / 120);
+    const vx = o.vx || 0, vy = o.vy || 0;
+    this.x[i] = px; this.y[i] = py;
+    if (this.integrator === "naive") {
+      // The line every tutorial writes. It is not "at rest".
+      this.ox[i] = px - vx * dt;
+      this.oy[i] = py - vy * dt;
+    } else {
+      this.ox[i] = px - vx * dt + 0.5 * this.ax(i, 0) * dt * dt;
+      this.oy[i] = py - vy * dt + 0.5 * this.ay(i, 0) * dt * dt;
+    }
+    this.pin[i] = o.pinned ? 1 : 0;
+    return i;
+  }
+
+  addStick(a, b, o) {
+    o = o || {};
+    const dx = this.x[b] - this.x[a], dy = this.y[b] - this.y[a];
+    const s = {
+      a: a, b: b,
+      rest: o.rest !== undefined ? o.rest : Math.hypot(dx, dy),
+      scale: o.scale !== undefined ? o.scale : 1,
+      k: o.k !== undefined ? o.k : 1,       // softness of the correction, 1 is a rigid stick
+      draw: o.draw !== false,               // shear diagonals hold the sheet but are not threads
+      dead: false
+    };
+    this.sticks.push(s);
+    return this.sticks.length - 1;
+  }
+
+  integrate(dt) {
+    const d = this.dampingMode === "perSecond"
+      ? Math.pow(this.damping, dt * this.dampingRate)
+      : this.damping;
+    const dt2 = dt * dt, t = this.t;
+    for (let i = 0; i < this.n; i++) {
+      if (this.pin[i]) { this.ox[i] = this.x[i]; this.oy[i] = this.y[i]; continue; }
+      const vx = (this.x[i] - this.ox[i]) * d;
+      const vy = (this.y[i] - this.oy[i]) * d;
+      this.ox[i] = this.x[i];
+      this.oy[i] = this.y[i];
+      this.x[i] += vx + this.ax(i, t) * dt2;
+      this.y[i] += vy + this.ay(i, t) * dt2;
+    }
+  }
+
+  /* One Gauss-Seidel sweep, in array order. Exposed on its own because the
+   * propagation asymmetry only shows up one sweep at a time. */
+  relaxOnce() {
+    const S = this.sticks, X = this.x, Y = this.y, P = this.pin;
+    for (let k = 0; k < S.length; k++) {
+      const s = S[k];
+      if (s.dead) continue;
+      const a = s.a, b = s.b;
+      const pa = P[a], pb = P[b];
+      if (pa && pb) continue;
+      const dx = X[b] - X[a], dy = Y[b] - Y[a];
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d === 0) continue;
+      const diff = (d - s.rest) / d * s.k;
+      if (pa) {
+        X[b] -= dx * diff; Y[b] -= dy * diff;
+      } else if (pb) {
+        X[a] += dx * diff; Y[a] += dy * diff;
+      } else {
+        const h = diff * 0.5;
+        X[a] += dx * h; Y[a] += dy * h;
+        X[b] -= dx * h; Y[b] -= dy * h;
+      }
+    }
+  }
+
+  tear() {
+    if (!isFinite(this.tearScale)) return;
+    const S = this.sticks, X = this.x, Y = this.y;
+    for (let k = 0; k < S.length; k++) {
+      const s = S[k];
+      if (s.dead) continue;
+      const dx = X[s.b] - X[s.a], dy = Y[s.b] - Y[s.a];
+      if (Math.sqrt(dx * dx + dy * dy) > s.rest * this.tearScale * s.scale) {
+        s.dead = true; this.tears++;
+      }
+    }
+  }
+
+  collide() {
+    const B = this.bounds;
+    if (!B) return;
+    for (let i = 0; i < this.n; i++) {
+      if (this.pin[i]) continue;
+      let x = this.x[i], y = this.y[i];
+      let vx = x - this.ox[i], vy = y - this.oy[i];
+      if (y > B.y1) { y = B.y1; vy = -vy * this.restitution; vx *= this.friction; }
+      else if (y < B.y0) { y = B.y0; vy = -vy * this.restitution; }
+      if (x > B.x1) { x = B.x1; vx = -vx * this.restitution; vy *= this.friction; }
+      else if (x < B.x0) { x = B.x0; vx = -vx * this.restitution; vy *= this.friction; }
+      this.x[i] = x; this.y[i] = y;
+      this.ox[i] = x - vx; this.oy[i] = y - vy;
+    }
+  }
+
+  step(dt) {
+    this.t += dt;
+    this.integrate(dt);
+    this.tear();
+    for (let i = 0; i < this.iterations; i++) this.relaxOnce();
+    this.collide();
+  }
+
+  /* Hold a point at a position and give it the velocity of the hand that
+   * moved it, so letting go flings it. */
+  hold(i, x, y, lastX, lastY) {
+    this.x[i] = x; this.y[i] = y;
+    this.ox[i] = lastX; this.oy[i] = lastY;
+  }
+
+  nearest(x, y, maxDist) {
+    let best = -1, bd = maxDist * maxDist;
+    for (let i = 0; i < this.n; i++) {
+      const dx = this.x[i] - x, dy = this.y[i] - y;
+      const d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+
+  /* Kill every live stick whose segment comes within r of the segment
+   * (x0,y0)-(x1,y1). Used by the scissors. */
+  cutAlong(x0, y0, x1, y1, r) {
+    let cut = 0;
+    for (const s of this.sticks) {
+      if (s.dead) continue;
+      if (segDist(x0, y0, x1, y1, this.x[s.a], this.y[s.a], this.x[s.b], this.y[s.b]) <= r) {
+        s.dead = true; cut++; this.tears++;
+      }
+    }
+    return cut;
+  }
+
+  liveSticks() { let c = 0; for (const s of this.sticks) if (!s.dead) c++; return c; }
+
+  /* Total length of every live stick, which is how the chain tests read
+   * the stretch out of a settled simulation. */
+  span() {
+    let L = 0;
+    for (const s of this.sticks) {
+      if (s.dead) continue;
+      L += Math.hypot(this.x[s.b] - this.x[s.a], this.y[s.b] - this.y[s.a]);
+    }
+    return L;
+  }
+}
+
+/* Distance between two segments, for the scissors.
+ *
+ * The four endpoint-to-segment distances are NOT enough on their own, and that
+ * was a real bug here: two segments that cross each other have all four of
+ * those distances well above zero, so a clean stroke straight through a row of
+ * threads cut nothing at all. It only looked as though it worked in the browser
+ * because a dragged mouse emits short stroke segments whose endpoints happen to
+ * land near a thread. Orientation test first, endpoint distances second. */
+function segDist(ax, ay, bx, by, cx, cy, dx, dy) {
+  const side = (px, py, qx, qy, rx, ry) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+  const d1 = side(cx, cy, dx, dy, ax, ay), d2 = side(cx, cy, dx, dy, bx, by);
+  const d3 = side(ax, ay, bx, by, cx, cy), d4 = side(ax, ay, bx, by, dx, dy);
+  if (((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0)) && d1 !== 0 && d2 !== 0) return 0;
+  return Math.min(
+    ptSeg(ax, ay, cx, cy, dx, dy), ptSeg(bx, by, cx, cy, dx, dy),
+    ptSeg(cx, cy, ax, ay, bx, by), ptSeg(dx, dy, ax, ay, bx, by));
+}
+function ptSeg(px, py, ax, ay, bx, by) {
+  const vx = bx - ax, vy = by - ay;
+  const L2 = vx * vx + vy * vy;
+  let t = L2 === 0 ? 0 : ((px - ax) * vx + (py - ay) * vy) / L2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const qx = ax + vx * t, qy = ay + vy * t;
+  return Math.hypot(px - qx, py - qy);
+}
+
+/* ------------------------------------------------------------------ *
+ * Scenes. Each one builds into a world sized to the canvas.
+ * ------------------------------------------------------------------ */
+
+function grid(w, cols, rows, x0, y0, sp, pinned, opts) {
+  opts = opts || {};
+  const id = [];
+  for (let r = 0; r < rows; r++) {
+    id[r] = [];
+    for (let c = 0; c < cols; c++) {
+      id[r][c] = w.addPoint(x0 + c * sp, y0 + r * sp, { pinned: pinned(c, r) });
+    }
+  }
+  const sid = new Map();
+  const key = (a, b) => a < b ? a + ":" + b : b + ":" + a;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (c + 1 < cols) sid.set(key(id[r][c], id[r][c + 1]), w.addStick(id[r][c], id[r][c + 1]));
+      if (r + 1 < rows) sid.set(key(id[r][c], id[r + 1][c]), w.addStick(id[r][c], id[r + 1][c]));
+    }
+  }
+  // Shear diagonals. Without them a sheet held along one edge has no resistance
+  // to becoming a parallelogram, so it folds itself into a ribbon and hangs
+  // straight down. With much of them at all it stops being fabric and becomes a
+  // plank, because a taut lattice in two dimensions has nowhere to buckle TO.
+  // A few percent is the whole usable range.
+  const shear = opts.shear === undefined ? 0.06 : opts.shear;
+  if (shear > 0) {
+    for (let r = 0; r + 1 < rows; r++) {
+      for (let c = 0; c + 1 < cols; c++) {
+        w.addStick(id[r][c], id[r + 1][c + 1], { k: shear, draw: false, scale: 1.4 });
+        w.addStick(id[r][c + 1], id[r + 1][c], { k: shear, draw: false, scale: 1.4 });
+      }
+    }
+  }
+  // GATHER. Every stick above took its rest length from the uniform grid, so
+  // pulling the pins in now leaves the cloth with more fabric than span and it
+  // has to go somewhere. That slack is the entire difference between a curtain
+  // and a rectangle: a sheet hung taut in two dimensions cannot drape, fold or
+  // sag, it can only translate, and it reads on screen as a painted plank.
+  if (opts.gather) {
+    const gx = opts.gather.x === undefined ? 1 : opts.gather.x;
+    const gy = opts.gather.y === undefined ? 1 : opts.gather.y;
+    let cx = 0, cy = 0, np = 0;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const i = id[r][c];
+      if (w.pin[i]) { cx += w.x[i]; cy += w.y[i]; np++; }
+    }
+    // Every point moves, not only the pinned ones. Moving the pins alone yanks
+    // the sheet sideways on frame one and tears it along the top before it has
+    // settled: 46 threads gone at rest, which is a build defect wearing the
+    // costume of a physics result. Compressing the whole sheet starts it slack
+    // instead, and the slack is what buckles.
+    if (np) {
+      cx /= np; cy /= np;
+      for (let i = 0; i < w.n; i++) {
+        w.x[i] = cx + (w.x[i] - cx) * gx;
+        w.y[i] = cy + (w.y[i] - cy) * gy;
+        w.ox[i] = w.x[i]; w.oy[i] = w.y[i];
+      }
+    }
+  }
+  for (let r = 0; r + 1 < rows; r++) {
+    for (let c = 0; c + 1 < cols; c++) {
+      const p = [id[r][c], id[r][c + 1], id[r + 1][c + 1], id[r + 1][c]];
+      w.quads.push({
+        p: p,
+        s: [sid.get(key(p[0], p[1])), sid.get(key(p[1], p[2])),
+            sid.get(key(p[2], p[3])), sid.get(key(p[3], p[0]))],
+        area0: sp * sp
+      });
+    }
+  }
+  return id;
+}
+
+function rope(w, x, y, n, sp, opts) {
+  opts = opts || {};
+  let prev = w.addPoint(x, y, { pinned: true });
+  const ids = [prev];
+  for (let i = 1; i < n; i++) {
+    const p = w.addPoint(x + (opts.dx || 0) * i, y + (opts.dy !== undefined ? opts.dy : sp) * i,
+                         { pinned: opts.pinEnd && i === n - 1 });
+    w.addStick(prev, p, { scale: opts.scale || 1 });
+    ids.push(p);
+    prev = p;
+  }
+  return ids;
+}
+
+const SCENES = {
+  flag: {
+    hue: 200, sat: 52, fill: true, wind: 1100, grav: 520, lw: 1.1, label: "Flag",
+    build(w, W, H) {
+      const cols = 36, rows = 23;
+      const sp = Math.min(W * 0.46 / cols, H * 0.40 / rows);
+      grid(w, cols, rows, W * 0.13, H * 0.15, sp, (c) => c === 0,
+           { shear: 0.07, gather: { x: 0.88, y: 0.82 } });
+      w.flutter = 0.85;
+    }
+  },
+  curtain: {
+    hue: 330, sat: 44, fill: true, wind: 520, grav: 1400, lw: 1.1, label: "Curtain",
+    build(w, W, H) {
+      const cols = 50, rows = 29;
+      const sp = Math.min(W * 0.78 / cols, H * 0.62 / rows);
+      grid(w, cols, rows, (W - sp * (cols - 1)) / 2, H * 0.10, sp,
+           (c, r) => r === 0 && c % 3 === 0, { shear: 0.05, gather: { x: 0.64 } });
+      w.flutter = 0.55;
+    }
+  },
+  net: {
+    hue: 152, sat: 46, fill: false, wind: 420, grav: 1400, lw: 1.5, label: "Net",
+    build(w, W, H) {
+      const cols = 24, rows = 17;
+      const sp = Math.min(W * 0.62 / cols, H * 0.58 / rows);
+      grid(w, cols, rows, (W - sp * (cols - 1)) / 2, H * 0.14, sp,
+           (c, r) => r === 0 && (c === 0 || c === cols - 1 || c === (cols >> 1)),
+           { shear: 0.10, gather: { x: 0.86 } });
+      w.flutter = 0.45;
+    }
+  },
+  span: {
+    hue: 38, sat: 58, fill: false, wind: 260, grav: 1400, lw: 1.7, label: "Span",
+    build(w, W, H) {
+      const n = 52;
+      const x0 = W * 0.10, x1 = W * 0.90, y = H * 0.24;
+      const sp = (x1 - x0) / (n - 1);
+      const main = [];
+      for (let i = 0; i < n; i++) {
+        main.push(w.addPoint(x0 + i * sp, y + Math.sin(i / (n - 1) * Math.PI) * sp * 2.2,
+                             { pinned: i === 0 || i === n - 1 }));
+      }
+      // scale 8 makes the main cable effectively untearable. It is carrying a
+      // 51 link chain on 8 relaxation passes, which is nowhere near enough to
+      // hold rest length, so the end links sit under enormous apparent strain
+      // and the span snapped itself the moment it was built. P5 in the
+      // predictions file is exactly this effect, measured.
+      for (let i = 1; i < n; i++) w.addStick(main[i - 1], main[i], { scale: 8 });
+      // Drop lines. Hang each one from where its anchor ACTUALLY is, not from a
+      // fixed depth: the cable is a sine arc, so at the middle the anchor was
+      // already at that depth and the first link came out 0.19 px long. A stick
+      // that short exceeds any tear threshold the instant anything moves, and
+      // the span snapped a thread on build every single time.
+      for (let i = 3; i < n - 3; i += 4) {
+        let prev = main[i];
+        const topY = w.y[main[i]];
+        for (let k = 1; k <= 9; k++) {
+          const p = w.addPoint(w.x[main[i]], topY + k * sp * 1.1);
+          w.addStick(prev, p);
+          prev = p;
+        }
+      }
+      w.flutter = 0.55;
+    }
+  },
+  ropes: {
+    hue: 20, sat: 62, fill: false, wind: 1300, grav: 900, lw: 1.9, label: "Ropes",
+    build(w, W, H) {
+      const strands = 11, n = 34;
+      const sp = Math.min(H * 0.70 / n, 22);
+      for (let s = 0; s < strands; s++) {
+        const x = W * (0.12 + 0.76 * (strands === 1 ? 0.5 : s / (strands - 1)));
+        rope(w, x, H * 0.12, n, sp, { scale: 1 + (s % 3) * 0.35 });
+      }
+      w.flutter = 0.8;
+    }
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * Rendering. Strain is the only channel that carries information here,
+ * and it is worth looking at: pull one corner of the flag and the load
+ * path lights up all the way back to the pins.
+ * ------------------------------------------------------------------ */
+
+const BUCKETS = 14;
+function palette(hue, sat) {
+  const out = [];
+  for (let i = 0; i < BUCKETS; i++) {
+    const t = i / (BUCKETS - 1);              // 0 slack, 1 screaming
+    const h = hue + (t < 0.5 ? 0 : (t - 0.5) * 2 * (((30 - hue) % 360 + 540) % 360 - 180));
+    const s = sat + t * 34;
+    const l = 30 + t * 40;
+    out.push(`hsl(${h.toFixed(1)} ${Math.min(96, s).toFixed(0)}% ${l.toFixed(0)}%)`);
+  }
+  return out;
+}
+
+function strainBucket(d, rest) {
+  const s = d / rest - 1;
+  let t = (s + 0.06) / 0.52;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return (t * (BUCKETS - 1)) | 0;
+}
+
+function render(ctx, w, W, H, scene, opts) {
+  opts = opts || {};
+  const g = ctx.createLinearGradient(0, 0, W * 0.35, H);
+  g.addColorStop(0, "#0d1420");
+  g.addColorStop(0.55, "#0a0e17");
+  g.addColorStop(1, "#05070c");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // a soft glow behind the scene so the fabric has something to sit on
+  const r = ctx.createRadialGradient(W * 0.42, H * 0.34, 0, W * 0.42, H * 0.34, Math.max(W, H) * 0.62);
+  r.addColorStop(0, `hsl(${scene.hue} 60% 12%)`);
+  r.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = r;
+  ctx.fillRect(0, 0, W, H);
+
+  const X = w.x, Y = w.y, S = w.sticks;
+
+  if (opts.fill && w.quads.length) {
+    let run = null, runL = -1;
+    const flush = () => { if (run) ctx.fill(run); run = null; runL = -1; };
+    for (const q of w.quads) {
+      if (S[q.s[0]].dead || S[q.s[1]].dead || S[q.s[2]].dead || S[q.s[3]].dead) { flush(); continue; }
+      const p = q.p;
+      const ax = X[p[0]], ay = Y[p[0]], bx = X[p[1]], by = Y[p[1]];
+      const cx = X[p[2]], cy = Y[p[2]], dx = X[p[3]], dy = Y[p[3]];
+      const area = Math.abs((ax * by - bx * ay) + (bx * cy - cx * by) +
+                            (cx * dy - dx * cy) + (dx * ay - ax * dy)) * 0.5;
+      const ratio = Math.min(1.7, area / q.area0);
+      const ex = bx - ax, ey = by - ay;
+      const tilt = ey / (Math.hypot(ex, ey) || 1);
+      let L = 16 + 30 * ratio + 13 * tilt;
+      L = L < 6 ? 6 : L > 74 ? 74 : L;
+      const bucket = (L / 74 * 23) | 0;
+      if (bucket !== runL) {
+        flush();
+        runL = bucket;
+        ctx.fillStyle = `hsl(${scene.hue} ${scene.sat}% ${(bucket / 23 * 74).toFixed(1)}%)`;
+        run = new Path2D();
+      }
+      run.moveTo(ax, ay); run.lineTo(bx, by); run.lineTo(cx, cy); run.lineTo(dx, dy); run.closePath();
+    }
+    flush();
+  }
+
+  const cols = opts.palette;
+  const paths = [];
+  for (let i = 0; i < BUCKETS; i++) paths.push(null);
+  for (const s of S) {
+    if (s.dead || !s.draw) continue;
+    const ax = X[s.a], ay = Y[s.a], bx = X[s.b], by = Y[s.b];
+    const d = Math.hypot(bx - ax, by - ay);
+    const k = strainBucket(d, s.rest);
+    let p = paths[k];
+    if (!p) { p = paths[k] = new Path2D(); }
+    p.moveTo(ax, ay); p.lineTo(bx, by);
+  }
+  ctx.lineWidth = opts.lineWidth || 1.15;
+  ctx.lineCap = "round";
+  for (let i = 0; i < BUCKETS; i++) {
+    if (!paths[i]) continue;
+    ctx.strokeStyle = cols[i];
+    ctx.globalAlpha = opts.fill ? 0.55 : 0.92;
+    ctx.stroke(paths[i]);
+  }
+  ctx.globalAlpha = 1;
+
+  // pins last, so they sit on top of whatever is hanging off them
+  ctx.fillStyle = "#ffcf7a";
+  for (let i = 0; i < w.n; i++) {
+    if (!w.pin[i]) continue;
+    ctx.beginPath();
+    ctx.arc(X[i], Y[i], opts.pinR || 2.6, 0, 6.2832);
+    ctx.fill();
+  }
+  if (opts.held !== undefined && opts.held >= 0) {
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(X[opts.held], Y[opts.held], 9, 0, 6.2832);
+    ctx.stroke();
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * The page.
+ * ------------------------------------------------------------------ */
+
+const params = new URLSearchParams(location.search);
+const PREVIEW = params.has("preview");
+
+const cv = document.getElementById("stage");
+const ctx = cv.getContext("2d", { alpha: false });
+
+const DT = 1 / 120;          // fixed substep. The frame clock never reaches the physics.
+const MAX_SUB = 5;
+
+let W = 0, H = 0, dpr = 1;
+let world = null, scene = null, cols = null, sceneName = "flag";
+let fill = true, tool = "grab";
+let held = -1, mouse = { x: 0, y: 0, px: 0, py: 0, down: false };
+let acc = 0, last = 0, fps = 0;
+
+function sizeCanvas() {
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = cv.clientWidth; H = cv.clientHeight;
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function build(name) {
+  sceneName = name;
+  scene = SCENES[name];
+  world = new World({
+    dt: DT,
+    dampingMode: "perSecond",
+    damping: 0.995,
+    bounds: { x0: 6, y0: 6, x1: W - 6, y1: H - 6 },
+    iterations: ui ? +ui.iters.value : 8,
+    gravity: ui ? +ui.grav.value : scene.grav,
+    wind: ui ? +ui.wind.value : scene.wind,
+    tearScale: ui ? +ui.tear.value / 10 : 3.0
+  });
+  scene.build(world, W, H);
+  cols = palette(scene.hue, scene.sat);
+  fill = scene.fill;
+  held = -1;
+  if (ui) ui.fill.setAttribute("aria-pressed", String(fill));
+}
+
+/* ---- preview: one deterministic render, no loop, no chrome ---- */
+if (PREVIEW) {
+  document.body.classList.add("preview");
+  sizeCanvas();
+  var ui = null;
+  const want = params.get("preview");
+  build(SCENES[want] ? want : "flag");
+  if (params.get("wind")) world.wind = +params.get("wind");
+  const steps = +(params.get("steps") || 420);
+  for (let i = 0; i < steps; i++) world.step(DT);
+  render(ctx, world, W, H, scene, {
+    fill: fill, palette: cols, lineWidth: scene.lw * 0.9, pinR: 2.2
+  });
+} else {
+
+var ui = {
+  preset: document.getElementById("preset"),
+  wind: document.getElementById("wind"),
+  grav: document.getElementById("grav"),
+  iters: document.getElementById("iters"),
+  tear: document.getElementById("tear"),
+  fill: document.getElementById("fill"),
+  gust: document.getElementById("gust"),
+  reset: document.getElementById("reset"),
+  stat: document.getElementById("stat"),
+  windO: document.getElementById("wind-o"),
+  gravO: document.getElementById("grav-o"),
+  itersO: document.getElementById("iters-o"),
+  tearO: document.getElementById("tear-o"),
+  tools: {
+    grab: document.getElementById("tool-grab"),
+    cut: document.getElementById("tool-cut"),
+    pin: document.getElementById("tool-pin")
+  }
+};
+
+function syncOutputs() {
+  ui.windO.textContent = ui.wind.value;
+  ui.gravO.textContent = ui.grav.value;
+  ui.itersO.textContent = ui.iters.value;
+  ui.tearO.textContent = (+ui.tear.value / 10).toFixed(1) + "x";
+}
+
+function loadScene(name) {
+  ui.preset.value = name;
+  ui.wind.value = SCENES[name].wind;
+  ui.grav.value = SCENES[name].grav;
+  build(name);
+  syncOutputs();
+}
+
+sizeCanvas();
+loadScene("flag");
+
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { sizeCanvas(); build(sceneName); }, 160);
+});
+
+ui.preset.addEventListener("change", () => loadScene(ui.preset.value));
+ui.wind.addEventListener("input", () => { world.wind = +ui.wind.value; syncOutputs(); });
+ui.grav.addEventListener("input", () => { world.gravity = +ui.grav.value; syncOutputs(); });
+ui.iters.addEventListener("input", () => { world.iterations = +ui.iters.value; syncOutputs(); });
+ui.tear.addEventListener("input", () => { world.tearScale = +ui.tear.value / 10; syncOutputs(); });
+ui.fill.addEventListener("click", () => {
+  fill = !fill;
+  ui.fill.setAttribute("aria-pressed", String(fill));
+});
+ui.gust.addEventListener("click", gust);
+ui.reset.addEventListener("click", () => build(sceneName));
+
+function setTool(t) {
+  tool = t;
+  for (const k in ui.tools) ui.tools[k].setAttribute("aria-pressed", String(k === t));
+}
+for (const k in ui.tools) ui.tools[k].addEventListener("click", () => setTool(k));
+
+function gust() {
+  const push = 26 + Math.random() * 16;
+  for (let i = 0; i < world.n; i++) {
+    if (world.pin[i]) continue;
+    world.ox[i] -= push * (0.5 + Math.random());
+    world.oy[i] += (Math.random() - 0.5) * push * 0.7;
+  }
+}
+
+/* ---- pointer ---- */
+function pos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  const p = pos(e);
+  mouse.px = mouse.x = p.x; mouse.py = mouse.y = p.y; mouse.down = true;
+  const cutting = tool === "cut" || e.shiftKey;
+  if (cutting) { world.cutAlong(p.x, p.y, p.x, p.y, 9); return; }
+  if (tool === "pin") {
+    const i = world.nearest(p.x, p.y, 26);
+    if (i >= 0) world.pin[i] = world.pin[i] ? 0 : 1;
+    return;
+  }
+  held = world.nearest(p.x, p.y, 48);
+});
+cv.addEventListener("pointermove", e => {
+  const p = pos(e);
+  mouse.px = mouse.x; mouse.py = mouse.y;
+  mouse.x = p.x; mouse.y = p.y;
+  if (!mouse.down) return;
+  if (tool === "cut" || e.shiftKey) world.cutAlong(mouse.px, mouse.py, p.x, p.y, 9);
+});
+function release() { mouse.down = false; held = -1; }
+cv.addEventListener("pointerup", release);
+cv.addEventListener("pointercancel", release);
+cv.addEventListener("pointerleave", release);
+
+window.addEventListener("keydown", e => {
+  // Only the controls that actually CONSUME keys get to swallow them. This used
+  // to test for body or canvas, which meant that after clicking any button at
+  // all the number keys silently stopped switching scenes until you clicked the
+  // cloth again. A shortcut that works only sometimes is worse than none.
+  const tag = e.target && e.target.tagName;
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  const k = e.key.toLowerCase();
+  const order = ["flag", "curtain", "net", "span", "ropes"];
+  if (k >= "1" && k <= "5") {
+    loadScene(order[+k - 1]);
+  } else if (k === " " || e.code === "Space") { e.preventDefault(); gust(); }
+  else if (k === "r") build(sceneName);
+  else if (k === "g") setTool("grab");
+  else if (k === "c") setTool("cut");
+  else if (k === "p") setTool("pin");
+});
+
+/* ---- loop ---- */
+function frame(now) {
+  if (!last) last = now;
+  let elapsed = (now - last) / 1000;
+  last = now;
+  if (elapsed > 0.25) elapsed = 0.25;
+  fps = fps * 0.9 + (1 / Math.max(elapsed, 1e-4)) * 0.1;
+  acc += elapsed;
+  let sub = 0;
+  while (acc >= DT && sub < MAX_SUB) {
+    if (held >= 0) world.hold(held, mouse.x, mouse.y, mouse.px, mouse.py);
+    world.step(DT);
+    // Again AFTER the step. The held point is not pinned, so the relaxation
+    // pass drags it back toward its neighbours, and on a coarse scene that left
+    // it trailing the cursor by most of a cell. Re-seating it here keeps the
+    // grab exact while its neighbours still feel the pull.
+    if (held >= 0) world.hold(held, mouse.x, mouse.y, mouse.px, mouse.py);
+    acc -= DT;
+    sub++;
+  }
+  if (acc > DT * MAX_SUB) acc = 0;
+  render(ctx, world, W, H, scene, { fill: fill, palette: cols, held: held, lineWidth: scene.lw });
+  ui.stat.textContent =
+    `${world.n} points  ${world.liveSticks()}/${world.sticks.length} threads  ` +
+    `${world.tears} torn  ${fps.toFixed(0)} fps`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+} /* end of interactive branch */
+
+window.__cloth = {
+  World: World, SCENES: SCENES, grid: grid, rope: rope,
+  palette: palette, strainBucket: strainBucket, segDist: segDist,
+  DEFAULTS: DEFAULTS, DT: DT,
+  get world() { return world; },
+  get held() { return held; },
+  version: "1.0.0"
+};
+</script>
+</body>
+</html>

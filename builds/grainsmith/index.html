@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  GRAINSMITH - a falling sand sandbox
+  playground build, 2026-09-18
+
+  WHAT IT IS
+  A 256 x 160 grid of cells, 40,960 of them, each holding one of eleven materials. Every cell is
+  stepped by a handful of local rules and nothing else: powders fall and pile, liquids fall and
+  spread, gases rise, fire eats what burns, plants drink water. Paint with the mouse, pick a
+  material, drop a scene in and watch it come apart. There is no goal and no explainer panel. It is
+  here to be played with.
+
+  WHY I BUILT IT
+  The four builds before this one were all the same shape, a mechanism made steppable so it could be
+  understood, and the playtime log said in writing that the house style needed breaking at least
+  once. This is the break: no step buttons wired to a teaching panel, no proof panel, no algorithm
+  on display. It is a toy. It also happens to be the genre I have described a hundred times and had
+  never once written, which is the only honest test of whether I know a thing.
+
+  WHAT IT TAUGHT ME, all measured rather than remembered, receipts in ../_verify/RESULTS.md
+  1. Scan order IS the physics. Walk the rows top to bottom and a grain that moves down lands in a
+     row you have not reached yet, so you process it again, and again: one grain falls the entire
+     160 cells in a single step. Walk bottom to top and gases do the same thing upward. The general
+     fix is neither direction, it is a per-cell stamp saying "this one already moved this step".
+  2. A global random stream and an optimisation that skips work are incompatible. Chunk skipping
+     changes how many times the generator is called, so an idle corner of the world silently shifts
+     every random decision everywhere else. Deriving each draw from a hash of (x, y, step, seed)
+     instead makes skipped work genuinely free, and it is what lets chunks on and chunks off be
+     proven bit-identical rather than merely similar.
+  3. This kind of water cannot climb. Local displacement gives you no pressure term, so two columns
+     joined at the bottom never equalise: the water reaches the joint and stops, because no rule
+     anywhere lets a liquid move up. Measured, not assumed, and it is the cleanest example I have of
+     a simulation that looks right and is modelling nothing of the sort.
+  4. Nobody tells the oil to float. Give every material a density and let a heavier one swap with a
+     lighter one below it, and stratification, bubbling and buoyancy all fall out of that one line.
+
+  HOW IT IS CHECKED
+  A mass census: every cell that changes material does so through one named reaction, the simulation
+  counts each one, and after a 3,000 step run the change in every material's population has to equal
+  its ledger inflow minus its outflow, exactly, no tolerance. A swap is invisible to that count, so
+  any movement bug that duplicates or drops a cell shows up immediately. Plus determinism by hash,
+  a chunks-on versus chunks-off differential, and five planted defects that all have to turn a
+  green check red. See ../_verify/.
+
+  Self-contained: one file, no dependencies, works offline, nothing leaves the machine.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grainsmith</title>
+<style>
+  :root{
+    --bg:#0b0e13;
+    --panel:#141922;
+    --panel-2:#1b2230;
+    --line:#26303f;
+    --ink:#dfe7f2;
+    --ink-dim:#8d9bb0;
+    --accent:#e8b463;
+    --accent-2:#5aa9e6;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font:15px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{
+    max-width:1180px;
+    margin:0 auto;
+    padding:22px 16px 40px;
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+  }
+  header h1{
+    margin:0;
+    font-size:22px;
+    letter-spacing:.2px;
+    font-weight:650;
+  }
+  header h1 span{color:var(--accent)}
+  header p{
+    margin:6px 0 0;
+    color:var(--ink-dim);
+    max-width:62ch;
+    font-size:14px;
+  }
+  .stage{
+    display:grid;
+    grid-template-columns:232px minmax(0,1fr);
+    gap:16px;
+    align-items:start;
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:12px;
+  }
+  .panel h2{
+    margin:0 0 9px;
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-dim);
+    font-weight:600;
+  }
+  .panel + .panel{margin-top:12px}
+
+  .mats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .mat{
+    display:flex;align-items:center;gap:8px;
+    background:var(--panel-2);
+    border:1px solid transparent;
+    border-radius:8px;
+    padding:7px 8px;
+    cursor:pointer;
+    color:var(--ink);
+    font:inherit;
+    font-size:13px;
+    text-align:left;
+    transition:border-color .12s, background .12s;
+  }
+  .mat:hover{background:#222b3a}
+  .mat[aria-pressed="true"]{border-color:var(--accent);background:#242e3e}
+  .mat .sw{
+    width:15px;height:15px;border-radius:4px;flex:0 0 auto;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);
+  }
+  .mat kbd{
+    margin-left:auto;
+    font:11px ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--ink-dim);
+  }
+
+  .row{display:flex;align-items:center;gap:8px;margin:8px 0}
+  .row label{font-size:13px;color:var(--ink-dim);min-width:56px}
+  .row output{
+    font:12px ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--ink);min-width:26px;text-align:right;
+  }
+  input[type=range]{flex:1;accent-color:var(--accent);min-width:0}
+
+  .btns{display:flex;flex-wrap:wrap;gap:6px}
+  button.b{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--ink);
+    border-radius:8px;
+    padding:7px 11px;
+    font:inherit;font-size:13px;
+    cursor:pointer;
+    transition:background .12s,border-color .12s;
+  }
+  button.b:hover{background:#242e3e;border-color:#33415a}
+  button.b.primary{border-color:var(--accent);color:var(--accent)}
+  button.b:focus-visible,.mat:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
+
+  .scenes{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+
+  .boardwrap{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:10px;
+    min-width:0;
+  }
+  canvas{
+    display:block;
+    width:100%;
+    height:auto;
+    aspect-ratio:256/160;
+    border-radius:6px;
+    background:#0b0e13;
+    image-rendering:pixelated;
+    image-rendering:crisp-edges;
+    cursor:crosshair;
+    touch-action:none;
+  }
+  .status{
+    display:flex;gap:16px;flex-wrap:wrap;
+    margin-top:9px;
+    font:12px ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--ink-dim);
+  }
+  .status b{color:var(--ink);font-weight:600}
+  footer{
+    color:var(--ink-dim);
+    font-size:13px;
+    max-width:74ch;
+  }
+  footer code{
+    font:12px ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:var(--panel-2);
+    padding:1px 5px;border-radius:4px;
+  }
+  @media (max-width:760px){
+    .stage{grid-template-columns:1fr}
+    .mats{grid-template-columns:1fr 1fr 1fr}
+  }
+
+  /* preview mode: the storybook card shows the toy running, no chrome */
+  html.preview,html.preview body{margin:0;padding:0;overflow:hidden;background:#0b0e13}
+  html.preview .wrap{display:none}
+  html.preview .previewboard{
+    display:block;position:fixed;inset:0;width:100vw;height:100vh;
+  }
+  html.preview canvas{
+    width:100vw;height:100vh;aspect-ratio:auto;border-radius:0;
+  }
+  .previewboard{display:none}
+</style>
+</head>
+<body>
+
+<div class="previewboard"></div>
+
+<div class="wrap">
+  <header>
+    <h1>Grain<span>smith</span></h1>
+    <p>Forty thousand cells, eleven materials, one rule each. Paint something and let go of it. Sand piles, water pools, oil floats, fire eats the wood and the plants drink whatever is left.</p>
+  </header>
+
+  <div class="stage">
+    <div>
+      <div class="panel">
+        <h2>Material</h2>
+        <div class="mats" id="mats"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Brush</h2>
+        <div class="row">
+          <label for="brush">Size</label>
+          <input type="range" id="brush" min="1" max="26" value="7">
+          <output id="brushOut">7</output>
+        </div>
+        <div class="btns">
+          <button class="b" id="eraser" aria-pressed="false">Eraser <kbd>E</kbd></button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Run</h2>
+        <div class="btns">
+          <button class="b primary" id="play">Pause</button>
+          <button class="b" id="stepBtn">Step</button>
+          <button class="b" id="clear">Clear</button>
+        </div>
+        <div class="row">
+          <label for="speed">Speed</label>
+          <input type="range" id="speed" min="1" max="4" value="1">
+          <output id="speedOut">1&times;</output>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Scenes</h2>
+        <div class="scenes">
+          <button class="b" data-scene="campfire">Campfire</button>
+          <button class="b" data-scene="cascade">Cascade</button>
+          <button class="b" data-scene="terrarium">Terrarium</button>
+          <button class="b" data-scene="hourglass">Hourglass</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="boardwrap">
+      <canvas id="board" width="256" height="160" aria-label="Falling sand sandbox"></canvas>
+      <div class="status">
+        <span>step <b id="sStep">0</b></span>
+        <span><b id="sFps">0</b> fps</span>
+        <span><b id="sAwake">0</b>% of the grid awake</span>
+        <span id="sHint">drag to paint &middot; right-click erases</span>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Keys: <code>1</code>&ndash;<code>0</code> pick a material, <code>Space</code> pause, <code>.</code> single step,
+    <code>[</code> <code>]</code> brush size, <code>E</code> eraser, <code>C</code> clear.
+    Nothing here is stored or sent anywhere. Water in this world has no pressure, so it will not climb
+    a second column, which is a real property of rules this simple and not a bug.
+  </footer>
+</div>
+
+<script>
+"use strict";
+(() => {
+
+/* ------------------------------------------------------------------ *
+ *  materials
+ * ------------------------------------------------------------------ */
+const EMPTY=0, STONE=1, WOOD=2, SAND=3, ASH=4, WATER=5, OIL=6, STEAM=7, SMOKE=8, FIRE=9, PLANT=10;
+const N_MAT = 11;
+
+const NAME = ["Empty","Stone","Wood","Sand","Ash","Water","Oil","Steam","Smoke","Fire","Plant"];
+
+/* Density is the whole of the buoyancy model. A heavier thing swaps with a lighter thing
+ * below it; a lighter-than-air thing swaps with a heavier thing above it. 900 means immovable. */
+const DENS = new Int16Array([0, 900, 900, 60, 40, 30, 20, -10, -20, -5, 900]);
+
+const POWDER  = [SAND, ASH];
+const LIQUID  = [WATER, OIL];
+const GAS     = [STEAM, SMOKE];
+
+const isPowder = new Uint8Array(N_MAT); POWDER.forEach(m => isPowder[m] = 1);
+const isLiquid = new Uint8Array(N_MAT); LIQUID.forEach(m => isLiquid[m] = 1);
+const isGas    = new Uint8Array(N_MAT); GAS.forEach(m => isGas[m] = 1);
+/* what a rising gas is allowed to travel through */
+const PASS_GAS = new Uint8Array(N_MAT);
+[EMPTY, WATER, OIL, FIRE, STEAM, SMOKE].forEach(m => PASS_GAS[m] = 1);
+
+const DISPERSE = new Uint8Array(N_MAT); DISPERSE[WATER] = 6; DISPERSE[OIL] = 3;
+
+const LIFE_FIRE = 95, LIFE_STEAM = 230, LIFE_SMOKE = 120;
+
+/* Reaction probabilities, per neighbour, per step. Wood at 0.055 meant a flame front moving
+ * about a cell every eighteen steps, which ate a forty five by twelve log stack in under four
+ * seconds of wall clock: open the page, and by the time you have read the first sentence the
+ * campfire is a smear of ash. Timed against the frame rate rather than guessed. */
+const P_BURN_WOOD  = 0.014;
+const P_BURN_OIL   = 0.24;
+const P_BURN_PLANT = 0.10;
+const P_ASH        = 0.16;   /* a dying flame leaves ash this often, smoke otherwise */
+const P_GROW       = 0.030;
+
+/* ------------------------------------------------------------------ *
+ *  grid state
+ * ------------------------------------------------------------------ */
+const W = 256, H = 160;
+const CELLS = W * H;
+
+const mat   = new Uint8Array(CELLS);
+const life  = new Uint8Array(CELLS);
+const tint  = new Uint8Array(CELLS);      /* travels with the cell, so a grain keeps its shade */
+const stamp = new Uint32Array(CELLS);     /* step index at which this cell last moved */
+
+const CSHIFT = 4, CHUNK = 1 << CSHIFT;              /* 16 x 16 chunks */
+const CW = Math.ceil(W / CHUNK), CH = Math.ceil(H / CHUNK);
+const awake     = new Uint8Array(CW * CH);
+const awakeNext = new Uint8Array(CW * CH);
+
+let stepIndex = 0;
+let seed = 0x2f6e2b1;
+
+const ledger = Object.create(null);       /* "from>to" -> count */
+
+const cfg = {
+  chunks: true,
+  stamp: true,
+  scan: "up",            /* "up" = bottom row first. "down" is the classic bug, kept for the checker */
+  fixedTieBreak: false,  /* true reproduces the biased build the negative control needs */
+};
+
+/* ------------------------------------------------------------------ *
+ *  positional randomness
+ *
+ *  Not a stream. Each draw is a hash of (x, y, step, salt, seed), so how many cells we
+ *  chose to process has no effect on what any other cell draws. That is what makes
+ *  chunk skipping provably free rather than merely probably harmless.
+ * ------------------------------------------------------------------ */
+function rnd(x, y, t, salt) {
+  let h = (seed ^ 0x9e3779b9) | 0;
+  h = Math.imul(h ^ x, 0x85ebca6b); h ^= h >>> 13;
+  h = Math.imul(h ^ y, 0xc2b2ae35); h ^= h >>> 16;
+  h = Math.imul(h ^ t, 0x27d4eb2f); h ^= h >>> 15;
+  h = Math.imul(h ^ salt, 0x165667b1); h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+/* ------------------------------------------------------------------ *
+ *  helpers
+ * ------------------------------------------------------------------ */
+const idx = (x, y) => y * W + x;
+const inside = (x, y) => x >= 0 && x < W && y >= 0 && y < H;
+
+/* How far away a change has to reach before a sleeping cell needs waking.
+ *
+ * The tempting answer is 6, the distance a liquid can TRAVEL in one step, and it is the wrong
+ * one. What matters is the radius at which a change can turn a stuck cell into an unstuck one,
+ * and that is 1 for every rule here: a powder reads down and the two diagonals, a liquid is
+ * blocked sideways only by the cell immediately beside it, fire and plant read four neighbours.
+ * The six cell reach only decides WHERE a liquid lands once it is already moving, and a cell
+ * that moves wakes its own chunk anyway. Measured rather than argued: a margin of 6 cost 39% of
+ * throughput (0.2965 vs 0.2135 ms per step) and the chunks-on versus chunks-off differential
+ * could not tell the two builds apart over 1,200 steps. Distance travelled and radius of
+ * influence are different quantities and only one of them belongs here. */
+const WAKE_MARGIN = 1;
+
+function wake(x, y) {
+  if (!cfg.chunks) return;
+  const cx0 = Math.max(0, (x - WAKE_MARGIN) >> CSHIFT), cx1 = Math.min(CW - 1, (x + WAKE_MARGIN) >> CSHIFT);
+  const cy0 = Math.max(0, (y - WAKE_MARGIN) >> CSHIFT), cy1 = Math.min(CH - 1, (y + WAKE_MARGIN) >> CSHIFT);
+  /* Both arrays, and the current one is the half that is easy to miss. A chunk that is skipped
+   * is skipped at the moment the scan reaches it, not at the moment the step began: three water
+   * cells sliding right out of chunk 3 free a run that the water at the right edge of chunk 2
+   * can take, in the SAME step, and with the wake landing only in awakeNext that cascade stopped
+   * dead on the chunk boundary and resumed a step later. Writing the live array too makes a
+   * skipped chunk mean exactly "nothing has changed near it yet this step", which is the same
+   * question the unchunked scan answers by asking every cell. That equivalence is what the
+   * chunks-on versus chunks-off differential is checking, and it is why it is checked at all. */
+  for (let cy = cy0; cy <= cy1; cy++)
+    for (let cx = cx0; cx <= cx1; cx++) { awake[cy * CW + cx] = 1; awakeNext[cy * CW + cx] = 1; }
+}
+
+function note(from, to) {
+  const k = from + ">" + to;
+  ledger[k] = (ledger[k] || 0) + 1;
+}
+
+/* a material change. Every one of these is counted; movement is not a change. */
+function convert(i, to, newLife) {
+  const from = mat[i];
+  if (from === to) return;
+  note(from, to);
+  mat[i] = to;
+  life[i] = newLife || 0;
+  const y = (i / W) | 0;
+  wake(i - y * W, y);
+}
+
+function swap(i, j) {
+  const m = mat[i]; mat[i] = mat[j]; mat[j] = m;
+  const l = life[i]; life[i] = life[j]; life[j] = l;
+  const c = tint[i]; tint[i] = tint[j]; tint[j] = c;
+  const t = stepIndex;
+  if (cfg.stamp) { stamp[i] = t; stamp[j] = t; }
+  const yi = (i / W) | 0, yj = (j / W) | 0;
+  wake(i - yi * W, yi);
+  wake(j - yj * W, yj);
+}
+
+const canSink = (a, b) => DENS[a] > DENS[b] && DENS[b] < 900;
+const canRise = (a, b) => PASS_GAS[b] === 1 && DENS[b] > DENS[a];
+
+/* ------------------------------------------------------------------ *
+ *  the step
+ * ------------------------------------------------------------------ */
+function stepOnce() {
+  const t = ++stepIndex;
+
+  if (cfg.chunks) { awake.set(awakeNext); awakeNext.fill(0); }
+
+  const goRight = (t & 1) === 0;
+  const yFrom = cfg.scan === "up" ? H - 1 : 0;
+  const yTo   = cfg.scan === "up" ? -1 : H;
+  const yInc  = cfg.scan === "up" ? -1 : 1;
+
+  for (let y = yFrom; y !== yTo; y += yInc) {
+    const cyRow = (y >> CSHIFT) * CW;
+    for (let k = 0; k < CW; k++) {
+      const cx = goRight ? k : CW - 1 - k;
+      if (cfg.chunks && !awake[cyRow + cx]) continue;
+      const xA = cx << CSHIFT;
+      const xB = Math.min(W, xA + CHUNK);
+      for (let j = 0; j < xB - xA; j++) {
+        const x = goRight ? xA + j : xB - 1 - j;
+        const i = y * W + x;
+        const m = mat[i];
+        if (m === EMPTY || m === STONE || m === WOOD) continue;
+        if (cfg.stamp && stamp[i] === t) continue;
+        stepCell(x, y, i, m, t);
+      }
+    }
+  }
+}
+
+function stepCell(x, y, i, m, t) {
+  if (m === FIRE)  { return doFire(x, y, i, t); }
+  if (m === PLANT) { return doPlant(x, y, i, t); }
+  if (isGas[m])    { return doGas(x, y, i, m, t); }
+  if (isPowder[m]) { return doPowder(x, y, i, m, t); }
+  if (isLiquid[m]) { return doLiquid(x, y, i, m, t); }
+}
+
+function doPowder(x, y, i, m, t) {
+  if (y + 1 < H) {
+    const below = i + W;
+    if (canSink(m, mat[below])) { swap(i, below); return; }
+    const left = cfg.fixedTieBreak ? -1 : (rnd(x, y, t, 1) < 0.5 ? -1 : 1);
+    for (let s = 0; s < 2; s++) {
+      const dx = s === 0 ? left : -left;
+      const nx = x + dx;
+      if (nx < 0 || nx >= W) continue;
+      const d = below + dx;
+      if (canSink(m, mat[d])) { swap(i, d); return; }
+    }
+  }
+}
+
+function doLiquid(x, y, i, m, t) {
+  if (y + 1 < H) {
+    const below = i + W;
+    if (canSink(m, mat[below])) { swap(i, below); return; }
+    const left = cfg.fixedTieBreak ? -1 : (rnd(x, y, t, 1) < 0.5 ? -1 : 1);
+    for (let s = 0; s < 2; s++) {
+      const dx = s === 0 ? left : -left;
+      const nx = x + dx;
+      if (nx < 0 || nx >= W) continue;
+      const d = below + dx;
+      if (canSink(m, mat[d])) { swap(i, d); return; }
+    }
+  }
+  /* Spread sideways, but only through air and gas: a liquid never teleports another liquid.
+   *
+   * BOTH directions get tried, and that is a correctness requirement rather than a taste
+   * one. A chunk goes to sleep when the cells in it did not move, which is only sound if
+   * "did not move" is a fact about the neighbourhood. Picking one direction at random and
+   * giving up made it a fact about the STEP COUNTER instead: a liquid with air on its left
+   * only would flip a coin, fail half the time, and its chunk would sleep on that failure
+   * and never wake, because nothing around it was ever going to change. Found 2026-09-18 by
+   * the chunks-on versus chunks-off differential, which diverged on step 3 of Cascade. The
+   * random draw still chooses which side is PREFERRED; it no longer decides whether the
+   * cell is allowed to move at all. */
+  const first = cfg.fixedTieBreak ? -1 : (rnd(x, y, t, 2) < 0.5 ? -1 : 1);
+  const reach = DISPERSE[m];
+  for (let pass = 0; pass < 2; pass++) {
+    const dir = pass === 0 ? first : -first;
+    let best = -1;
+    for (let s = 1; s <= reach; s++) {
+      const nx = x + dir * s;
+      if (nx < 0 || nx >= W) break;
+      const n = i + dir * s;
+      if (DENS[mat[n]] > 0 || DENS[mat[n]] >= 900) break;   /* air or gas only */
+      best = n;
+      if (y + 1 < H && canSink(m, mat[n + W])) break;       /* a hole opened, stop here */
+    }
+    if (best >= 0) { swap(i, best); return; }
+  }
+}
+
+function doGas(x, y, i, m, t) {
+  /* Ageing first. A gas changes its own life every single step, and life is state, so the
+   * chunk has to be woken even when the gas is wedged and cannot move. Leaving this out
+   * froze trapped steam forever with chunk skipping on and condensed it normally with
+   * chunk skipping off: the same cell, two different worlds. */
+  if (life[i] > 0) { life[i]--; wake(x, y); }
+  else {
+    if (m === STEAM) convert(i, WATER, 0);
+    else convert(i, EMPTY, 0);
+    return;
+  }
+  if (y - 1 >= 0) {
+    const up = i - W;
+    if (canRise(m, mat[up])) { swap(i, up); return; }
+    const left = cfg.fixedTieBreak ? -1 : (rnd(x, y, t, 3) < 0.5 ? -1 : 1);
+    for (let s = 0; s < 2; s++) {
+      const dx = s === 0 ? left : -left;
+      const nx = x + dx;
+      if (nx < 0 || nx >= W) continue;
+      const d = up + dx;
+      if (canRise(m, mat[d])) { swap(i, d); return; }
+    }
+  }
+  /* both directions, for the same reason the liquids try both: see doLiquid */
+  const firstDir = cfg.fixedTieBreak ? -1 : (rnd(x, y, t, 4) < 0.5 ? -1 : 1);
+  for (let pass = 0; pass < 2; pass++) {
+    const dir = pass === 0 ? firstDir : -firstDir;
+    const nx = x + dir;
+    if (nx >= 0 && nx < W && canRise(m, mat[i + dir])) { swap(i, i + dir); return; }
+  }
+}
+
+const DX4 = [0, 0, -1, 1], DY4 = [-1, 1, 0, 0];
+
+function doFire(x, y, i, t) {
+  /* water wins, every time */
+  for (let d = 0; d < 4; d++) {
+    const nx = x + DX4[d], ny = y + DY4[d];
+    if (!inside(nx, ny)) continue;
+    const n = idx(nx, ny);
+    if (mat[n] === WATER) {
+      convert(n, STEAM, LIFE_STEAM);
+      convert(i, SMOKE, LIFE_SMOKE);
+      return;
+    }
+  }
+  for (let d = 0; d < 4; d++) {
+    const nx = x + DX4[d], ny = y + DY4[d];
+    if (!inside(nx, ny)) continue;
+    const n = idx(nx, ny);
+    const nm = mat[n];
+    if (nm === WOOD)  { if (rnd(nx, ny, t, 10 + d) < P_BURN_WOOD)  convert(n, FIRE, LIFE_FIRE); }
+    else if (nm === OIL)   { if (rnd(nx, ny, t, 10 + d) < P_BURN_OIL)   convert(n, FIRE, (LIFE_FIRE * 0.7) | 0); }
+    else if (nm === PLANT) { if (rnd(nx, ny, t, 10 + d) < P_BURN_PLANT) convert(n, FIRE, (LIFE_FIRE * 0.6) | 0); }
+  }
+  if (life[i] > 0) { life[i]--; wake(x, y); return; }
+  if (rnd(x, y, t, 20) < P_ASH) convert(i, ASH, 0);
+  else convert(i, SMOKE, LIFE_SMOKE);
+}
+
+function doPlant(x, y, i, t) {
+  let touchesWater = false;
+  for (let d = 0; d < 4; d++) {
+    const nx = x + DX4[d], ny = y + DY4[d];
+    if (!inside(nx, ny)) continue;
+    if (mat[idx(nx, ny)] === WATER) { touchesWater = true; break; }
+  }
+  if (!touchesWater) return;
+  /* keep this chunk awake: a plant beside water is a live cell even on a step where it
+   * does not grow, and if the chunk slept it could never grow at all. Chunks on and
+   * chunks off have to agree, so the sleep rule has to know about this. */
+  wake(x, y);
+  const d = (rnd(x, y, t, 30) * 4) | 0;
+  const nx = x + DX4[d], ny = y + DY4[d];
+  if (!inside(nx, ny)) return;
+  const n = idx(nx, ny);
+  if (mat[n] === WATER && rnd(x, y, t, 31) < P_GROW) convert(n, PLANT, 0);
+}
+
+/* ------------------------------------------------------------------ *
+ *  writing into the world
+ * ------------------------------------------------------------------ */
+function initLife(m, x, y) {
+  if (m === FIRE)  return LIFE_FIRE;
+  if (m === STEAM) return LIFE_STEAM;
+  if (m === SMOKE) return LIFE_SMOKE;
+  return 0;
+}
+
+function put(x, y, m, t) {
+  if (!inside(x, y)) return;
+  const i = idx(x, y);
+  const from = mat[i];
+  if (from !== m) note(from, m);
+  mat[i] = m;
+  life[i] = initLife(m, x, y);
+  tint[i] = (rnd(x, y, t === undefined ? stepIndex : t, 77) * 32) | 0;
+  wake(x, y);
+}
+
+function fillRect(x0, y0, x1, y1, m) {
+  for (let y = Math.max(0, y0); y <= Math.min(H - 1, y1); y++)
+    for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) put(x, y, m, stepIndex + x * 13 + y * 7);
+}
+
+function clearAll() {
+  for (let i = 0; i < CELLS; i++) {
+    if (mat[i] !== EMPTY) note(mat[i], EMPTY);
+    mat[i] = EMPTY; life[i] = 0; tint[i] = 0; stamp[i] = 0;
+  }
+  awake.fill(1); awakeNext.fill(1);
+}
+
+function resetLedger() { for (const k in ledger) delete ledger[k]; }
+
+function census() {
+  const c = new Array(N_MAT).fill(0);
+  for (let i = 0; i < CELLS; i++) c[mat[i]]++;
+  return c;
+}
+
+function hashState() {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < CELLS; i++) {
+    h ^= mat[i];  h = Math.imul(h, 0x01000193);
+    h ^= life[i]; h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/* ------------------------------------------------------------------ *
+ *  scenes
+ * ------------------------------------------------------------------ */
+/* A pond has to be DUG, not poured. The first version of these scenes laid two rows of water on
+ * open sand and called it a puddle; water spreads six cells a step, so within a few seconds it
+ * was a one cell smear nobody could see and the plants standing in it had lost contact with it
+ * entirely. Stone walls down to the bedrock, water filled between them. */
+function pond(x0, x1, top, floorY) {
+  fillRect(x0, top, x0 + 1, floorY, STONE);
+  fillRect(x1 - 1, top, x1, floorY, STONE);
+  fillRect(x0 + 2, top + 6, x1 - 2, floorY, WATER);
+}
+
+const BEDROCK = 152, GROUND = 130;
+
+const SCENES = {
+  campfire() {
+    clearAll();
+    fillRect(0, BEDROCK, W - 1, H - 1, STONE);
+    fillRect(0, GROUND, W - 1, BEDROCK - 1, SAND);
+    pond(18, 63, 118, BEDROCK - 1);
+    fillRect(30, BEDROCK - 1, 31, BEDROCK - 1, PLANT);
+    fillRect(48, BEDROCK - 1, 49, BEDROCK - 1, PLANT);
+    pond(192, 237, 118, BEDROCK - 1);
+    fillRect(206, BEDROCK - 1, 207, BEDROCK - 1, PLANT);
+    fillRect(222, BEDROCK - 1, 223, BEDROCK - 1, PLANT);
+    /* the pit: a stone surround, an ash bed, two courses of logs, a flame on top */
+    fillRect(98, 128, 103, GROUND - 1, STONE);
+    fillRect(152, 128, 157, GROUND - 1, STONE);
+    fillRect(104, 128, 151, GROUND - 1, ASH);
+    fillRect(106, 124, 150, 127, WOOD);
+    fillRect(112, 120, 144, 123, WOOD);
+    fillRect(118, 118, 138, 119, FIRE);
+  },
+  cascade() {
+    clearAll();
+    fillRect(0, 154, W - 1, H - 1, STONE);
+    fillRect(0, 140, W - 1, 153, SAND);
+    fillRect(0, 44, 96, 48, STONE);
+    fillRect(64, 84, 180, 88, STONE);
+    fillRect(148, 118, W - 1, 122, STONE);
+    fillRect(0, 10, 92, 43, WATER);
+    fillRect(0, 3, 92, 9, OIL);
+  },
+  terrarium() {
+    clearAll();
+    fillRect(0, 150, W - 1, H - 1, STONE);
+    fillRect(30, 30, 31, 149, STONE);
+    fillRect(224, 30, 225, 149, STONE);
+    fillRect(30, 28, 225, 29, STONE);
+    fillRect(32, 120, 223, 149, SAND);
+    fillRect(60, 92, 196, 119, WATER);
+    for (let x = 44; x < 216; x += 16) fillRect(x, 118, x + 1, 119, PLANT);
+  },
+  hourglass() {
+    clearAll();
+    fillRect(0, 0, 1, H - 1, STONE);
+    fillRect(W - 2, 0, W - 1, H - 1, STONE);
+    fillRect(0, H - 3, W - 1, H - 1, STONE);
+    /* Two cells thick, on purpose. A one cell staircase two across and one down leaves a
+     * diagonal hole at every step, and sand slides out through a wall that looks solid. */
+    for (let k = 0; k <= 60; k++) {
+      fillRect(2 + 2 * k, 24 + k, 3 + 2 * k, 25 + k, STONE);
+      fillRect(W - 4 - 2 * k, 24 + k, W - 3 - 2 * k, 25 + k, STONE);
+    }
+    fillRect(2, 2, W - 3, 40, SAND);
+  },
+  /* The storybook card's thumbnail, and the only scene composed for a single frame rather than
+   * for playing in. What fills the upper half of the card is the SMOKE, which climbs the whole
+   * height on its own and needs nothing built for it. An attempt to fill that space with a
+   * draining water ledge instead did fill it, and also flooded the ground, drowned the fire and
+   * left the card showing a wet log pile with nothing happening. */
+  showcase() {
+    clearAll();
+    fillRect(0, BEDROCK, W - 1, H - 1, STONE);
+    fillRect(0, GROUND, W - 1, BEDROCK - 1, SAND);
+    pond(6, 73, 112, BEDROCK - 1);
+    fillRect(8, 116, 71, 121, OIL);
+    fillRect(20, BEDROCK - 1, 21, BEDROCK - 1, PLANT);
+    fillRect(52, BEDROCK - 1, 53, BEDROCK - 1, PLANT);
+    fillRect(96, 124, 160, 129, WOOD);
+    fillRect(104, 116, 152, 123, WOOD);
+    fillRect(110, 112, 146, 115, FIRE);
+    pond(180, 249, 112, BEDROCK - 1);
+    for (let x = 190; x < 244; x += 12) fillRect(x, BEDROCK - 1, x + 1, BEDROCK - 1, PLANT);
+  },
+};
+
+/* ------------------------------------------------------------------ *
+ *  palette and rendering
+ * ------------------------------------------------------------------ */
+const BG = [11, 14, 19];
+
+const BASE = {
+  [EMPTY]: [11, 14, 19,   0],
+  [STONE]: [104, 112, 124, 16],
+  [WOOD]:  [122, 82, 48,  14],
+  [SAND]:  [219, 178, 106, 22],
+  /* Ash used to be [88, 90, 96], which read as a slightly darker stone and sat 25.7 apart from
+   * it in the render audit against a threshold of 25. Passing by seven tenths of a unit is not
+   * passing, it is a coin toss with a tint jitter. Warm and dark instead: 64.6 from stone, and
+   * it now actually looks like something that was on fire. */
+  [ASH]:   [86, 78, 72,   14],
+  [WATER]: [52, 116, 208, 16],
+  [OIL]:   [62, 50, 44,   10],
+  [STEAM]: [206, 218, 232, 10],
+  [SMOKE]: [64, 70, 80,   10],
+  [FIRE]:  [255, 170, 60, 12],
+  [PLANT]: [74, 158, 84,  22],
+};
+
+const pack = (r, g, b) => (255 << 24) | (b << 16) | (g << 8) | r;
+const clamp255 = v => v < 0 ? 0 : v > 255 ? 255 : v | 0;
+
+/* 32 shades per material, precomputed */
+const PAL = new Uint32Array(N_MAT * 32);
+for (let m = 0; m < N_MAT; m++) {
+  const [r, g, b, jit] = BASE[m];
+  for (let k = 0; k < 32; k++) {
+    const d = ((k / 31) - 0.5) * 2 * jit;
+    PAL[m * 32 + k] = pack(clamp255(r + d), clamp255(g + d * 0.94), clamp255(b + d * 0.82));
+  }
+}
+
+function blendToBg(r, g, b, a) {
+  return pack(clamp255(BG[0] + (r - BG[0]) * a),
+              clamp255(BG[1] + (g - BG[1]) * a),
+              clamp255(BG[2] + (b - BG[2]) * a));
+}
+
+/* fire: white hot -> orange -> deep red as its life runs out */
+const FIRE_PAL = new Uint32Array(64);
+for (let k = 0; k < 64; k++) {
+  const u = k / 63;
+  let r, g, b;
+  if (u > 0.55) { const s = (u - 0.55) / 0.45; r = 255; g = 186 + 62 * s; b = 70 + 130 * s; }
+  else if (u > 0.22) { const s = (u - 0.22) / 0.33; r = 246 + 9 * s; g = 108 + 78 * s; b = 24 + 46 * s; }
+  else { const s = u / 0.22; r = 158 + 88 * s; g = 32 + 76 * s; b = 14 + 10 * s; }
+  FIRE_PAL[k] = pack(clamp255(r), clamp255(g), clamp255(b));
+}
+const STEAM_PAL = new Uint32Array(64);
+const SMOKE_PAL = new Uint32Array(64);
+for (let k = 0; k < 64; k++) {
+  const u = k / 63;
+  STEAM_PAL[k] = blendToBg(206, 218, 232, 0.16 + 0.62 * u);
+  SMOKE_PAL[k] = blendToBg(96, 102, 112, 0.18 + 0.72 * u);
+}
+
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d", { alpha: false });
+const img = ctx.createImageData(W, H);
+const buf = new Uint32Array(img.data.buffer);
+
+function render() {
+  for (let i = 0; i < CELLS; i++) {
+    const m = mat[i];
+    if (m === FIRE)       buf[i] = FIRE_PAL[(life[i] * 63 / LIFE_FIRE) | 0];
+    else if (m === STEAM) buf[i] = STEAM_PAL[(life[i] * 63 / LIFE_STEAM) | 0];
+    else if (m === SMOKE) buf[i] = SMOKE_PAL[(life[i] * 63 / LIFE_SMOKE) | 0];
+    else                  buf[i] = PAL[m * 32 + (tint[i] & 31)];
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+/* ------------------------------------------------------------------ *
+ *  preview mode for the storybook card: run a scene, paint it, stop
+ * ------------------------------------------------------------------ */
+const params = new URLSearchParams(location.search);
+if (params.has("preview")) {
+  document.documentElement.classList.add("preview");
+  document.querySelector(".previewboard").appendChild(canvas);
+  const which = params.get("preview");
+  (SCENES[which] || SCENES.showcase)();
+  const n = Math.max(1, Math.min(2000, parseInt(params.get("steps") || "260", 10) || 260));
+  for (let k = 0; k < n; k++) stepOnce();
+  render();
+  exposeHook();
+  return;
+}
+
+/* ------------------------------------------------------------------ *
+ *  interface
+ * ------------------------------------------------------------------ */
+const PICKABLE = [SAND, WATER, STONE, WOOD, FIRE, OIL, PLANT, ASH, STEAM, SMOKE];
+let current = SAND;
+let erasing = false;
+let running = true;
+let subSteps = 1;
+let brush = 7;
+
+const matsEl = document.getElementById("mats");
+PICKABLE.forEach((m, k) => {
+  const b = document.createElement("button");
+  b.className = "mat";
+  b.type = "button";
+  b.dataset.mat = String(m);
+  b.setAttribute("aria-pressed", m === current ? "true" : "false");
+  const sw = document.createElement("span");
+  sw.className = "sw";
+  const [r, g, bl] = BASE[m];
+  sw.style.background = `rgb(${r},${g},${bl})`;
+  b.appendChild(sw);
+  b.appendChild(document.createTextNode(NAME[m]));
+  const kb = document.createElement("kbd");
+  kb.textContent = String((k + 1) % 10);
+  b.appendChild(kb);
+  b.addEventListener("click", () => pick(m));
+  matsEl.appendChild(b);
+});
+
+function pick(m) {
+  current = m;
+  erasing = false;
+  document.getElementById("eraser").setAttribute("aria-pressed", "false");
+  for (const b of matsEl.children) b.setAttribute("aria-pressed", b.dataset.mat === String(m) ? "true" : "false");
+}
+
+const brushEl = document.getElementById("brush"), brushOut = document.getElementById("brushOut");
+brushEl.addEventListener("input", () => { brush = +brushEl.value; brushOut.textContent = brush; });
+
+const speedEl = document.getElementById("speed"), speedOut = document.getElementById("speedOut");
+speedEl.addEventListener("input", () => { subSteps = +speedEl.value; speedOut.innerHTML = subSteps + "&times;"; });
+
+const playBtn = document.getElementById("play");
+playBtn.addEventListener("click", () => setRunning(!running));
+function setRunning(v) { running = v; playBtn.textContent = running ? "Pause" : "Play"; }
+
+document.getElementById("stepBtn").addEventListener("click", () => { setRunning(false); stepOnce(); render(); updateStatus(); });
+document.getElementById("clear").addEventListener("click", () => { clearAll(); render(); updateStatus(); });
+document.getElementById("eraser").addEventListener("click", e => {
+  erasing = !erasing;
+  e.currentTarget.setAttribute("aria-pressed", erasing ? "true" : "false");
+});
+
+for (const b of document.querySelectorAll("[data-scene]")) {
+  b.addEventListener("click", () => { SCENES[b.dataset.scene](); render(); updateStatus(); setRunning(true); });
+}
+
+/* painting */
+let painting = false, lastGX = -1, lastGY = -1;
+
+function toGrid(ev) {
+  const r = canvas.getBoundingClientRect();
+  return [Math.floor((ev.clientX - r.left) / r.width * W), Math.floor((ev.clientY - r.top) / r.height * H)];
+}
+
+function paintDisc(cx, cy, m) {
+  const rad = Math.max(0, (brush - 1) / 2);
+  const r2 = rad * rad;
+  const lo = Math.floor(-rad), hi = Math.ceil(rad);
+  for (let dy = lo; dy <= hi; dy++)
+    for (let dx = lo; dx <= hi; dx++)
+      if (dx * dx + dy * dy <= r2 + 0.25) put(cx + dx, cy + dy, m, stepIndex + dx * 31 + dy * 17 + cx);
+}
+
+function paintLine(x0, y0, x1, y1, m) {
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  if (steps === 0) { paintDisc(x1, y1, m); return; }
+  for (let s = 0; s <= steps; s++)
+    paintDisc(Math.round(x0 + (x1 - x0) * s / steps), Math.round(y0 + (y1 - y0) * s / steps), m);
+}
+
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+  painting = true;
+  const [gx, gy] = toGrid(e);
+  lastGX = gx; lastGY = gy;
+  paintDisc(gx, gy, (erasing || e.button === 2 || e.shiftKey) ? EMPTY : current);
+  if (!running) render();
+  e.preventDefault();
+});
+canvas.addEventListener("pointermove", e => {
+  if (!painting) return;
+  const [gx, gy] = toGrid(e);
+  paintLine(lastGX, lastGY, gx, gy, (erasing || e.buttons === 2 || e.shiftKey) ? EMPTY : current);
+  lastGX = gx; lastGY = gy;
+  if (!running) render();
+});
+const stopPaint = () => { painting = false; };
+canvas.addEventListener("pointerup", stopPaint);
+canvas.addEventListener("pointercancel", stopPaint);
+
+document.addEventListener("keydown", e => {
+  /* A focused slider should not swallow the material keys. The guard is here so a real text
+   * field would keep its keystrokes; a range input has no use for the digits and the shortcut
+   * silently dying after you touched the brush slider is just a broken keyboard. */
+  if (e.target instanceof HTMLInputElement && e.target.type !== "range") return;
+  const k = e.key;
+  if (k === " ") { setRunning(!running); e.preventDefault(); return; }
+  if (k === ".") { setRunning(false); stepOnce(); render(); updateStatus(); return; }
+  if (k === "c" || k === "C") { clearAll(); render(); updateStatus(); return; }
+  if (k === "e" || k === "E") { document.getElementById("eraser").click(); return; }
+  if (k === "[") { brushEl.value = String(Math.max(1, brush - 2)); brushEl.dispatchEvent(new Event("input")); return; }
+  if (k === "]") { brushEl.value = String(Math.min(26, brush + 2)); brushEl.dispatchEvent(new Event("input")); return; }
+  if (/^[0-9]$/.test(k)) {
+    const slot = k === "0" ? 9 : (+k - 1);
+    if (slot < PICKABLE.length) pick(PICKABLE[slot]);
+  }
+});
+
+/* status */
+const sStep = document.getElementById("sStep"), sFps = document.getElementById("sFps"), sAwake = document.getElementById("sAwake");
+let frames = 0, fpsT = performance.now(), fps = 0;
+function updateStatus() {
+  sStep.textContent = stepIndex;
+  sFps.textContent = fps;
+  let on = 0;
+  for (let c = 0; c < awake.length; c++) if (awake[c]) on++;
+  sAwake.textContent = Math.round(on / awake.length * 100);
+}
+
+SCENES.campfire();
+render();
+updateStatus();
+
+function frame(now) {
+  if (running) for (let s = 0; s < subSteps; s++) stepOnce();
+  render();
+  frames++;
+  if (now - fpsT >= 500) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; updateStatus(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+exposeHook();
+
+/* ------------------------------------------------------------------ *
+ *  test hook. The checkers drive this; nothing in the page depends on it.
+ * ------------------------------------------------------------------ */
+function exposeHook() {
+  window.__sand = {
+    W, H, CELLS, N_MAT, NAME, DENS, CHUNK, CW, CH,
+    MAT: { EMPTY, STONE, WOOD, SAND, ASH, WATER, OIL, STEAM, SMOKE, FIRE, PLANT },
+    LIFE: { FIRE: LIFE_FIRE, STEAM: LIFE_STEAM, SMOKE: LIFE_SMOKE },
+    cfg,
+    get step() { return stepIndex; },
+    setSeed(s) { seed = s | 0; },
+    setStepIndex(v) { stepIndex = v | 0; },
+    clear() { clearAll(); stamp.fill(0); },
+    reset(s) {
+      if (s !== undefined) seed = s | 0;
+      clearAll(); stamp.fill(0); stepIndex = 0; resetLedger();
+      awake.fill(1); awakeNext.fill(1);
+    },
+    scene(n) { SCENES[n](); },
+    put(x, y, m) { put(x, y, m); },
+    fill(x0, y0, x1, y1, m) { fillRect(x0, y0, x1, y1, m); },
+    get(x, y) { return inside(x, y) ? mat[idx(x, y)] : -1; },
+    lifeAt(x, y) { return inside(x, y) ? life[idx(x, y)] : -1; },
+    run(n) { for (let k = 0; k < n; k++) stepOnce(); },
+    render,
+    census,
+    ledger: () => Object.assign({}, ledger),
+    resetLedger,
+    hash: hashState,
+    awakeCount() { let n = 0; for (let c = 0; c < awake.length; c++) if (awake[c]) n++; return n; },
+    awakeAt(x, y) { return awake[(y >> CSHIFT) * CW + (x >> CSHIFT)]; },
+    stampAt(x, y) { return stamp[idx(x, y)]; },
+    matColumn(x) { const out = []; for (let y = 0; y < H; y++) out.push(mat[idx(x, y)]); return out; },
+    snapshot() { return Array.from(mat); },
+    timeRun(n) { const t0 = performance.now(); for (let k = 0; k < n; k++) stepOnce(); return performance.now() - t0; },
+  };
+}
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spring Bench, a motion designer that emits CSS</title>
+<!--
+  SPRING BENCH. A damped harmonic oscillator you can tune by hand, that hands you back a CSS
+  easing function reproducing exactly the motion you tuned.
+  Built 2026-09-12 for playground/. Self-contained, offline, no dependencies.
+
+  WHAT IT DOES
+  Set a spring, either physically (mass, stiffness, damping) or perceptually (how long one
+  bounce takes, and how bouncy it is). The plot draws the step response: where the thing being
+  animated actually is at every moment, its overshoot, and the moment it has settled for good.
+  Underneath, the same spring drives real elements through the browser's own animation engine,
+  including a lane that races it against the stock ease-out so the difference is visible rather
+  than argued about. The output panel gives you a `linear()` easing plus a duration to paste
+  into a stylesheet. That is the whole point of the tool: springs are not a CSS timing function,
+  but a spring sampled into enough straight segments is.
+
+  WHAT I LEARNED BUILDING IT
+  1. The textbook closed form for an overdamped spring is unsafe near critical damping, but NOT
+     in the way I confidently wrote down before measuring it. Writing it as two real exponentials
+     puts `r1 - r2 = 2*w0*sqrt(zeta^2 - 1)` in a denominator, which goes to zero exactly where
+     the two exponentials become equal, so you scale a huge coefficient by a difference of two
+     nearly identical numbers. I predicted that would produce visible nonsense by zeta = 1.000001
+     and the measurement refuted it: the coefficient is `zeta / (2*sqrt(zeta^2 - 1))`, which
+     depends only on zeta, so the worst it can reach before the offset rounds away entirely is
+     about 2.4e7, and the worst error it can therefore produce is about 1e-8 of travel. Real, a
+     hundred million times worse than the form shipped here, and invisible. What is NOT invisible
+     is zeta exactly 1, where that form divides by zero and returns NaN, and a NaN propagating
+     into a gate built out of comparisons is the failure this rail has already been bitten by
+     once. The fix is not a special case at zeta = 1, it is to stop using that form at all: write
+     the solution once as
+     `e^(-zeta*w0*t) * (C(t) + (zeta*w0 - v0) * S(t))` where C is cosh or cos and S is
+     sinh(x)/x or sin(x)/x depending on the sign of `w0^2 * (zeta^2 - 1)`. Nothing divides by
+     anything small, the three regimes are one expression, and critical damping stops being a
+     branch you have to remember to write.
+  2. `linear()` is not an approximation of a curve, it IS the curve, and its cost is measurable.
+     Piecewise linear interpolation has error `(h^2/8) * max|f''|`, so the stop count buys you
+     accuracy quadratically: doubling the stops divides the worst error by four. That means the
+     honest question is never "is this accurate" but "how many stops for how much error", and
+     the answer here is that around 48 evenly spaced stops puts a bouncy spring inside half a
+     percent of true, which is well under a pixel on anything you would animate.
+  3. Spacing the stops adaptively is worth roughly a halving of the count. Curvature is not
+     spread evenly along a spring: almost all of it is in the first bounce, and the long quiet
+     tail is nearly a straight line. Keeping the stops that a Douglas-Peucker pass says carry
+     shape, and writing their positions explicitly as percentages, hits the same error as the
+     even spacing with about half as many numbers.
+  4. The duration and the easing are one object, not two. The easing is normalised time, so if
+     you hand the browser any duration other than the settle time the curve was sampled over,
+     every number in the stop list is being read at the wrong moment and the motion is a
+     stretched impostor of the one you tuned. This is the one mistake here that produces
+     something that looks fine and is wrong.
+  5. Settling is a decision, not a property. A spring never arrives, it only gets closer, so
+     "how long does this take" is entirely the question "how close counts as arrived". The 0.5%
+     default is a choice, the slider next to it is the honest version of that choice, and
+     tightening it to 0.1% does not make the animation better, it makes it longer.
+
+  WHY I BUILT IT
+  The four builds before this one were all step-through explanations of a mechanism, which had
+  become a house style rather than a choice. This one is a tool: you come to it with a piece of
+  motion you want, you leave with a line of CSS. I also could not have written the step response
+  of a damped oscillator in a numerically sound way without looking it up, which is the usual
+  sign that I know the words for something rather than the thing.
+
+  HOW IT IS CHECKED
+  ../_verify/check_spring.js integrates the same differential equation with RK4 and compares,
+  which is a genuinely separate method, then measures overshoot and settling against closed
+  forms derived on paper, then drives Chromium's own animation engine with the emitted CSS and
+  samples where the browser actually put the element. ../_verify/check_spring_ui.js drives the
+  real interface with real drags, clicks and keys. Predictions were written first in
+  ../_verify/PREDICTIONS_spring-bench.md. Receipts in ../_verify/RESULTS.md.
+-->
+<style>
+  :root {
+    --bg: #0e1013;
+    --panel: #161a20;
+    --panel-2: #1d232b;
+    --line: #2a323d;
+    --ink: #e6e9ee;
+    --ink-dim: #93a0b0;
+    --ink-faint: #63707f;
+    --amber: #f0b429;
+    --teal: #4fd1c5;
+    --rose: #f2777a;
+    --violet: #a78bfa;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    padding: 22px clamp(12px, 3vw, 34px) 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+  header { max-width: 1180px; margin: 0 auto 20px; }
+  h1 {
+    font-size: 26px; margin: 0 0 4px; letter-spacing: .14em;
+    font-weight: 700; text-transform: uppercase;
+  }
+  h1 .dot { color: var(--amber); }
+  header p { margin: 0; color: var(--ink-dim); max-width: 76ch; font-size: 14px; }
+
+  .wrap {
+    max-width: 1180px; margin: 0 auto; display: grid; gap: 16px;
+    grid-template-columns: minmax(0, 1fr) 300px; align-items: start;
+  }
+  @media (max-width: 900px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: grid; gap: 16px; min-width: 0; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px; min-width: 0;
+  }
+  .card h2 {
+    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 10px; font-weight: 600;
+  }
+  canvas { display: block; width: 100%; border-radius: 6px; background: #0a0c0f; }
+  .cap { font-size: 12px; color: var(--ink-faint); margin: 8px 2px 0; }
+
+  /* readout strip */
+  .readout {
+    display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: 8px; overflow: hidden; margin-top: 12px;
+  }
+  @media (max-width: 700px) { .readout { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .readout div { background: var(--panel-2); padding: 7px 9px; min-width: 0; }
+  .readout .k {
+    display: block; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .readout .v {
+    display: block; font-family: var(--mono); font-size: 14px; color: var(--ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .readout .v.good { color: var(--teal); }
+  .readout .v.warn { color: var(--amber); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 2px 0; font-size: 12px;
+            color: var(--ink-dim); }
+  .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px;
+              margin-right: 6px; vertical-align: middle; }
+
+  /* controls */
+  .row { margin-bottom: 12px; }
+  .row:last-child { margin-bottom: 0; }
+  .row label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12px; color: var(--ink-dim); margin-bottom: 4px; gap: 8px;
+  }
+  .row label b { font-family: var(--mono); color: var(--ink); font-weight: 500; font-size: 12.5px; }
+  input[type=range] { width: 100%; accent-color: var(--amber); margin: 0; }
+
+  .seg { display: flex; gap: 1px; background: var(--line); border: 1px solid var(--line);
+         border-radius: 7px; overflow: hidden; }
+  .seg button {
+    flex: 1; background: var(--panel-2); color: var(--ink-dim); border: 0;
+    padding: 7px 4px; font: 500 12px/1.2 var(--sans); cursor: pointer;
+  }
+  .seg button[aria-pressed=true] { background: var(--amber); color: #12151a; font-weight: 700; }
+  .seg button:hover:not([aria-pressed=true]) { color: var(--ink); }
+
+  .presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .presets button {
+    background: var(--panel-2); color: var(--ink-dim); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 4px; font: 500 12px/1.2 var(--sans); cursor: pointer;
+  }
+  .presets button[aria-pressed=true] { border-color: var(--amber); color: var(--amber); }
+  .presets button:hover { color: var(--ink); }
+
+  .toggles { display: grid; gap: 7px; }
+  .toggles label { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+                   color: var(--ink-dim); cursor: pointer; }
+  .toggles input { accent-color: var(--amber); margin: 0; }
+
+  /* demo lanes */
+  .lanes { display: grid; gap: 10px; }
+  .lane { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+          padding: 9px 10px; }
+  .lane .lab { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+               color: var(--ink-faint); margin-bottom: 7px; display: flex;
+               justify-content: space-between; }
+  /* overflow:hidden is a guard, not the layout. The travel distance below is
+     scaled so an overshooting chip peaks exactly at the right edge, but a chip
+     left translated by a finished fill:forwards animation is scrollable overflow
+     on the whole document, and at 420px wide that added 431px of horizontal
+     scroll to a page that looked perfectly fine at 1300px. Caught by the UI
+     suite resizing the window, never by looking at it. */
+  .track { position: relative; height: 34px; overflow: hidden; }
+  .chip {
+    position: absolute; top: 0; left: 0; height: 34px; min-width: 92px; padding: 0 12px;
+    display: flex; align-items: center; justify-content: center; border-radius: 7px;
+    font: 600 12px/1 var(--sans); color: #12151a; background: var(--amber);
+    will-change: transform;
+  }
+  .chip.ghost { background: var(--panel); color: var(--ink-faint);
+                border: 1px dashed var(--line); }
+  .chip.alt { background: var(--violet); }
+  .pop { display: flex; gap: 10px; align-items: center; height: 44px; }
+  .pop .box {
+    width: 58px; height: 38px; border-radius: 8px; background: var(--teal);
+    display: flex; align-items: center; justify-content: center;
+    font: 700 11px/1 var(--sans); color: #0c1414; will-change: transform, opacity;
+  }
+  .playbar { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .playbar button {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 12px; font: 600 12.5px/1 var(--sans); cursor: pointer;
+  }
+  .playbar button:hover { border-color: var(--amber); color: var(--amber); }
+  .playbar span { font-size: 12px; color: var(--ink-faint); }
+
+  /* output */
+  pre.out {
+    margin: 0; padding: 10px; background: #0a0c0f; border: 1px solid var(--line);
+    border-radius: 7px; font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+    color: var(--teal); white-space: pre-wrap; word-break: break-all; max-height: 240px;
+    overflow: auto;
+  }
+  .outbar { display: flex; gap: 8px; margin-top: 9px; align-items: center; }
+  .outbar button {
+    background: var(--amber); color: #12151a; border: 0; border-radius: 6px;
+    padding: 7px 12px; font: 700 12.5px/1 var(--sans); cursor: pointer;
+    white-space: nowrap;
+  }
+  .outbar button.sec { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); }
+  .outbar span { font-size: 11.5px; color: var(--ink-faint); }
+
+  details {
+    max-width: 1180px; margin: 16px auto 0; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  }
+  details summary { cursor: pointer; font-size: 12px; letter-spacing: .12em;
+                    text-transform: uppercase; color: var(--ink-faint); }
+  details h3 { font-size: 13px; margin: 16px 0 6px; color: var(--amber); }
+  details p, details li { font-size: 13.5px; color: var(--ink-dim); max-width: 82ch; }
+  details code { font-family: var(--mono); font-size: 12.5px; color: var(--teal); }
+
+  /* Preview mode for the playground index card: index.html?preview=1
+     A card is a fixed 2:1 window, so everything but the plot is hidden and the
+     plot is painted with three springs at once, which is both prettier and a
+     lot more colour than one curve. */
+  html.preview, html.preview body { background: var(--bg); overflow: hidden; }
+  html.preview body { padding: 0; }
+  html.preview header,
+  html.preview details,
+  html.preview .cap,
+  html.preview .legend,
+  html.preview .readout,
+  html.preview .card h2,
+  html.preview .col:last-child,
+  html.preview .demo-card { display: none; }
+  html.preview .wrap { display: block; max-width: none; gap: 0; }
+  html.preview .card { border: 0; border-radius: 0; padding: 0; background: var(--bg); margin: 0 !important; }
+  html.preview canvas { border-radius: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Spring Bench<span class="dot">.</span></h1>
+  <p>Tune a spring, get the CSS. The plot is where the animated thing actually is at every
+     moment; the lanes underneath are the browser's own animation engine running the easing this
+     page just wrote. Springs are not a CSS timing function, but a spring chopped into enough
+     straight segments is one, and the readout under the plot says what that costs.</p>
+</header>
+
+<div class="wrap">
+  <div class="col">
+
+    <section class="card plot-card">
+      <h2>Step response</h2>
+      <canvas id="plot" width="1160" height="480" aria-label="Spring step response plot"></canvas>
+      <div class="legend">
+        <span><i style="background:#f0b429"></i>the spring</span>
+        <span><i style="background:#4fd1c5"></i>the linear() the browser will run</span>
+        <span><i style="background:#f2777a"></i>settle band and settle time</span>
+        <span><i style="background:#63707f"></i>target</span>
+      </div>
+      <div class="readout" id="readout">
+        <div><span class="k">Regime</span><span class="v" id="r-regime">-</span></div>
+        <div><span class="k">Damping &zeta;</span><span class="v" id="r-zeta">-</span></div>
+        <div><span class="k">Overshoot</span><span class="v" id="r-over">-</span></div>
+        <div><span class="k">Settles in</span><span class="v" id="r-settle">-</span></div>
+        <div><span class="k">Stops</span><span class="v" id="r-stops">-</span></div>
+        <div><span class="k">Shape error</span><span class="v" id="r-err">-</span></div>
+      </div>
+      <p class="cap" id="cap">&nbsp;</p>
+    </section>
+
+    <section class="card demo-card">
+      <h2>The browser running it</h2>
+      <div class="lanes">
+        <div class="lane">
+          <div class="lab"><span>Move</span><span id="lab-move">-</span></div>
+          <div class="track"><div class="chip" id="chip-move">translate</div></div>
+        </div>
+        <div class="lane">
+          <div class="lab"><span>Race against ease-out, same duration</span><span>spring on top</span></div>
+          <div class="track"><div class="chip alt" id="chip-race">spring</div></div>
+          <div class="track"><div class="chip ghost" id="chip-ease">ease-out</div></div>
+        </div>
+        <div class="lane">
+          <div class="lab"><span>Pop in</span><span>scale and fade</span></div>
+          <div class="pop">
+            <div class="box" id="pop-1">one</div>
+            <div class="box" id="pop-2">two</div>
+            <div class="box" id="pop-3">three</div>
+          </div>
+        </div>
+      </div>
+      <div class="playbar">
+        <button id="replay" type="button">Replay</button>
+        <span>space replays &middot; keys 1 to 6 load a preset &middot; every change replays itself</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <h2>Preset</h2>
+      <div class="presets" id="presets"></div>
+    </section>
+
+    <section class="card">
+      <h2>Spring</h2>
+      <div class="row">
+        <div class="seg" id="mode">
+          <button type="button" data-mode="feel" aria-pressed="true">By feel</button>
+          <button type="button" data-mode="phys" aria-pressed="false">By physics</button>
+        </div>
+      </div>
+
+      <div id="pane-feel">
+        <div class="row">
+          <label for="s-period">One bounce takes <b id="v-period">-</b></label>
+          <input type="range" id="s-period" min="80" max="2000" step="10" value="420">
+        </div>
+        <div class="row">
+          <label for="s-zeta">Bounciness &zeta; <b id="v-zeta">-</b></label>
+          <input type="range" id="s-zeta" min="0" max="2000" step="1" value="500">
+        </div>
+      </div>
+
+      <div id="pane-phys" hidden>
+        <div class="row">
+          <label for="s-mass">Mass <b id="v-mass">-</b></label>
+          <input type="range" id="s-mass" min="100" max="3000" step="10" value="1000">
+        </div>
+        <div class="row">
+          <label for="s-stiff">Stiffness <b id="v-stiff">-</b></label>
+          <input type="range" id="s-stiff" min="100" max="3000" step="10" value="1500">
+        </div>
+        <div class="row">
+          <label for="s-damp">Damping <b id="v-damp">-</b></label>
+          <input type="range" id="s-damp" min="0" max="3000" step="10" value="900">
+        </div>
+      </div>
+
+      <div class="row">
+        <label for="s-vel">Initial velocity <b id="v-vel">-</b></label>
+        <input type="range" id="s-vel" min="-300" max="300" step="5" value="0">
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Sampling</h2>
+      <div class="row">
+        <label for="s-stops">Stops <b id="v-stops">-</b></label>
+        <input type="range" id="s-stops" min="4" max="200" step="1" value="48">
+      </div>
+      <div class="row">
+        <label for="s-tol">Settled within <b id="v-tol">-</b></label>
+        <input type="range" id="s-tol" min="1" max="50" step="1" value="5">
+      </div>
+      <div class="toggles">
+        <label><input type="checkbox" id="c-adaptive"> Space the stops adaptively</label>
+        <label><input type="checkbox" id="c-dots" checked> Draw the stops on the plot</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>CSS</h2>
+      <pre class="out" id="out">-</pre>
+      <div class="outbar">
+        <button id="copy" type="button">Copy</button>
+        <button id="copy-js" type="button" class="sec">Copy JS</button>
+        <span id="copied"></span>
+      </div>
+    </section>
+  </div>
+</div>
+
+<details>
+  <summary>What this is actually doing</summary>
+
+  <h3>The spring</h3>
+  <p>One equation: <code>m&nbsp;x'' + c&nbsp;x' + k&nbsp;x = k</code>, a mass on a spring with a
+     damper, pulled toward a target at 1. Only two numbers matter for the shape:
+     <code>w0 = sqrt(k/m)</code>, how fast it wants to oscillate, and
+     <code>zeta = c / (2*sqrt(k*m))</code>, how much of that oscillation survives. Below
+     <code>zeta = 1</code> it overshoots and comes back; at exactly 1 it arrives as fast as it
+     can without ever passing the target; above 1 it is sluggish. Mass, stiffness and damping
+     are three knobs on two numbers, which is why the "by feel" pane, which drives period and
+     bounciness directly, is the one that actually behaves.</p>
+
+  <h3>Why the solution is written the way it is</h3>
+  <p>The usual textbook split gives three separate formulas for the three regimes, and the
+     overdamped one divides by <code>r1 - r2 = 2*w0*sqrt(zeta^2 - 1)</code>. That denominator is
+     zero at critical damping, so at <code>zeta</code> exactly 1 it returns NaN, and just above it
+     you scale an enormous coefficient by the difference between two nearly identical
+     exponentials. Measured against a numerical integration, that costs up to about 1e-8 of
+     travel, which is much less than I predicted and is written here as the measurement rather
+     than as the guess. This page instead uses one expression for all
+     three: <code>e^(-zeta*w0*t) * (C(t) + (zeta*w0 - v0) * S(t))</code>, where <code>C</code> is
+     cosh or cos and <code>S</code> is <code>sinh(x)/x</code> or <code>sin(x)/x</code> depending
+     on the sign of <code>w0^2*(zeta^2 - 1)</code>. Nothing small is ever a denominator, and
+     critical damping stops being a special case at all: it is the limit both branches already
+     agree on.</p>
+
+  <h3>Why <code>linear()</code> and not a keyframe dump</h3>
+  <p>A CSS timing function has to be a function of progress, and a spring is not one of the four
+     the language ships. <code>linear()</code> takes a list of output values and joins them with
+     straight lines, which means a spring becomes a timing function as soon as you are willing to
+     say how many segments it gets. That is a real, quantified trade: piecewise linear error goes
+     as <code>(h^2/8)*max|f''|</code>, so every doubling of the stop count divides the worst error
+     by four. The panel shows you the number rather than asking you to trust it.</p>
+
+  <h3>Adaptive stops</h3>
+  <p>A spring's curvature is nearly all in the first bounce, and its tail is a straight line
+     pretending to be a curve. Spacing stops evenly spends most of them on the boring part.
+     Ticking "space the stops adaptively" runs a Douglas-Peucker pass over a dense sampling of
+     the curve, keeps the points that carry shape, and writes their positions explicitly as
+     percentages. Same accuracy, roughly half the numbers.</p>
+
+  <h3>The duration is part of the answer</h3>
+  <p>The easing is in normalised time, so it only means what it says when the animation lasts
+     exactly as long as the window the curve was sampled over. Change the duration and keep the
+     easing and you have a stretched impostor of the motion you tuned. Copy both lines or
+     neither.</p>
+
+  <h3>Settling is a choice</h3>
+  <p>A spring never arrives. It gets closer. "How long does this take" is really "how close counts
+     as arrived", which is why that threshold is a slider and not a constant, and why tightening
+     it does not improve the animation, it only makes it longer.</p>
+</details>
+
+<script>
+"use strict";
+
+/* ---------------------------------------------------------------------------
+ * 1. The spring itself.
+ *
+ * Step response of m*x'' + c*x' + k*x = k, with x(0) = 0 and x'(0) = v0,
+ * written once for all three damping regimes. See the explainer above for why
+ * this is not the textbook three-way split.
+ * ------------------------------------------------------------------------- */
+
+function params(m, k, c) {
+  const w0 = Math.sqrt(k / m);
+  const zeta = c / (2 * Math.sqrt(k * m));
+  return { w0, zeta };
+}
+
+/**
+ * The decaying shape functions e^(-s t)*C(t) and e^(-s t)*S(t), where C is cosh
+ * or cos and S is sinh(x)/x or sin(x)/x, chosen by the sign of q.
+ *
+ * The decay is folded IN here rather than multiplied on afterwards, and that is
+ * not tidiness. A heavily overdamped spring reaches cosh(1053), which is
+ * Infinity in a double, and the e^(-s t) that would have tamed it is zero, so
+ * the product is NaN. The first version of this file did exactly that and the
+ * checker caught it as a NaN, which is the one failure mode a gate built out of
+ * comparisons will happily report as a perfect score. Written as
+ * (e^((r-s)t) + e^(-(r+s)t))/2, with r < s always true for a real spring, every
+ * exponent is negative and nothing can overflow.
+ *
+ * The small-x branch is the other half: that same difference of exponentials
+ * loses its significant digits when r*t is tiny, which is the exact disease the
+ * naive two-exponential solution has near critical damping. Math.sinh is
+ * accurate there, and it cannot overflow while x is small, so each branch is
+ * used only where it is sound.
+ */
+function decayShapes(s, q, t) {
+  const d = Math.exp(-s * t);
+  if (q > 1e-12) {
+    const r = Math.sqrt(q), x = r * t;
+    if (x < 0.5) return { EC: d * Math.cosh(x), ES: x === 0 ? d * t : d * Math.sinh(x) / r };
+    const e1 = Math.exp((r - s) * t), e2 = Math.exp(-(r + s) * t);
+    return { EC: (e1 + e2) / 2, ES: (e1 - e2) / (2 * r) };
+  }
+  if (q < -1e-12) {
+    const r = Math.sqrt(-q), x = r * t;
+    return { EC: d * Math.cos(x), ES: x === 0 ? d * t : d * Math.sin(x) / r };
+  }
+  return { EC: d, ES: d * t };           // critical damping is the limit, not a branch
+}
+
+/** Displacement at time t, travelling from 0 to 1. */
+function response(t, w0, zeta, v0) {
+  if (t <= 0) return 0;
+  const s = zeta * w0;
+  const q = w0 * w0 * (zeta * zeta - 1);
+  const { EC, ES } = decayShapes(s, q, t);
+  // y is the remaining error, y(0) = 1, y'(0) = -v0
+  return 1 - (EC + (s - v0) * ES);
+}
+
+/** Velocity, used only for drawing and for the horizon search. */
+function velocity(t, w0, zeta, v0) {
+  const h = 1e-6;
+  return (response(t + h, w0, zeta, v0) - response(Math.max(0, t - h), w0, zeta, v0)) /
+         (t + h - Math.max(0, t - h));
+}
+
+/**
+ * When has it settled? A spring never arrives, so this is the last moment it is
+ * outside the band, found by walking a dense sampling and then bisecting. The
+ * horizon doubles until the tail is genuinely inside the band, so an overdamped
+ * crawl is not silently truncated.
+ */
+function settleTime(w0, zeta, v0, tol) {
+  const s = zeta * w0;
+  const slow = zeta > 1 ? s - Math.sqrt(w0 * w0 * (zeta * zeta - 1)) : s;
+  let T = Math.max(0.05, Math.log(4 / tol) / Math.max(slow, 1e-6));
+  for (let guard = 0; guard < 40; guard++) {
+    const N = 4000;
+    let last = -1;
+    for (let i = N; i >= 0; i--) {
+      const t = T * i / N;
+      if (Math.abs(response(t, w0, zeta, v0) - 1) > tol) { last = t; break; }
+    }
+    if (last < 0) { T *= 0.6; if (T < 1e-3) return 1e-3; continue; }
+    if (last > T * 0.98) { T *= 2; if (T > 600) return T; continue; }
+    // bisect between the last violating sample and the next one in
+    let lo = last, hi = last + T / N;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (Math.abs(response(mid, w0, zeta, v0) - 1) > tol) lo = mid; else hi = mid;
+    }
+    return hi;
+  }
+  return T;
+}
+
+/** Peaks, measured from the curve rather than from a formula, so the formula can be checked. */
+function extremes(w0, zeta, v0, T) {
+  const N = 6000;
+  let peak = 0, peakAt = 0, min = 0, crossings = 0, prev = 0;
+  for (let i = 0; i <= N; i++) {
+    const t = T * i / N, x = response(t, w0, zeta, v0);
+    if (x > peak) { peak = x; peakAt = t; }
+    if (x < min) min = x;
+    if (i > 0 && (prev - 1) * (x - 1) < 0) crossings++;
+    prev = x;
+  }
+  return { peak, peakAt, min, crossings };
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Turning it into CSS.
+ * ------------------------------------------------------------------------- */
+
+const round5 = v => Math.round(v * 1e5) / 1e5;
+
+/**
+ * Pin the ends. The animation has to start at 0 and finish exactly on target,
+ * so the first and last stops are set rather than sampled.
+ *
+ * This is NOT free and the page says what it costs. A spring has not arrived at
+ * the settle time, it is within the settle tolerance of arriving, so pinning the
+ * last stop to 1 draws a straight line across that last sliver of gap. The cost
+ * is exactly |x(T) - 1|, which is the settle tolerance, and it does not shrink
+ * when you add stops. Measured before this was understood, the error readout sat
+ * at precisely 0.5000% for 64, 128 and 256 stops, which is what a floor looks
+ * like when you have mistaken it for a measurement.
+ */
+function clampEnds(pts) {
+  const out = pts.map(p => ({ u: p.u, v: p.v }));
+  out[0] = { u: 0, v: 0 };
+  out[out.length - 1] = { u: 1, v: 1 };
+  return out;
+}
+
+/** Evenly spaced stops, sampled honestly. Pinning happens at emission. */
+function evenStops(w0, zeta, v0, T, n) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const u = i / (n - 1);
+    pts.push({ u, v: round5(response(u * T, w0, zeta, v0)) });
+  }
+  return pts;
+}
+
+/**
+ * Adaptive stops: Douglas-Peucker over a dense sampling, tightened until the
+ * simplified polyline is down to n points. Positions are written explicitly, so
+ * the browser gets the same curve out of fewer numbers.
+ */
+function adaptiveStops(w0, zeta, v0, T, n) {
+  const DENSE = 2000;
+  const dense = [];
+  for (let i = 0; i <= DENSE; i++) {
+    const u = i / DENSE;
+    dense.push({ u, v: response(u * T, w0, zeta, v0) });
+  }
+  const simplify = (eps) => {
+    const keep = new Uint8Array(dense.length);
+    keep[0] = keep[dense.length - 1] = 1;
+    const stack = [[0, dense.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      if (b - a < 2) continue;
+      const ax = dense[a].u, ay = dense[a].v, bx = dense[b].u, by = dense[b].v;
+      const dx = bx - ax, dy = by - ay;
+      let worst = -1, at = -1;
+      for (let i = a + 1; i < b; i++) {
+        // vertical distance, because the axes are not comparable units
+        const t = dx === 0 ? 0 : (dense[i].u - ax) / dx;
+        const d = Math.abs(dense[i].v - (ay + t * dy));
+        if (d > worst) { worst = d; at = i; }
+      }
+      if (worst > eps) { keep[at] = 1; stack.push([a, at], [at, b]); }
+    }
+    const out = [];
+    for (let i = 0; i < dense.length; i++) if (keep[i]) out.push(dense[i]);
+    return out;
+  };
+  let lo = 1e-7, hi = 0.5, best = simplify(lo);
+  for (let i = 0; i < 50; i++) {
+    const mid = Math.sqrt(lo * hi);
+    const got = simplify(mid);
+    if (got.length > n) { lo = mid; } else { hi = mid; best = got; }
+    if (best.length === n) break;
+  }
+  return best.map(p => ({ u: p.u, v: round5(p.v) }));
+}
+
+function easingString(pts, adaptive) {
+  const body = adaptive
+    ? pts.map(p => `${p.v} ${Math.round(p.u * 1e4) / 100}%`).join(", ")
+    : pts.map(p => String(p.v)).join(", ");
+  return `linear(${body})`;
+}
+
+/** Evaluate the emitted stop list the way the browser will: straight lines between stops. */
+function evalStops(pts, u) {
+  if (u <= pts[0].u) return pts[0].v;
+  for (let i = 1; i < pts.length; i++) {
+    if (u <= pts[i].u) {
+      const span = pts[i].u - pts[i - 1].u;
+      const f = span === 0 ? 0 : (u - pts[i - 1].u) / span;
+      return pts[i - 1].v + f * (pts[i].v - pts[i - 1].v);
+    }
+  }
+  return pts[pts.length - 1].v;
+}
+
+/** Worst gap between the real spring and the straight lines the browser will draw. */
+function worstError(pts, w0, zeta, v0, T) {
+  let worst = 0, at = 0;
+  const N = 2001;
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1);
+    const d = Math.abs(evalStops(pts, u) - response(u * T, w0, zeta, v0));
+    if (d > worst) { worst = d; at = u; }
+  }
+  return { worst, at };
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. State and presets.
+ * ------------------------------------------------------------------------- */
+
+const PRESETS = [
+  { name: "Snappy",   m: 1, k: 380, c: 32,  v0: 0 },
+  { name: "Bouncy",   m: 1, k: 300, c: 12,  v0: 0 },
+  { name: "Gentle",   m: 1, k: 120, c: 20,  v0: 0 },
+  { name: "Critical", m: 1, k: 200, c: 28.284271247461902, v0: 0 },
+  { name: "Molasses", m: 1, k: 60,  c: 34,  v0: 0 },
+  { name: "Flick",    m: 1, k: 260, c: 18,  v0: 3.2 }
+];
+
+const state = {
+  m: 1, k: 380, c: 32, v0: 0,
+  stops: 48, tolPct: 0.5, adaptive: false, dots: true,
+  mode: "feel", preset: 0, preview: false
+};
+
+let derived = null;
+
+function recompute() {
+  const { w0, zeta } = params(state.m, state.k, state.c);
+  const tol = state.tolPct / 100;
+  const T = settleTime(w0, zeta, state.v0, tol);
+  const ext = extremes(w0, zeta, state.v0, T);
+  const raw = state.adaptive
+    ? adaptiveStops(w0, zeta, state.v0, T, state.stops)
+    : evenStops(w0, zeta, state.v0, T, state.stops);
+  const pts = clampEnds(raw);
+  // two different errors, kept apart on purpose: how well the straight segments
+  // trace the curve, and how far the pinned final stop had to reach.
+  const err = worstError(raw, w0, zeta, state.v0, T);
+  const arrival = Math.abs(response(T, w0, zeta, state.v0) - 1);
+  derived = {
+    w0, zeta, tol, T, ext, pts, raw, err, arrival,
+    easing: easingString(pts, state.adaptive),
+    durationMs: Math.round(T * 1000),
+    regime: zeta < 0.999 ? "underdamped" : (zeta > 1.001 ? "overdamped" : "critical")
+  };
+  return derived;
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. The plot.
+ * ------------------------------------------------------------------------- */
+
+const cv = document.getElementById("plot");
+const ctx = cv.getContext("2d");
+
+function sizeCanvas() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = cv.clientWidth || 1160;
+  const h = state.preview ? (window.innerHeight || 300) : Math.round(w * 0.41);
+  cv.width = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.height = h + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w, h };
+}
+
+function curveFor(spring, T, n) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = T * i / n;
+    out.push({ t, x: response(t, spring.w0, spring.zeta, spring.v0) });
+  }
+  return out;
+}
+
+function drawFrame(w, h, pad, yMin, yMax, T, opts) {
+  const X = t => pad.l + (t / T) * (w - pad.l - pad.r);
+  const Y = x => pad.t + (1 - (x - yMin) / (yMax - yMin)) * (h - pad.t - pad.b);
+  ctx.fillStyle = "#0a0c0f";
+  ctx.fillRect(0, 0, w, h);
+  // horizontal grid
+  ctx.strokeStyle = "#1b222b";
+  ctx.lineWidth = 1;
+  ctx.font = "11px ui-monospace, monospace";
+  ctx.fillStyle = "#4a5563";
+  for (let g = Math.ceil(yMin * 4) / 4; g <= yMax + 1e-9; g += 0.25) {
+    const y = Math.round(Y(g)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+    if (!opts.bare) ctx.fillText(g.toFixed(2), 6, y + 4);
+  }
+  // vertical grid, one per tenth of the window
+  for (let i = 0; i <= 10; i++) {
+    const x = Math.round(X(T * i / 10)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, h - pad.b); ctx.stroke();
+    if (!opts.bare && i % 2 === 0) {
+      ctx.fillStyle = "#4a5563";
+      // the last label sits on the right edge and gets its tail clipped off
+      // unless it is pulled fully inside the plot
+      const label = (T * i / 10).toFixed(2) + "s";
+      ctx.fillText(label, i === 10 ? x - ctx.measureText(label).width - 2 : x - 12, h - pad.b + 15);
+    }
+  }
+  return { X, Y };
+}
+
+function paintCurve(X, Y, pts, colour, fillTop, yBase, opts) {
+  // filled area first, with a gradient so the plot reads as a shape and not a wire
+  const g = ctx.createLinearGradient(0, Y(fillTop), 0, Y(yBase));
+  g.addColorStop(0, colour + "44");
+  g.addColorStop(1, colour + "05");
+  ctx.beginPath();
+  ctx.moveTo(X(pts[0].t), Y(yBase));
+  for (const p of pts) ctx.lineTo(X(p.t), Y(p.x));
+  ctx.lineTo(X(pts[pts.length - 1].t), Y(yBase));
+  ctx.closePath();
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(X(p.t), Y(p.x)) : ctx.moveTo(X(p.t), Y(p.x)));
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = opts && opts.thin ? 1.6 : 2.4;
+  ctx.stroke();
+}
+
+function draw() {
+  const { w, h } = sizeCanvas();
+
+  if (state.preview) return drawPreview(w, h);
+
+  const d = derived;
+  const pad = { l: 46, r: 14, t: 14, b: 26 };
+  const curve = curveFor({ w0: d.w0, zeta: d.zeta, v0: state.v0 }, d.T, 1200);
+  const yMax = Math.max(1.08, d.ext.peak + 0.06);
+  const yMin = Math.min(-0.04, d.ext.min - 0.06);
+  const { X, Y } = drawFrame(w, h, pad, yMin, yMax, d.T, {});
+
+  // settle band
+  ctx.fillStyle = "#f2777a18";
+  ctx.fillRect(pad.l, Y(1 + d.tol), w - pad.l - pad.r, Y(1 - d.tol) - Y(1 + d.tol));
+
+  // target
+  ctx.strokeStyle = "#63707f";
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(pad.l, Y(1) + 0.5); ctx.lineTo(w - pad.r, Y(1) + 0.5); ctx.stroke();
+  ctx.setLineDash([]);
+
+  paintCurve(X, Y, curve, "#f0b429", yMax, Math.max(yMin, 0), {});
+
+  // the linear() the browser will actually run
+  ctx.beginPath();
+  d.pts.forEach((p, i) => {
+    const x = X(p.u * d.T), y = Y(p.v);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.strokeStyle = "#4fd1c5";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([4, 3]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  if (state.dots) {
+    ctx.fillStyle = "#4fd1c5";
+    for (const p of d.pts) {
+      ctx.beginPath();
+      ctx.arc(X(p.u * d.T), Y(p.v), d.pts.length > 90 ? 1.5 : 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // settle marker
+  ctx.strokeStyle = "#f2777a";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(X(d.T) - 0.5, pad.t); ctx.lineTo(X(d.T) - 0.5, h - pad.b);
+  ctx.stroke();
+
+  // overshoot marker
+  if (d.ext.peak > 1.0005) {
+    ctx.fillStyle = "#f0b429";
+    ctx.beginPath(); ctx.arc(X(d.ext.peakAt), Y(d.ext.peak), 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = "11px ui-monospace, monospace";
+    ctx.fillText(`+${((d.ext.peak - 1) * 100).toFixed(1)}%`,
+                 Math.min(X(d.ext.peakAt) + 7, w - pad.r - 40), Y(d.ext.peak) - 6);
+  }
+}
+
+/** Preview for the index card: three springs at once, no chrome, no labels. */
+function drawPreview(w, h) {
+  const trio = [
+    { k: 300, c: 12, col: "#f0b429" },
+    { k: 380, c: 32, col: "#4fd1c5" },
+    { k: 120, c: 20, col: "#a78bfa" }
+  ].map(s => {
+    const p = params(1, s.k, s.c);
+    return { ...s, ...p, v0: 0 };
+  });
+  const T = Math.max(...trio.map(s => settleTime(s.w0, s.zeta, 0, 0.005)));
+  const peaks = trio.map(s => extremes(s.w0, s.zeta, 0, T).peak);
+  const pad = { l: 8, r: 8, t: 10, b: 10 };
+  const yMax = Math.max(1.1, Math.max(...peaks) + 0.05), yMin = -0.03;
+  const { X, Y } = drawFrame(w, h, pad, yMin, yMax, T, { bare: true });
+  ctx.fillStyle = "#f2777a18";
+  ctx.fillRect(pad.l, Y(1.005), w - pad.l - pad.r, Y(0.995) - Y(1.005));
+  ctx.strokeStyle = "#63707f";
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(pad.l, Y(1) + 0.5); ctx.lineTo(w - pad.r, Y(1) + 0.5); ctx.stroke();
+  ctx.setLineDash([]);
+  for (const s of trio) paintCurve(X, Y, curveFor(s, T, 700), s.col, yMax, 0, { thin: true });
+  window.__previewReady = true;
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. The demo lanes: the browser's own engine, driven by the emitted string.
+ * ------------------------------------------------------------------------- */
+
+const lanes = {
+  move: document.getElementById("chip-move"),
+  race: document.getElementById("chip-race"),
+  ease: document.getElementById("chip-ease"),
+  pops: [document.getElementById("pop-1"), document.getElementById("pop-2"),
+         document.getElementById("pop-3")]
+};
+let running = [];
+
+/* Scale the distance by the overshoot, so a bouncy spring PEAKS at the right
+ * edge instead of sailing past it. The overshoot is the thing worth looking at;
+ * an animation whose interesting part happens off screen is not a demo. */
+function travel(el) {
+  const track = el.parentElement;
+  const peak = Math.max(1, derived ? derived.ext.peak : 1);
+  return Math.max(40, (track.clientWidth - el.offsetWidth) / peak);
+}
+
+function replay() {
+  running.forEach(a => { try { a.cancel(); } catch (e) {} });
+  running = [];
+  const { easing, durationMs } = derived;
+  const opts = { duration: durationMs, easing, fill: "forwards" };
+  const slide = el => el.animate(
+    [{ transform: "translateX(0px)" }, { transform: `translateX(${travel(el)}px)` }], opts);
+  running.push(slide(lanes.move));
+  running.push(slide(lanes.race));
+  running.push(lanes.ease.animate(
+    [{ transform: "translateX(0px)" }, { transform: `translateX(${travel(lanes.ease)}px)` }],
+    { duration: durationMs, easing: "ease-out", fill: "forwards" }));
+  lanes.pops.forEach((el, i) => {
+    running.push(el.animate(
+      [{ transform: "scale(0.2)", opacity: 0.15 }, { transform: "scale(1)", opacity: 1 }],
+      { duration: durationMs, easing, fill: "forwards", delay: i * Math.round(durationMs * 0.12) }));
+  });
+  document.getElementById("lab-move").textContent = durationMs + " ms";
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Wiring.
+ * ------------------------------------------------------------------------- */
+
+const $ = id => document.getElementById(id);
+const fmt = (v, n) => v.toFixed(n);
+
+function syncControlsFromState() {
+  const { w0, zeta } = params(state.m, state.k, state.c);
+  $("s-period").value = String(Math.round(Math.max(80, Math.min(2000, 2000 * Math.PI / w0 / 2))));
+  $("s-zeta").value = String(Math.round(Math.max(0, Math.min(2000, zeta * 1000))));
+  $("s-mass").value = String(Math.round(state.m * 1000));
+  $("s-stiff").value = String(Math.round(Math.max(100, Math.min(3000, state.k))));
+  $("s-damp").value = String(Math.round(Math.max(0, Math.min(3000, state.c * 10))));
+  $("s-vel").value = String(Math.round(state.v0 * 50));
+  $("s-stops").value = String(state.stops);
+  $("s-tol").value = String(Math.round(state.tolPct * 10));
+  $("c-adaptive").checked = state.adaptive;
+  $("c-dots").checked = state.dots;
+}
+
+function readFeelPane() {
+  const periodS = Number($("s-period").value) / 1000;
+  const zeta = Number($("s-zeta").value) / 1000;
+  const w0 = 2 * Math.PI / periodS;
+  state.k = state.m * w0 * w0;
+  state.c = 2 * zeta * state.m * w0;
+}
+
+function readPhysPane() {
+  state.m = Number($("s-mass").value) / 1000;
+  state.k = Number($("s-stiff").value);
+  state.c = Number($("s-damp").value) / 10;
+}
+
+function render() {
+  const d = recompute();
+  const { w0, zeta } = d;
+
+  $("v-period").textContent = fmt(2 * Math.PI / w0, 3) + " s";
+  $("v-zeta").textContent = fmt(zeta, 3);
+  $("v-mass").textContent = fmt(state.m, 2);
+  $("v-stiff").textContent = fmt(state.k, 0);
+  $("v-damp").textContent = fmt(state.c, 1);
+  $("v-vel").textContent = fmt(state.v0, 2);
+  $("v-stops").textContent = String(d.pts.length);
+  $("v-tol").textContent = fmt(state.tolPct, 1) + "%";
+
+  $("r-regime").textContent = d.regime;
+  $("r-zeta").textContent = fmt(zeta, 3);
+  const over = (d.ext.peak - 1) * 100;
+  const rOver = $("r-over");
+  rOver.textContent = over > 0.05 ? "+" + fmt(over, 1) + "%" : "none";
+  rOver.className = "v" + (over > 0.05 ? " warn" : " good");
+  $("r-settle").textContent = d.durationMs + " ms";
+  $("r-stops").textContent = String(d.pts.length) + (state.adaptive ? " adaptive" : " even");
+  const rErr = $("r-err");
+  rErr.textContent = (d.err.worst * 100).toFixed(3) + "%";
+  rErr.className = "v" + (d.err.worst < 0.005 ? " good" : " warn");
+
+  $("cap").textContent =
+    `${d.regime} at zeta ${fmt(zeta, 3)}, natural period ${fmt(2 * Math.PI / w0, 3)} s, ` +
+    `crosses the target ${d.ext.crossings} time${d.ext.crossings === 1 ? "" : "s"}, ` +
+    `settles inside ${fmt(state.tolPct, 1)}% after ${d.durationMs} ms. The ` +
+    `${d.pts.length} stop ${state.adaptive ? "adaptive" : "even"} linear() traces the curve to ` +
+    `${(d.err.worst * 100).toFixed(3)}% of full travel, and then the pinned last stop reaches ` +
+    `the final ${(d.arrival * 100).toFixed(3)}% in a straight line, because an easing that ` +
+    `stops short leaves the element short. More stops shrink the first number and never the ` +
+    `second; a tighter settle threshold shrinks the second and costs you duration.`;
+
+  $("out").textContent =
+    `/* spring: mass ${fmt(state.m, 2)}, stiffness ${fmt(state.k, 0)}, damping ${fmt(state.c, 1)} */\n` +
+    `/* zeta ${fmt(zeta, 3)} (${d.regime}), overshoot ${over > 0.05 ? "+" + fmt(over, 1) + "%" : "none"} */\n` +
+    `transition-duration: ${d.durationMs}ms;\n` +
+    `transition-timing-function: ${d.easing};`;
+
+  draw();
+  window.__springState = { ...state, ...d };
+}
+
+let replayTimer = null;
+function update(opts) {
+  render();
+  if (state.preview) return;
+  if (!opts || opts.replay !== false) {
+    clearTimeout(replayTimer);
+    replayTimer = setTimeout(replay, 90);
+  }
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  for (const b of document.querySelectorAll("#mode button"))
+    b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+  $("pane-feel").hidden = mode !== "feel";
+  $("pane-phys").hidden = mode === "feel";
+  syncControlsFromState();
+}
+
+function loadPreset(i) {
+  const p = PRESETS[i];
+  state.m = p.m; state.k = p.k; state.c = p.c; state.v0 = p.v0;
+  state.preset = i;
+  for (const b of document.querySelectorAll("#presets button"))
+    b.setAttribute("aria-pressed", String(Number(b.dataset.i) === i));
+  syncControlsFromState();
+  update();
+}
+
+// presets
+PRESETS.forEach((p, i) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = p.name;
+  b.dataset.i = String(i);
+  b.setAttribute("aria-pressed", String(i === 0));
+  b.addEventListener("click", () => loadPreset(i));
+  $("presets").appendChild(b);
+});
+
+for (const b of document.querySelectorAll("#mode button"))
+  b.addEventListener("click", () => setMode(b.dataset.mode));
+
+const clearPreset = () => {
+  state.preset = -1;
+  for (const b of document.querySelectorAll("#presets button")) b.setAttribute("aria-pressed", "false");
+};
+
+["s-period", "s-zeta"].forEach(id => $(id).addEventListener("input", () => {
+  readFeelPane(); clearPreset(); syncControlsFromState(); update();
+}));
+["s-mass", "s-stiff", "s-damp"].forEach(id => $(id).addEventListener("input", () => {
+  readPhysPane(); clearPreset(); syncControlsFromState(); update();
+}));
+$("s-vel").addEventListener("input", () => {
+  state.v0 = Number($("s-vel").value) / 50; clearPreset(); update();
+});
+$("s-stops").addEventListener("input", () => {
+  state.stops = Number($("s-stops").value); update({ replay: false });
+});
+$("s-tol").addEventListener("input", () => {
+  state.tolPct = Number($("s-tol").value) / 10; update();
+});
+$("c-adaptive").addEventListener("change", () => {
+  state.adaptive = $("c-adaptive").checked; update({ replay: false });
+});
+$("c-dots").addEventListener("change", () => {
+  state.dots = $("c-dots").checked; update({ replay: false });
+});
+$("replay").addEventListener("click", replay);
+
+function flash(msg) {
+  $("copied").textContent = msg;
+  setTimeout(() => { $("copied").textContent = ""; }, 1800);
+}
+async function copyText(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    flash(label + " copied");
+  } catch (e) {
+    // file:// without a clipboard permission is normal, so say what to do instead
+    const r = document.createRange();
+    r.selectNodeContents($("out"));
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+    flash("selected, press copy");
+  }
+}
+$("copy").addEventListener("click", () => copyText($("out").textContent, "CSS"));
+$("copy-js").addEventListener("click", () => copyText(
+  `el.animate(keyframes, {\n  duration: ${derived.durationMs},\n  easing: "${derived.easing}",\n  fill: "forwards"\n});`,
+  "JS"));
+
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.key !== " ") return;
+  if (e.key === " ") { e.preventDefault(); replay(); }
+  const n = Number(e.key);
+  if (n >= 1 && n <= PRESETS.length) loadPreset(n - 1);
+});
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  // cancel first: a finished fill:forwards animation holds its final transform,
+  // which is a distance measured against the OLD width
+  running.forEach(a => { try { a.cancel(); } catch (e) {} });
+  running = [];
+  resizeTimer = setTimeout(() => { draw(); if (!state.preview) replay(); }, 120);
+});
+
+/* Preview mode for the index card. */
+const q = new URLSearchParams(location.search);
+if (q.get("preview") !== null) {
+  state.preview = true;
+  document.documentElement.classList.add("preview");
+}
+if (q.get("stops")) state.stops = Math.max(4, Math.min(200, Number(q.get("stops"))));
+if (q.get("preset")) {
+  const i = PRESETS.findIndex(p => p.name.toLowerCase() === String(q.get("preset")).toLowerCase());
+  if (i >= 0) { const p = PRESETS[i]; state.m = p.m; state.k = p.k; state.c = p.c; state.v0 = p.v0; }
+}
+
+/* The checker needs the maths, not the pixels. Everything it asserts against is
+ * exported here so the suite can call the same functions the page runs, and
+ * compare them with RK4 and with the browser, neither of which this file
+ * contains. */
+window.__spring = {
+  params, response, velocity, settleTime, extremes,
+  evenStops, adaptiveStops, clampEnds, easingString, evalStops, worstError,
+  recompute, PRESETS, state, get derived() { return derived; }
+};
+
+setMode("feel");
+loadPreset(0);
+if (state.preview) { render(); }
+</script>
+</body>
+</html>

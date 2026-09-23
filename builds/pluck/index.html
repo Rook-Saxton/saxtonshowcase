@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluck, a Karplus-Strong string lab</title>
+<!--
+  PLUCK, a Karplus-Strong string lab.
+  Built 2026-08-24 for playground/. Self-contained, offline, no dependencies.
+
+  WHAT IT DOES
+  A playable six string instrument where every note is synthesised by one short loop:
+  a ring buffer of samples, a filter, and a feedback path. Click the fretboard, play the
+  computer keyboard, or strum a chord. The big canvas shows the delay line itself while the
+  note is sounding, so you can watch a burst of noise turn into a decaying sine. The lower
+  canvas shows the spectrum of the note that just sounded, with the harmonics marked and the
+  ones the pick position cancels called out before you hear them.
+
+  WHAT I LEARNED BUILDING IT
+  1. The naive algorithm cannot play in tune, and that is the interesting part. A delay line
+     holds a whole number of samples, so a plain Karplus-Strong string can only produce
+     sample_rate / N hertz. At 44100 Hz the available pitches near the top of a guitar neck
+     are tens of cents apart, which is audibly wrong. The fix is a first order allpass filter
+     in the loop, tuned to supply the leftover fraction of a sample. Its coefficient has a
+     closed form: a = sin((1-d)w/2) / sin((1+d)w/2) for a phase delay of d samples at
+     frequency w. Flip the tuning switch in the app and the cents error readout goes from
+     tens of cents to zero.
+  2. The loop filter is not free. The one zero averaging filter that makes the note decay is
+     also part of the delay, contributing its own phase delay, so it has to be measured and
+     subtracted before the integer and fractional parts are split. Forget that and every note
+     is flat by a predictable amount.
+  3. A delay line is a bucket brigade, and I got the decay arithmetic wrong because I forgot
+     that. A loop gain applied inside the per sample loop is NOT applied once per elapsed
+     sample: any given sample is touched once per trip around the buffer, so the gain lands
+     f0 times a second, not 44100 times a second. My first decay control was therefore out by
+     a factor of the delay length, and both the code and my closed form agreed with each
+     other because both had the same wrong model in them. Only measuring the actual decay
+     envelope of the actual audio caught it.
+  4. Setting a filter coefficient to zero is not the same as switching the filter off. The
+     first order allpass with a = 0 collapses to plain z^-1, so my "no fractional tuning"
+     comparison mode was silently adding a whole extra sample to the loop. It read 32 cents
+     flat where rounding alone allows 11, and the on screen readout said 9, because it was
+     reporting what the design intended rather than what the loop did. It needed a real
+     bypass. Both of these were caught by writing down a numeric prediction first and having
+     the measurement blow through it.
+  5. Pick position is cleanest as a comb on the OUTPUT, not as a shaped initial condition.
+     Combing the initial delay line contents is the more physical story, but the null then
+     has to land on a harmonic of the LOOP period while the buffer it was built in is a
+     slightly different length, and the mismatch left the notch only 13 dB deep instead of
+     50. Jaffe and Smith's output comb, with a proper fractional delay, gets 43 to 57 dB.
+  6. Sign randomisation turns the same code into a drum. Flipping the sign of the fed back
+     sample with some probability destroys the periodicity that makes a pitch, and what is
+     left is a struck membrane. One line, completely different instrument.
+
+  WHY I BUILT IT
+  Because I could recite what Karplus-Strong is and could not have written one that plays in
+  tune, and the gap between those two things is exactly where the learning was. Audio is also
+  the one lane where an error is instantly obvious to a listener and invisible in the code.
+
+  HOW IT IS CHECKED
+  ../_verify/check_pluck.js estimates the pitch of the rendered audio two independent ways
+  (autocorrelation and a discrete Fourier transform), measures the decay envelope, and
+  confirms the pick position notches land on the harmonics that theory says they should,
+  none of which reuses the synthesiser's own numbers. ../_verify/check_pluck_ui.js drives the
+  real interface with real clicks and keystrokes. Receipts in ../_verify/RESULTS.md.
+-->
+<style>
+  :root {
+    --bg: #0e1013;
+    --panel: #161a20;
+    --panel-2: #1d232b;
+    --line: #2a323d;
+    --ink: #e6e9ee;
+    --ink-dim: #93a0b0;
+    --ink-faint: #63707f;
+    --amber: #f0b429;
+    --amber-dim: #8a6a1c;
+    --copper: #d98b52;
+    --teal: #4fd1c5;
+    --rose: #f2777a;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    padding: 22px clamp(12px, 3vw, 34px) 60px;
+    -webkit-font-smoothing: antialiased;
+  }
+  header { max-width: 1180px; margin: 0 auto 20px; }
+  h1 {
+    font-size: 26px; margin: 0 0 4px; letter-spacing: .14em;
+    font-weight: 700; text-transform: uppercase;
+  }
+  h1 .dot { color: var(--amber); }
+  header p { margin: 0; color: var(--ink-dim); max-width: 74ch; font-size: 14px; }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 16px;
+          grid-template-columns: minmax(0, 1fr) 292px; align-items: start; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px;
+  }
+  .card h2 {
+    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 0 0 10px; font-weight: 600;
+  }
+  canvas { display: block; width: 100%; border-radius: 6px; background: #0a0c0f; }
+  .cap { font-size: 12px; color: var(--ink-faint); margin: 8px 2px 0; }
+
+  /* readout strip */
+  .readout {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1px; background: var(--line); border: 1px solid var(--line);
+    border-radius: 8px; overflow: hidden; margin-top: 12px;
+  }
+  @media (max-width: 620px) { .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .readout div { background: var(--panel-2); padding: 7px 9px; }
+  .readout .k { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+  .readout .v { font-family: var(--mono); font-size: 14px; color: var(--ink); margin-top: 1px; }
+  .readout .v.warn { color: var(--rose); }
+  .readout .v.good { color: var(--teal); }
+
+  /* controls */
+  .ctl { margin-bottom: 13px; }
+  .ctl label { display: flex; justify-content: space-between; align-items: baseline;
+                font-size: 12px; color: var(--ink-dim); margin-bottom: 5px; }
+  .ctl label b { font-family: var(--mono); font-weight: 500; color: var(--ink); font-size: 12px; }
+  input[type=range] { width: 100%; margin: 0; accent-color: var(--amber); height: 18px; }
+  select, button { font-family: inherit; font-size: 13px; }
+  select {
+    width: 100%; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+  }
+  .seg { display: flex; gap: 6px; }
+  .seg button {
+    flex: 1; background: var(--panel-2); color: var(--ink-dim);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 4px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--amber); color: #17130a; border-color: var(--amber); font-weight: 600; }
+  .seg button:hover:not([aria-pressed="true"]) { color: var(--ink); border-color: var(--ink-faint); }
+
+  /* fretboard */
+  .board { max-width: 1180px; margin: 16px auto 0; }
+  .fb { display: grid; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
+  .fbrow { display: grid; grid-template-columns: 34px repeat(13, minmax(38px, 1fr)); gap: 3px; }
+  .fbrow .nut { display: flex; align-items: center; justify-content: center;
+                font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+  .fret {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px;
+    color: var(--ink-dim); font-family: var(--mono); font-size: 11px;
+    padding: 9px 2px; cursor: pointer; text-align: center; transition: background .06s, color .06s;
+  }
+  .fret:hover { border-color: var(--amber-dim); color: var(--ink); }
+  .fret.lit { background: var(--amber); color: #17130a; border-color: var(--amber); }
+  .fret.open { border-color: #3b4552; }
+  .fretnums { display: grid; grid-template-columns: 34px repeat(13, minmax(38px, 1fr));
+              gap: 3px; margin-bottom: 5px; }
+  .fretnums span { text-align: center; font-size: 10px; color: var(--ink-faint); font-family: var(--mono); }
+
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  .chord {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
+    border-radius: 6px; padding: 8px 14px; cursor: pointer; font-family: var(--mono); font-size: 13px;
+  }
+  .chord:hover { border-color: var(--copper); color: var(--copper); }
+  .chord.primary { background: var(--copper); border-color: var(--copper); color: #1a0f07; font-weight: 600; }
+  .hint { color: var(--ink-faint); font-size: 12px; margin-left: 4px; }
+
+  details { margin-top: 16px; max-width: 1180px; margin-left: auto; margin-right: auto; }
+  details > summary {
+    cursor: pointer; color: var(--ink-dim); font-size: 12px; letter-spacing: .14em;
+    text-transform: uppercase; padding: 10px 0; list-style: none;
+  }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before { content: "+ "; color: var(--amber); }
+  details[open] > summary::before { content: "- "; }
+  .explain { color: var(--ink-dim); font-size: 14px; max-width: 78ch; }
+  .explain p { margin: 0 0 12px; }
+  .explain b { color: var(--ink); font-weight: 600; }
+  .explain code { font-family: var(--mono); font-size: 13px; color: var(--amber); }
+  .explain svg { max-width: 100%; height: auto; margin: 6px 0 16px; }
+  #warn { color: var(--rose); font-size: 13px; margin-top: 10px; min-height: 1em; }
+
+  /* Preview mode, for the playground index card: index.html?preview=1&note=50&frame=6
+     Chrome off, both canvases only, animation frozen on a named frame so the thumbnail is
+     the same picture every time it is generated. */
+  html.preview, html.preview body { background: var(--bg); overflow: hidden; }
+  html.preview body { padding: 0; }
+  html.preview header,
+  html.preview .board,
+  html.preview details,
+  html.preview .cap,
+  html.preview .readout,
+  html.preview .card h2,
+  html.preview .wrap > .card:last-child { display: none; }
+  html.preview .wrap { display: block; max-width: none; gap: 0; }
+  html.preview .card { border: 0; border-radius: 0; padding: 0; background: var(--bg); margin: 0 !important; }
+  html.preview canvas { border-radius: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pluck<span class="dot">.</span></h1>
+  <p>A string is a ring buffer, a filter and a feedback path. Play the fretboard below, or press
+     the keys, and watch that ring buffer while it sounds. Every note here is one loop of about
+     ten lines of arithmetic.</p>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="card">
+      <h2>The delay line, while it rings</h2>
+      <canvas id="string" height="260"></canvas>
+      <p class="cap">This is the loop buffer itself, drawn from the read head so the wave holds
+        still instead of scrolling past. Watch the pluck start as a jagged burst and get rounded
+        off a little more on every trip around, until only the fundamental is left. The height is
+        auto gained so the shape stays readable as the note fades; the teal meter along the bottom
+        and the figure beside it are the real level, in dB below where the note started.</p>
+
+      <div class="readout" id="readout"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Spectrum of the last note</h2>
+      <canvas id="spec" height="220"></canvas>
+      <p class="cap" id="speccap">Vertical ticks are the harmonics. Ones drawn in red are the
+        harmonics the pick position cancels, predicted before the note was rendered.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Controls</h2>
+
+    <div class="ctl">
+      <label for="exc">Excitation</label>
+      <select id="exc">
+        <option value="noise">Noise, the classic</option>
+        <option value="impulse">Single impulse</option>
+        <option value="saw">Sawtooth</option>
+        <option value="square">Square</option>
+        <option value="triangle">Triangle</option>
+      </select>
+    </div>
+
+    <div class="ctl">
+      <label for="bright">Brightness <b id="brightv"></b></label>
+      <input type="range" id="bright" min="0.02" max="0.5" step="0.005" value="0.5">
+    </div>
+
+    <div class="ctl">
+      <label for="decay">Decay, T60 <b id="decayv"></b></label>
+      <input type="range" id="decay" min="0.3" max="12" step="0.1" value="4">
+    </div>
+
+    <div class="ctl">
+      <label for="pick">Pick position <b id="pickv"></b></label>
+      <input type="range" id="pick" min="0" max="0.5" step="0.005" value="0.125">
+    </div>
+
+    <div class="ctl">
+      <label for="blend">Sign coherence <b id="blendv"></b></label>
+      <input type="range" id="blend" min="0.5" max="1" step="0.005" value="1">
+    </div>
+
+    <div class="ctl">
+      <label>Loop tuning</label>
+      <div class="seg" id="tuneseg">
+        <button data-tune="allpass" aria-pressed="true">Allpass</button>
+        <button data-tune="integer" aria-pressed="false">Integer</button>
+      </div>
+    </div>
+
+    <div class="ctl">
+      <label>Body resonance</label>
+      <div class="seg" id="bodyseg">
+        <button data-body="off" aria-pressed="true">Off</button>
+        <button data-body="on" aria-pressed="false">On</button>
+      </div>
+    </div>
+
+    <div class="ctl">
+      <label for="vol">Volume <b id="volv"></b></label>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="0.7">
+    </div>
+
+    <div class="row" style="margin-top:4px">
+      <button class="chord primary" id="presetReset">Reset knobs</button>
+    </div>
+    <div id="warn"></div>
+  </div>
+</div>
+
+<div class="board card" style="margin-top:16px">
+  <h2>Fretboard, standard tuning</h2>
+  <div class="fb" id="fb"></div>
+  <div class="row">
+    <button class="chord primary" data-chord="Em">Em</button>
+    <button class="chord primary" data-chord="G">G</button>
+    <button class="chord primary" data-chord="C">C</button>
+    <button class="chord primary" data-chord="D">D</button>
+    <button class="chord primary" data-chord="Am">Am</button>
+    <button class="chord" data-chord="open">Open strings</button>
+    <span class="hint">Keys: <b>Z X C V B N</b> pluck the six open strings low to high.
+      <b>1</b> to <b>9</b> set the fret those keys play. <b>Space</b> strums the last chord.</span>
+  </div>
+</div>
+
+<details>
+  <summary>What is actually happening</summary>
+  <div class="explain">
+    <svg viewBox="0 0 760 168" role="img" aria-label="Signal flow of the Karplus-Strong loop">
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L7,3 L0,6 z" fill="#93a0b0"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="#93a0b0" stroke-width="1.4" marker-end="url(#ar)">
+        <path d="M60,52 L128,52"/>
+        <path d="M244,52 L302,52"/>
+        <path d="M418,52 L470,52"/>
+        <path d="M586,52 L664,52"/>
+        <path d="M626,52 L626,118 L186,118 L186,66"/>
+      </g>
+      <g font-family="ui-monospace, monospace" font-size="12" fill="#e6e9ee">
+        <rect x="128" y="30" width="116" height="44" rx="6" fill="#1d232b" stroke="#2a323d"/>
+        <text x="186" y="49" text-anchor="middle">delay N</text>
+        <text x="186" y="64" text-anchor="middle" fill="#63707f">ring buffer</text>
+
+        <rect x="302" y="30" width="116" height="44" rx="6" fill="#1d232b" stroke="#2a323d"/>
+        <text x="360" y="49" text-anchor="middle">one zero</text>
+        <text x="360" y="64" text-anchor="middle" fill="#63707f">brightness</text>
+
+        <rect x="470" y="30" width="116" height="44" rx="6" fill="#1d232b" stroke="#2a323d"/>
+        <text x="528" y="49" text-anchor="middle">allpass a</text>
+        <text x="528" y="64" text-anchor="middle" fill="#63707f">the fraction</text>
+
+        <text x="4" y="49" fill="#f0b429">pluck</text>
+        <text x="672" y="49" fill="#f0b429">out</text>
+        <text x="392" y="134" fill="#63707f">feedback, gain g</text>
+      </g>
+    </svg>
+
+    <p><b>The loop.</b> Fill a buffer of <code>N</code> samples with something noisy. Then read it
+      out one sample at a time, and every time you read one, put a filtered copy of it back at the
+      other end. The buffer contents come round again every <code>N</code> samples, so the output
+      repeats at <code>sample rate / N</code> hertz, which is the pitch. The filter shaves a little
+      off the high frequencies on every pass, so the jagged noise smooths into a sine and fades out.
+      That is the whole algorithm, and it was published in 1983.</p>
+
+    <p><b>Why the allpass is there.</b> <code>N</code> is a whole number, so a plain loop can only
+      make the pitches <code>44100 / N</code>. Around the top of the neck those land tens of cents
+      apart, which is out of tune by any standard. The first order allpass filter has flat gain and
+      a phase delay you can dial in, so it supplies the leftover fraction of a sample. Its
+      coefficient is exact rather than approximate:
+      <code>a = sin((1-d)w/2) / sin((1+d)w/2)</code> gives a phase delay of <code>d</code> samples
+      at angular frequency <code>w</code>. Switch the tuning control to Integer and read the cents
+      error above to see what it is worth.</p>
+
+    <p><b>Why the loop filter has to be measured.</b> The one zero filter contributes its own phase
+      delay to the loop, so the delay you need from the buffer is not <code>44100 / f</code>, it is
+      that minus whatever the filter is already supplying. The readout shows all three parts adding
+      up: <code>N</code> whole samples, <code>d</code> from the allpass, and the filter's share.</p>
+
+    <p><b>Pick position.</b> Plucking a real string a fraction <code>p</code> of the way along it
+      cannot excite any harmonic that has a node at that point, so those harmonics go missing.
+      The model here is a comb: subtract the signal from a copy of itself delayed by
+      <code>p</code> times the loop period, which cancels every harmonic that is a multiple of
+      <code>1/p</code>. Set pick position to 0.5 and the whole even harmonic series disappears,
+      which is why plucking a guitar over the twelfth fret sounds hollow and flute like. Two
+      details matter more than they look. The delay is a fraction of a sample and is
+      interpolated, because rounding it to a whole sample drags the null off the harmonic it is
+      aiming at. And it is a fraction of the LOOP period rather than of the buffer length, which
+      differ by up to a sample and a half: combing against the buffer instead left the null
+      13 dB deep here, where doing it properly reaches 43 to 57 dB.</p>
+
+    <p><b>Decay, and the bucket brigade.</b> The loop gain sits inside a per sample loop, which
+      makes it look like a per sample control. It is not. A delay line is a bucket brigade, so
+      any one sample is multiplied by that gain once per trip around the buffer, and there are
+      only <code>f0</code> trips a second. Getting that backwards puts the decay out by a factor
+      of the delay length. The loop filter also takes its own bite on every trip, so the gain
+      here has the filter's loss at the fundamental divided back out. That is why moving
+      Brightness changes the tone of the note without changing how long it lasts, which is not
+      what the classic algorithm does and is the point of having two knobs.</p>
+
+    <p><b>Sign coherence.</b> Drop it below 1 and the fed back sample gets its sign flipped at
+      random. Periodicity is what makes a pitch, so destroying it turns the string into a drum
+      without changing a single other thing. At 0.5 it is pure noise burst percussion.</p>
+
+    <p><b>Honest limits.</b> The delay line is drawn as the string, and it is really the travelling
+      wave state of the loop, not a physical displacement, though the shape of the decay is the
+      real thing. The body resonance is three fixed resonators and is not modelled on any
+      instrument. Everything renders offline before it plays, so the knobs affect the next note,
+      not the one currently sounding, which is also true of a real pluck.</p>
+  </div>
+</details>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * 1. The synthesiser. Pure functions, no audio objects, no DOM.
+ *    Everything below is deterministic given a seed.
+ * ------------------------------------------------------------------ */
+
+var SR = 44100;
+var SNAP_EVERY = 512;   // samples between delay-line snapshots for the animation
+var SNAP_W = 256;       // points per snapshot
+
+function midiToFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+
+function cents(actual, target) { return 1200 * Math.log(actual / target) / Math.LN2; }
+
+// mulberry32, so a pluck is reproducible from a seed
+function rngFrom(seed) {
+  var t = seed >>> 0;
+  return function () {
+    t += 0x6D2B79F5;
+    var r = t;
+    r = Math.imul(r ^ (r >>> 15), r | 1);
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// One zero loop filter  H(z) = (1-S) + S z^-1 .  Returns gain and phase delay at w.
+function loopFilterAt(S, w) {
+  var re = (1 - S) + S * Math.cos(w);
+  var im = -S * Math.sin(w);
+  var mag = Math.sqrt(re * re + im * im);
+  var phase = Math.atan2(im, re);          // negative for S > 0
+  return { mag: mag, phaseDelay: -phase / w };
+}
+
+// First order allpass  H(z) = (a + z^-1) / (1 + a z^-1) .
+// Exact coefficient for a phase delay of d samples at w.
+function allpassCoef(d, w) {
+  return Math.sin((1 - d) * w * 0.5) / Math.sin((1 + d) * w * 0.5);
+}
+
+// Split the required loop delay into whole samples, allpass fraction, and the
+// share the loop filter is already contributing.
+function designLoop(f0, sr, S, tuning) {
+  var w = 2 * Math.PI * f0 / sr;
+  var L = sr / f0;                          // total loop delay the pitch demands
+  var lf = loopFilterAt(S, w);
+  var rem = L - lf.phaseDelay;
+  var N, d, a;
+  // Whether the allpass section runs at all. Setting its coefficient to zero does NOT
+  // switch it off: H(z) with a = 0 is plain z^-1, so the loop quietly gains a whole extra
+  // sample of delay. That mistake made integer mode read 32 cents flat where rounding alone
+  // allows 11, and the readout still said 9, because the design and the loop disagreed.
+  var useAllpass = tuning !== "integer";
+
+  if (tuning === "integer") {
+    N = Math.max(2, Math.round(rem));
+    d = 0;
+    a = 0;
+  } else {
+    N = Math.floor(rem);
+    d = rem - N;
+    if (d < 0.1) { N -= 1; d += 1; }        // keep the allpass out of its inaccurate corner
+    if (N < 2) { N = 2; d = Math.max(0.1, Math.min(0.999, rem - 2)); }
+    a = allpassCoef(d, w);
+  }
+
+  var actualDelay = N + d + lf.phaseDelay;
+  var actualF = sr / actualDelay;
+  return {
+    N: N, d: d, a: a, w: w, useAllpass: useAllpass,
+    wanted: L,
+    filterDelay: lf.phaseDelay,
+    filterGain: lf.mag,
+    actualF: actualF,
+    centsErr: cents(actualF, f0)
+  };
+}
+
+// A delay line is a bucket brigade: any one sample is multiplied by the loop gain ONCE
+// per trip around the buffer, not once per elapsed sample. So g is a per-trip figure, and
+// there are f0 trips per second. The loop filter takes its own bite out of every trip too.
+function predictT60(g, design, f0) {
+  var perTrip = g * design.filterGain;
+  if (perTrip >= 1) return Infinity;
+  var tripsTo60dB = -3 / (Math.log(perTrip) / Math.LN10);
+  return tripsTo60dB / f0;
+}
+
+// The per-trip gain that lands the fundamental on a wanted T60, with the loop filter's own
+// loss at the fundamental divided back out so the two controls move independently. The
+// filter's magnitude never exceeds 1 anywhere, so dividing by it cannot make the loop
+// unstable, and the clamp is belt and braces.
+function gainForT60(t60, f0, filterGain) {
+  var perTrip = Math.pow(10, -3 / (t60 * f0));
+  return Math.min(0.99999, perTrip / filterGain);
+}
+
+// Fractional delay by four point Lagrange interpolation, accurate enough that the pick
+// position comb below actually reaches its null instead of stopping 20 dB short.
+function lagrangeDelay(x, D) {
+  var I = Math.floor(D) - 1;
+  var dd = D - I;                                   // lands in [1, 2), the accurate window
+  var h0 = (dd - 1) * (dd - 2) * (dd - 3) / -6;
+  var h1 = dd * (dd - 2) * (dd - 3) / 2;
+  var h2 = dd * (dd - 1) * (dd - 3) / -2;
+  var h3 = dd * (dd - 1) * (dd - 2) / 6;
+  var y = new Float32Array(x.length);
+  for (var n = I + 3; n < x.length; n++) {
+    y[n] = h0 * x[n - I] + h1 * x[n - I - 1] + h2 * x[n - I - 2] + h3 * x[n - I - 3];
+  }
+  return y;
+}
+
+function makeExcitation(N, opts, rnd) {
+  var e = new Float32Array(N), i;
+  switch (opts.excitation) {
+    case "impulse":
+      e[0] = 1; e[1] = 0.6; e[2] = 0.25;
+      break;
+    case "saw":
+      for (i = 0; i < N; i++) e[i] = 2 * (i / N) - 1;
+      break;
+    case "square":
+      for (i = 0; i < N; i++) e[i] = i < N / 2 ? 1 : -1;
+      break;
+    case "triangle":
+      for (i = 0; i < N; i++) { var u = i / N; e[i] = u < 0.5 ? 4 * u - 1 : 3 - 4 * u; }
+      break;
+    default: // noise
+      for (i = 0; i < N; i++) e[i] = rnd() * 2 - 1;
+  }
+
+  // Remove DC, then normalise to unit peak.
+  var mean = 0;
+  for (i = 0; i < N; i++) mean += e[i];
+  mean /= N;
+  var peak = 0;
+  for (i = 0; i < N; i++) { e[i] -= mean; if (Math.abs(e[i]) > peak) peak = Math.abs(e[i]); }
+  if (peak > 0) for (i = 0; i < N; i++) e[i] /= peak;
+  return e;
+}
+
+// Which harmonics does this pick position cancel?
+function notchedHarmonics(pickPos, loopPeriod, limit) {
+  var out = [];
+  if (pickPos <= 0 || pickPos * loopPeriod < 2 || pickPos >= 1) return out;
+  var spacing = 1 / pickPos;                 // first notch, in harmonic number
+  for (var m = 1; ; m++) {
+    var h = spacing * m;
+    if (h > limit) break;
+    if (Math.abs(h - Math.round(h)) < 0.02 && Math.round(h) >= 2) out.push(Math.round(h));
+  }
+  return out;
+}
+
+/**
+ * Render one pluck.
+ * opts: { f0, seconds, excitation, S (brightness), t60, pickPos, blend,
+ *         tuning: "allpass"|"integer", seed, sampleRate }
+ * Returns { audio: Float32Array, design, g, snaps: [Float32Array], snapEvery }
+ */
+function renderPluck(opts) {
+  var sr = opts.sampleRate || SR;
+  var S = opts.S;
+  var design = designLoop(opts.f0, sr, S, opts.tuning || "allpass");
+  var N = design.N;
+  var a = design.a;
+  var useAP = design.useAllpass;
+  var g = gainForT60(opts.t60, opts.f0, design.filterGain);   // per round trip
+  var rnd = rngFrom(opts.seed === undefined ? 1 : opts.seed);
+  var line = makeExcitation(N, opts, rnd);
+
+  var len = Math.max(1, Math.round((opts.seconds || 3) * sr));
+  var out = new Float32Array(len);
+  var snaps = opts.snapshots === false ? null : [];
+
+  var p = 0, lpPrev = 0, apX1 = 0, apY1 = 0;
+  var blend = opts.blend === undefined ? 1 : opts.blend;
+
+  for (var n = 0; n < len; n++) {
+    var x = line[p];
+    out[n] = x;
+
+    var v = (1 - S) * x + S * lpPrev;     // one zero loop filter
+    lpPrev = x;
+    v *= g;                                // decay
+    if (blend < 1 && rnd() > blend) v = -v; // sign coherence, string becomes drum
+
+    var y = v;
+    if (useAP) {                            // first order allpass, the fractional delay
+      y = a * v + apX1 - a * apY1;
+      apX1 = v; apY1 = y;
+    }
+
+    line[p] = y;
+    p = p + 1 === N ? 0 : p + 1;
+
+    if (snaps && (n % SNAP_EVERY) === 0) snaps.push(snapshot(line, p, N));
+  }
+
+  // Pick position, as a comb filter on the output. Jaffe and Smith model it this way, and
+  // the delay is p times the LOOP period, not the buffer length: those differ by up to a
+  // sample and a half, which is enough to drag the null off the harmonic it is aiming at.
+  // Measured on this build before the delay was made fractional and referred to the loop
+  // period, the null at harmonic 8 was only 13 dB deep instead of 50.
+  var combDelay = opts.pickPos * design.wanted;
+  if (combDelay >= 2 && combDelay < len / 4) {
+    var shifted = lagrangeDelay(out, combDelay);
+    for (var q = 0; q < len; q++) out[q] -= shifted[q];
+  }
+
+  // DC blocker, then a short fade so a note that is still ringing does not end on a click.
+  var r = 0.995, xPrev = 0, yPrev = 0, peak = 0;
+  for (var i = 0; i < len; i++) {
+    var xi = out[i];
+    var yi = xi - xPrev + r * yPrev;
+    xPrev = xi; yPrev = yi;
+    out[i] = yi;
+    if (Math.abs(yi) > peak) peak = Math.abs(yi);
+  }
+  var fade = Math.min(Math.round(0.012 * sr), Math.floor(len / 4));
+  for (var k = 0; k < fade; k++) {
+    out[len - fade + k] *= 0.5 * (1 + Math.cos(Math.PI * k / fade));
+  }
+  if (peak > 0) for (var j = 0; j < len; j++) out[j] /= peak;
+
+  return { audio: out, design: design, g: g, snaps: snaps, snapEvery: SNAP_EVERY,
+           fadeSamples: fade,
+           t60Predicted: predictT60(g, design, opts.f0) };
+}
+
+// Read the ring buffer starting at the read head, resampled to a fixed width.
+function snapshot(line, readPtr, N) {
+  var s = new Float32Array(SNAP_W);
+  for (var i = 0; i < SNAP_W; i++) {
+    var src = (readPtr + Math.floor(i * N / SNAP_W)) % N;
+    s[i] = line[src];
+  }
+  return s;
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. A small radix-2 FFT, used only for the spectrum picture.
+ * ------------------------------------------------------------------ */
+function fftMag(samples, size) {
+  var re = new Float64Array(size), im = new Float64Array(size), i, j;
+  var n = Math.min(size, samples.length);
+  for (i = 0; i < n; i++) {
+    var wnd = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)); // Hann
+    re[i] = samples[i] * wnd;
+  }
+  // bit reversal
+  for (i = 1, j = 0; i < size; i++) {
+    var bit = size >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { var tr = re[i]; re[i] = re[j]; re[j] = tr;
+                 var ti = im[i]; im[i] = im[j]; im[j] = ti; }
+  }
+  for (var len = 2; len <= size; len <<= 1) {
+    var ang = -2 * Math.PI / len;
+    var wr = Math.cos(ang), wi = Math.sin(ang);
+    for (i = 0; i < size; i += len) {
+      var cr = 1, ci = 0;
+      for (var k = 0; k < len / 2; k++) {
+        var ur = re[i + k], ui = im[i + k];
+        var vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+        var vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi;
+        re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        var ncr = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+  var mag = new Float64Array(size / 2);
+  for (i = 0; i < size / 2; i++) mag[i] = Math.sqrt(re[i] * re[i] + im[i] * im[i]);
+  return mag;
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. Audio output.
+ * ------------------------------------------------------------------ */
+var actx = null;
+var master = null;
+var audioBroken = false;
+
+function audio() {
+  if (actx || audioBroken) return actx;
+  try {
+    var Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) throw new Error("no Web Audio in this browser");
+    actx = new Ctor();
+    master = actx.createGain();
+    master.gain.value = parseFloat(el("vol").value);
+    master.connect(actx.destination);
+  } catch (e) {
+    audioBroken = true;
+    el("warn").textContent = "Audio is unavailable here (" + e.message +
+      "). The visuals and the readouts still work.";
+  }
+  return actx;
+}
+
+function bodyChain(ctx, input) {
+  // three fixed resonators in parallel, mixed under the dry signal
+  var wet = ctx.createGain(); wet.gain.value = 0.55;
+  var dry = ctx.createGain(); dry.gain.value = 0.7;
+  var specs = [[110, 5], [220, 7], [400, 9]];
+  for (var i = 0; i < specs.length; i++) {
+    var bp = ctx.createBiquadFilter();
+    bp.type = "peaking";
+    bp.frequency.value = specs[i][0];
+    bp.Q.value = specs[i][1];
+    bp.gain.value = 8;
+    input.connect(bp); bp.connect(wet);
+  }
+  input.connect(dry);
+  var sum = ctx.createGain();
+  wet.connect(sum); dry.connect(sum);
+  return sum;
+}
+
+function playBuffer(float32) {
+  if (state.preview) return;                 // a thumbnail does not make noise
+  var ctx = audio();
+  if (!ctx) return;
+  if (ctx.state === "suspended") ctx.resume();
+  var buf = ctx.createBuffer(1, float32.length, ctx.sampleRate);
+  buf.copyToChannel ? buf.copyToChannel(float32, 0) : buf.getChannelData(0).set(float32);
+  var src = ctx.createBufferSource();
+  src.buffer = buf;
+  var gain = ctx.createGain();
+  gain.gain.value = 0.32;
+  var tail = state.body ? bodyChain(ctx, gain) : gain;
+  src.connect(gain);
+  tail.connect(master);
+  src.start();
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. State, the instrument, and the interface.
+ * ------------------------------------------------------------------ */
+var STRINGS = [
+  { name: "E2", midi: 40 }, { name: "A2", midi: 45 }, { name: "D3", midi: 50 },
+  { name: "G3", midi: 55 }, { name: "B3", midi: 59 }, { name: "E4", midi: 64 }
+];
+var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+var CHORDS = {                    // fret per string, low to high, -1 means do not sound
+  Em:   [0, 2, 2, 0, 0, 0],
+  G:    [3, 2, 0, 0, 0, 3],
+  C:    [-1, 3, 2, 0, 1, 0],
+  D:    [-1, -1, 0, 2, 3, 2],
+  Am:   [-1, 0, 2, 2, 1, 0],
+  open: [0, 0, 0, 0, 0, 0]
+};
+
+var DEFAULTS = { exc: "noise", bright: 0.5, decay: 4, pick: 0.125, blend: 1, vol: 0.7 };
+
+var state = {
+  tuning: "allpass",
+  body: false,
+  preview: false,
+  keyFret: 0,
+  lastChord: "Em",
+  current: null,       // { snaps, startedAt, design, f0 }
+  plucks: 0,
+  log: []
+};
+
+function el(id) { return document.getElementById(id); }
+
+function readKnobs() {
+  return {
+    excitation: el("exc").value,
+    S: parseFloat(el("bright").value),
+    t60: parseFloat(el("decay").value),
+    pickPos: parseFloat(el("pick").value),
+    blend: parseFloat(el("blend").value),
+    tuning: state.tuning
+  };
+}
+
+function noteName(midi) {
+  return NOTE_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+}
+
+function pluck(stringIdx, fret, opts) {
+  opts = opts || {};
+  var midi = STRINGS[stringIdx].midi + fret;
+  var f0 = midiToFreq(midi);
+  var k = readKnobs();
+  var res = renderPluck({
+    f0: f0,
+    seconds: Math.min(7, Math.max(1.2, k.t60 * 1.05)),
+    excitation: k.excitation,
+    S: k.S,
+    t60: k.t60,
+    pickPos: k.pickPos,
+    blend: k.blend,
+    tuning: k.tuning,
+    seed: (state.plucks * 2654435761) >>> 0
+  });
+  state.plucks++;
+  state.log.push({ string: stringIdx, fret: fret, midi: midi, f0: f0,
+                   N: res.design.N, centsErr: res.design.centsErr });
+  if (state.log.length > 200) state.log.shift();
+
+  playBuffer(res.audio);
+
+  if (!opts.quiet) {
+    var rms0 = 0;
+    if (res.snaps && res.snaps.length) {
+      var s0 = res.snaps[0];
+      for (var q = 0; q < s0.length; q++) rms0 += s0[q] * s0[q];
+      rms0 = Math.sqrt(rms0 / s0.length);
+    }
+    state.current = {
+      snaps: res.snaps, startedAt: performance.now(), res: res, rms0: rms0,
+      f0: f0, midi: midi, stringIdx: stringIdx, fret: fret
+    };
+    drawSpectrum(res, f0, k);
+    updateReadout(res, f0, midi, k);
+    litFret(stringIdx, fret);
+  }
+  return res;
+}
+
+function strum(name) {
+  var shape = CHORDS[name];
+  if (!shape) return;
+  state.lastChord = name;
+  var shown = false;
+  for (var i = 0; i < 6; i++) {
+    if (shape[i] < 0) continue;
+    (function (idx, fr, delay, first) {
+      setTimeout(function () { pluck(idx, fr, { quiet: !first }); }, delay);
+    })(i, shape[i], i * 38, !shown);
+    shown = true;
+  }
+}
+
+/* ---- readout ---- */
+function updateReadout(res, f0, midi, k) {
+  var d = res.design;
+  var errAbs = Math.abs(d.centsErr);
+  var cls = errAbs < 0.5 ? "good" : (errAbs > 5 ? "warn" : "");
+  var t60 = res.t60Predicted;
+  var cells = [
+    ["Note", noteName(midi)],
+    ["Target", f0.toFixed(2) + " Hz"],
+    ["Sounding", d.actualF.toFixed(2) + " Hz"],
+    ["Tuning error", (d.centsErr >= 0 ? "+" : "") + d.centsErr.toFixed(2) + " cents", cls],
+    ["Delay N", String(d.N) + " smp"],
+    ["Allpass d", d.d.toFixed(4) + " smp"],
+    ["Coef a", d.a.toFixed(4)],
+    ["Filter delay", d.filterDelay.toFixed(3) + " smp"],
+    ["Loop total", (d.N + d.d + d.filterDelay).toFixed(3) + " smp"],
+    ["T60 predicted", (isFinite(t60) ? t60.toFixed(2) + " s" : "endless")]
+  ];
+  el("readout").innerHTML = cells.map(function (c) {
+    return '<div><div class="k">' + c[0] + '</div><div class="v ' +
+           (c[2] || "") + '">' + c[1] + "</div></div>";
+  }).join("");
+}
+
+/* ---- canvases ---- */
+function fitCanvas(c) {
+  var dpr = window.devicePixelRatio || 1;
+  var w = c.clientWidth || 600;
+  var h = parseInt(c.getAttribute("height"), 10);
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+  }
+  var ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx: ctx, w: w, h: h };
+}
+
+function drawString() {
+  var c = el("string");
+  var f = fitCanvas(c), ctx = f.ctx, W = f.w, H = f.h;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0c0f";
+  ctx.fillRect(0, 0, W, H);
+
+  var mid = H / 2;
+  // rest position
+  ctx.strokeStyle = "#1a2029";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(W, mid); ctx.stroke();
+
+  var cur = state.current;
+  if (!cur || !cur.snaps || !cur.snaps.length) {
+    ctx.fillStyle = "#3f4a58";
+    ctx.font = "13px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Pluck a string to see its loop buffer", W / 2, mid - 12);
+    ctx.textAlign = "left";
+    return;
+  }
+
+  var idx;
+  if (cur.frozenIdx !== undefined) {
+    idx = cur.frozenIdx;
+  } else {
+    var elapsed = (performance.now() - cur.startedAt) / 1000;
+    idx = Math.floor(elapsed * SR / cur.res.snapEvery);
+  }
+  if (idx >= cur.snaps.length) idx = cur.snaps.length - 1;
+  if (idx < 0) idx = 0;
+  var s = cur.snaps[idx];
+
+  // nut and bridge
+  ctx.strokeStyle = "#2a323d"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(1, mid - 92); ctx.lineTo(1, mid + 92); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W - 1, mid - 92); ctx.lineTo(W - 1, mid + 92); ctx.stroke();
+
+  // pick position marker
+  var pp = parseFloat(el("pick").value);
+  if (pp > 0) {
+    var px = pp * W;
+    ctx.strokeStyle = "rgba(217,139,82,.35)";
+    ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, mid - 100); ctx.lineTo(px, mid + 100); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(217,139,82,.7)";
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText("pick", px + 4, mid + 112);
+  }
+
+  // The view is auto gained. Without it the wave flattens to a line within a second and the
+  // shape, which is the thing worth watching, becomes invisible. The real level goes on the
+  // meter below instead, so nothing is hidden, it is just not on this axis.
+  var peakS = 0, rms = 0;
+  for (var i = 0; i < s.length; i++) {
+    var av = Math.abs(s[i]);
+    if (av > peakS) peakS = av;
+    rms += s[i] * s[i];
+  }
+  rms = Math.sqrt(rms / s.length);
+  var amp = peakS > 1e-7 ? 96 * (0.92 / peakS) : 0;
+
+  ctx.strokeStyle = "rgba(240,180,41,.16)";
+  ctx.lineWidth = 6;
+  strokeWave(ctx, s, W, mid, amp);
+  ctx.strokeStyle = "#f0b429";
+  ctx.lineWidth = 1.8;
+  strokeWave(ctx, s, W, mid, amp);
+
+  // level meter, in dB below where this note started
+  var db = cur.rms0 > 0 ? 20 * Math.log10(Math.max(rms, 1e-9) / cur.rms0) : -60;
+  var lvl = Math.max(0, Math.min(1, 1 + db / 60));
+  ctx.fillStyle = "#1a2029";
+  ctx.fillRect(0, H - 5, W, 5);
+  ctx.fillStyle = "#4fd1c5";
+  ctx.fillRect(0, H - 5, W * lvl, 5);
+
+  ctx.fillStyle = "#63707f";
+  ctx.font = "11px ui-monospace, monospace";
+  ctx.fillText("N = " + cur.res.design.N + " samples around the loop", 8, 16);
+  ctx.fillText(noteName(cur.midi) + "  " + cur.f0.toFixed(1) + " Hz", 8, 30);
+  ctx.fillText("view auto gained", 8, 44);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#4fd1c5";
+  ctx.fillText((db <= -59 ? "under -60" : db.toFixed(1)) + " dB", W - 8, H - 12);
+  ctx.textAlign = "left";
+}
+
+function strokeWave(ctx, s, W, mid, amp) {
+  ctx.beginPath();
+  for (var i = 0; i < s.length; i++) {
+    var x = i * W / (s.length - 1);
+    var y = mid - s[i] * amp;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function drawSpectrum(res, f0, k) {
+  var c = el("spec");
+  var f = fitCanvas(c), ctx = f.ctx, W = f.w, H = f.h;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0c0f"; ctx.fillRect(0, 0, W, H);
+
+  var SIZE = 16384;
+  var mag = fftMag(res.audio, SIZE);
+  var binHz = SR / SIZE;
+  var maxHz = Math.min(SR / 2, Math.max(2600, f0 * 18));
+  var maxBin = Math.floor(maxHz / binHz);
+
+  var peak = 1e-12;
+  for (var i = 1; i < maxBin; i++) if (mag[i] > peak) peak = mag[i];
+
+  var floorDb = -78;
+  function yOf(m) {
+    var db = 20 * Math.log(Math.max(m, 1e-9) / peak) / Math.LN10;
+    if (db < floorDb) db = floorDb;
+    return H - 18 - (db - floorDb) / (-floorDb) * (H - 30);
+  }
+
+  // harmonic markers, drawn behind
+  var notches = notchedHarmonics(k.pickPos, res.design.wanted, Math.floor(maxHz / f0));
+  ctx.font = "10px ui-monospace, monospace";
+  for (var h = 1; h * f0 < maxHz; h++) {
+    var x = (h * f0) / maxHz * W;
+    var isNotch = notches.indexOf(h) >= 0;
+    ctx.strokeStyle = isNotch ? "rgba(242,119,122,.55)" : "rgba(79,209,197,.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, 12); ctx.lineTo(x, H - 18); ctx.stroke();
+    if (h <= 16 && (h < 9 || h % 2 === 1)) {
+      ctx.fillStyle = isNotch ? "#f2777a" : "#3f4a58";
+      ctx.fillText(String(h), x + 2, 10);
+    }
+  }
+
+  // the spectrum
+  ctx.strokeStyle = "#e6e9ee";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (var b = 1; b <= maxBin; b++) {
+    var xx = (b * binHz) / maxHz * W;
+    var yy = yOf(mag[b]);
+    if (b === 1) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+  }
+  ctx.stroke();
+
+  // axis
+  ctx.fillStyle = "#3f4a58";
+  ctx.fillText("0", 2, H - 5);
+  ctx.fillText(Math.round(maxHz) + " Hz", W - 52, H - 5);
+
+  el("speccap").textContent = notches.length
+    ? "Harmonics " + notches.slice(0, 6).join(", ") +
+      (notches.length > 6 ? " and up" : "") +
+      " are predicted missing at this pick position, and the red ticks are where they would be." +
+      " Move the pick to 0.5 to cancel every even harmonic at once."
+    : "No harmonics are cancelled at this pick position, so the full series is present.";
+}
+
+/* ---- fretboard ---- */
+function buildFretboard() {
+  var fb = el("fb");
+  var nums = document.createElement("div");
+  nums.className = "fretnums";
+  nums.appendChild(document.createElement("span"));
+  for (var n = 0; n <= 12; n++) {
+    var sp = document.createElement("span");
+    sp.textContent = n === 0 ? "open" : String(n);
+    nums.appendChild(sp);
+  }
+  fb.appendChild(nums);
+
+  for (var s = STRINGS.length - 1; s >= 0; s--) {
+    var row = document.createElement("div");
+    row.className = "fbrow";
+    var nut = document.createElement("div");
+    nut.className = "nut";
+    nut.textContent = STRINGS[s].name;
+    row.appendChild(nut);
+    for (var fr = 0; fr <= 12; fr++) {
+      var b = document.createElement("button");
+      b.className = "fret" + (fr === 0 ? " open" : "");
+      b.textContent = noteName(STRINGS[s].midi + fr);
+      b.dataset.string = String(s);
+      b.dataset.fret = String(fr);
+      b.setAttribute("aria-label", "String " + STRINGS[s].name + " fret " + fr);
+      row.appendChild(b);
+    }
+    fb.appendChild(row);
+  }
+
+  fb.addEventListener("click", function (e) {
+    var t = e.target;
+    if (!t.classList || !t.classList.contains("fret")) return;
+    pluck(parseInt(t.dataset.string, 10), parseInt(t.dataset.fret, 10));
+  });
+}
+
+function litFret(s, fr) {
+  var sel = '.fret[data-string="' + s + '"][data-fret="' + fr + '"]';
+  var node = document.querySelector(sel);
+  if (!node) return;
+  node.classList.add("lit");
+  setTimeout(function () { node.classList.remove("lit"); }, 220);
+}
+
+/* ---- knob wiring ---- */
+function syncLabels() {
+  el("brightv").textContent = parseFloat(el("bright").value).toFixed(3);
+  el("decayv").textContent = parseFloat(el("decay").value).toFixed(1) + " s";
+  el("pickv").textContent = parseFloat(el("pick").value).toFixed(3);
+  el("blendv").textContent = parseFloat(el("blend").value).toFixed(3);
+  el("volv").textContent = Math.round(parseFloat(el("vol").value) * 100) + "%";
+}
+
+function wire() {
+  ["bright", "decay", "pick", "blend"].forEach(function (id) {
+    el(id).addEventListener("input", syncLabels);
+  });
+  el("vol").addEventListener("input", function () {
+    syncLabels();
+    if (master) master.gain.value = parseFloat(el("vol").value);
+  });
+
+  el("tuneseg").addEventListener("click", function (e) {
+    var b = e.target.closest ? e.target.closest("button") : null;
+    if (!b) return;
+    state.tuning = b.dataset.tune;
+    Array.prototype.forEach.call(this.querySelectorAll("button"), function (x) {
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+    var cur = state.current;
+    if (cur) pluck(cur.stringIdx, cur.fret);
+  });
+
+  el("bodyseg").addEventListener("click", function (e) {
+    var b = e.target.closest ? e.target.closest("button") : null;
+    if (!b) return;
+    state.body = b.dataset.body === "on";
+    Array.prototype.forEach.call(this.querySelectorAll("button"), function (x) {
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-chord]"), function (b) {
+    b.addEventListener("click", function () { strum(b.dataset.chord); });
+  });
+
+  el("presetReset").addEventListener("click", function () {
+    el("exc").value = DEFAULTS.exc;
+    el("bright").value = DEFAULTS.bright;
+    el("decay").value = DEFAULTS.decay;
+    el("pick").value = DEFAULTS.pick;
+    el("blend").value = DEFAULTS.blend;
+    el("vol").value = DEFAULTS.vol;
+    syncLabels();
+    if (master) master.gain.value = DEFAULTS.vol;
+  });
+
+  var KEYMAP = { z: 0, x: 1, c: 2, v: 3, b: 4, n: 5 };
+  window.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    var k = e.key.toLowerCase();
+    if (KEYMAP[k] !== undefined) { e.preventDefault(); pluck(KEYMAP[k], state.keyFret); return; }
+    if (k >= "1" && k <= "9") { state.keyFret = parseInt(k, 10); return; }
+    if (k === "0") { state.keyFret = 0; return; }
+    if (k === " ") { e.preventDefault(); strum(state.lastChord); }
+  });
+
+  window.addEventListener("resize", function () {
+    drawString();
+    if (state.current) drawSpectrum(state.current.res, state.current.f0, readKnobs());
+  });
+}
+
+function frame() { drawString(); requestAnimationFrame(frame); }
+
+function boot() {
+  buildFretboard();
+  wire();
+  syncLabels();
+  // a silent first render so the readout is populated before anything is clicked
+  var res = renderPluck({ f0: midiToFreq(40), seconds: 0.2, excitation: "noise",
+                          S: 0.5, t60: 4, pickPos: 0.125, blend: 1,
+                          tuning: "allpass", seed: 1, snapshots: false });
+  updateReadout(res, midiToFreq(40), 40, readKnobs());
+
+  var params = new URLSearchParams(location.search);
+  if (params.get("preview") !== null) {
+    bootPreview(params);
+    return;
+  }
+
+  drawString();
+  frame();
+}
+
+// Deterministic thumbnail for the playground index. No sound, no animation, no chrome:
+// one named note, one named seed, one named frame, so the card looks the same every time.
+function bootPreview(params) {
+  state.preview = true;
+  document.documentElement.classList.add("preview");
+  var midi = parseInt(params.get("note") || "50", 10);
+  var frameIdx = parseInt(params.get("frame") || "6", 10);
+  if (params.get("pick") !== null) {
+    el("pick").value = params.get("pick");
+    syncLabels();
+  }
+  var stringIdx = 0;
+  for (var i = STRINGS.length - 1; i >= 0; i--) {
+    if (midi >= STRINGS[i].midi && midi - STRINGS[i].midi <= 12) { stringIdx = i; break; }
+  }
+  pluck(stringIdx, midi - STRINGS[stringIdx].midi);
+  if (state.current) {
+    state.current.frozenIdx = Math.min(frameIdx, state.current.snaps.length - 1);
+  }
+  drawString();
+  window.__previewReady = true;
+}
+
+/* test hooks, used by ../_verify/*.js. Nothing in the app reads these. */
+window.__pluck = {
+  renderPluck: renderPluck,
+  designLoop: designLoop,
+  predictT60: predictT60,
+  gainForT60: gainForT60,
+  lagrangeDelay: lagrangeDelay,
+  makeExcitation: makeExcitation,
+  notchedHarmonics: notchedHarmonics,
+  allpassCoef: allpassCoef,
+  loopFilterAt: loopFilterAt,
+  midiToFreq: midiToFreq,
+  cents: cents,
+  SR: SR,
+  state: state,
+  pluck: pluck,
+  strum: strum,
+  STRINGS: STRINGS,
+  CHORDS: CHORDS
+};
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+else boot();
+</script>
+</body>
+</html>

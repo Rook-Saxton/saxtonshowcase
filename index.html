@@ -1,121 +1,636 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Saxton Showcase — apps &amp; demos</title>
-<meta name="description" content="A shelf of small, useful tools. Take one off the shelf, run it with your agent.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧰</text></svg>">
+<meta charset="utf-8">
+<title>Saxton Showcase Daylight</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Shantell+Sans:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Atkinson+Hyperlegible:wght@400;700&family=Martian+Mono:wght@400&display=swap">
 <style>
-  :root{
-    --paper:#f6f1e3; --ink:#2b2620; --red:#d9402c; --blue:#2b5fce;
-    --green:#2e7d46; --amber:#c98a00; --purple:#7a4bb3;
-    --wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
-  }
-  *{box-sizing:border-box;}
-  body{
-    margin:0; background:var(--paper); color:var(--ink);
-    font-family:'Shantell Sans', cursive; line-height:1.55;
-    background-image:
-      repeating-linear-gradient(0deg, transparent, transparent 34px, rgba(43,38,32,.045) 35px);
-  }
-  .wrap{max-width:860px; margin:0 auto; padding:2.2rem 1.2rem 4rem;}
-  header{margin:1.2rem 0 2.4rem;}
-  h1{font-family:'Caveat', cursive; font-weight:700; font-size:clamp(3rem, 9vw, 4.6rem); margin:0; transform:rotate(-1.5deg);}
-  h1 .hl{box-shadow: inset 0 -0.35em 0 rgba(217,64,44,.35);}
-  .tagline{font-size:1.15rem; max-width:34em; margin:.4rem 0 0; transform:rotate(-.4deg);}
-  .note{
-    display:inline-block; margin-top:1rem; padding:.35rem .8rem;
-    border:2px solid var(--ink); border-radius:var(--wobble);
-    font-size:.95rem; background:#fffdf4; transform:rotate(.8deg);
-  }
-  h2{font-family:'Caveat', cursive; font-size:2.2rem; margin:2.6rem 0 .2rem;}
-  h2 .u{box-shadow: inset 0 -0.3em 0 rgba(43,95,206,.28);}
-  .shelf{display:grid; gap:1.4rem; margin-top:1.2rem;}
-  .card{
-    position:relative; background:#fffdf4; border:2.5px solid var(--ink);
-    border-radius:var(--wobble); padding:1.2rem 1.4rem 1.3rem;
-    box-shadow:4px 5px 0 rgba(43,38,32,.18);
-  }
-  .card:nth-child(odd){transform:rotate(-.7deg);}
-  .card:nth-child(even){transform:rotate(.6deg);}
-  .card::before{ /* tape */
-    content:""; position:absolute; top:-12px; left:50%; width:96px; height:26px;
-    transform:translateX(-50%) rotate(-2deg);
-    background:rgba(224,200,120,.55); border-left:1px dashed rgba(43,38,32,.25);
-    border-right:1px dashed rgba(43,38,32,.25);
-  }
-  .card h3{font-family:'Caveat', cursive; font-size:1.9rem; margin:.1rem 0 .2rem;}
-  .card p{margin:.3rem 0;}
-  .meta{font-size:.88rem; opacity:.85;}
-  .btn{
-    display:inline-block; margin-top:.7rem; padding:.45rem 1.1rem;
-    font-family:'Shantell Sans', cursive; font-weight:600; font-size:1rem;
-    color:var(--ink); background:#fff; border:2.5px solid var(--ink);
-    border-radius:var(--wobble); text-decoration:none; cursor:pointer;
-    box-shadow:2.5px 3px 0 rgba(43,38,32,.25);
-  }
-  .btn:hover{background:#fdf3d8;}
-  .btn.blue{box-shadow:2.5px 3px 0 rgba(43,95,206,.5);}
-  .btn.green{box-shadow:2.5px 3px 0 rgba(46,125,70,.5);}
-  .bench{list-style:none; padding:0; margin:.6rem 0 0;}
-  .bench li{
-    background:#fffdf4; border:2px dashed rgba(43,38,32,.55);
-    border-radius:var(--wobble); padding:.55rem 1rem; margin:.5rem 0;
-  }
-  .bench b{font-family:'Caveat', cursive; font-size:1.3rem; font-weight:700;}
-  footer{margin-top:3rem; font-size:.9rem; opacity:.8; transform:rotate(-.3deg);}
-  a{color:var(--blue);}
+/* Daylight: lilac paper, candy pieces with ink outlines like stickers. Same layout as Orbit. */
+:root{
+  color-scheme:light;
+  --night:#F7F4FF; --panel:#FFFFFF; --edge:#DDD4F5; --ink:#1A1540; --tray:#ECE5FF;
+  --text:#1A1540; --muted:#524A78; --lav:#6B4FD8;
+  --tomato:#FF4F6D; --marigold:#FFE066; --grass:#C6F432; --pool:#22D3C5; --grape:#B45CF0; --bubble:#FF7AC8;
+  --display:"Unbounded","Arial Black","Helvetica Neue",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Martian Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  /* Type sizes, one per job: date 12, label 13, small 15, body 17, lede 20, card title 20, detail title 30, then the two headlines. */
+}
+*{box-sizing:border-box}
+html{background:var(--night)}
+body{background:var(--night);color:var(--text);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:20px;margin:0}
+.wrap{max-width:1180px;margin:0 auto}
+a{color:inherit}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--lav);outline-offset:3px;border-radius:8px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+.date{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.lbl{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* crooked letters, like the pieces */
+.crooked .w{display:inline-block;white-space:nowrap}
+.crooked .ch{display:inline-block}
+
+nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding-block:20px}
+nav .l,nav .r{display:flex;gap:20px}
+nav .r{justify-content:flex-end}
+nav a{text-decoration:none}
+nav a:hover{color:var(--lav)}
+.word{display:flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--display);font-weight:800;font-size:21px;letter-spacing:-.01em;white-space:nowrap}
+.word svg{width:30px;height:46px;overflow:visible;transition:transform .3s}
+.word:hover svg{transform:rotate(-6deg) scale(1.08)}
+.word:hover .ch{animation:hop .45s ease both}
+@keyframes hop{50%{translate:0 -4px}}
+@media (prefers-reduced-motion:reduce){.word:hover .ch{animation:none}}
+
+/* hero: the headline, then the board itself */
+.hero{padding-block:40px 24px}
+.hero .top{display:grid;grid-template-columns:1.4fr 1fr;gap:32px;align-items:end;margin-bottom:28px}
+.hero h1{font-weight:800;font-size:clamp(44px,7.4vw,100px);line-height:.98;letter-spacing:-.02em}
+.hero .lede{font-size:20px;color:var(--muted);margin:0 0 6px;max-width:34ch}
+.hero .lede a{color:var(--text);font-weight:700;text-decoration-thickness:2px;text-underline-offset:3px}
+.board{background:var(--tray);border:1px solid var(--edge);border-radius:28px;padding:28px}
+.board > svg{display:block;width:100%;max-width:860px;height:auto;margin:0 auto;overflow:visible}
+.bp{transition:transform 1.1s cubic-bezier(.2,1.25,.4,1);transform-box:fill-box;transform-origin:center;cursor:pointer}
+.scattered .bp{transform:translate(var(--dx),var(--dy)) rotate(var(--rot))}
+.bp .shape{transition:stroke-width .15s}
+.bp:hover .shape,.bp:focus-visible .shape{stroke:#1A1540;stroke-width:6}
+.bp text{pointer-events:none}
+.board .row{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-top:22px}
+.board .row p{margin:0;color:var(--muted);font-size:15px}
+.btn{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;text-decoration:none;padding:13px 18px;border-radius:12px;border:1px solid var(--text);background:var(--text);color:var(--night);cursor:pointer;display:inline-block}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--edge)}
+.btn:hover{transform:translateY(-1px)}
+
+section{padding-block:64px}
+.head{display:flex;justify-content:space-between;align-items:end;gap:24px;flex-wrap:wrap;margin-bottom:28px}
+.head h2{font-weight:800;font-size:clamp(30px,4.4vw,54px);line-height:1.04;letter-spacing:-.02em}
+.head p{max-width:44ch;color:var(--muted);margin:0}
+
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding-top:0}
+.duo > div{border-top:3px solid var(--c);padding-top:16px}
+.duo h3{font-weight:700;font-size:20px;margin:0 0 8px}
+.duo p{margin:0;color:var(--muted);font-size:15px}
+
+/* library */
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
+.chip{font-family:var(--display);font-weight:700;font-size:13px;padding:9px 14px;border-radius:999px;border:1px solid var(--edge);background:transparent;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--text);color:var(--night);border-color:var(--text)}
+.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:22px;padding:22px;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s;cursor:pointer;text-align:left}
+.card:hover{border-color:var(--c);transform:translateY(-3px)}
+.card .vis{height:120px;border-radius:14px;background:color-mix(in srgb,var(--c) 22%,#FFFFFF);display:grid;place-items:center;margin-bottom:6px}
+.card .vis svg{width:84px;height:84px;overflow:visible;transform:rotate(var(--r))}
+.card .kind{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.card .kind i{width:9px;height:9px;border-radius:2px;background:var(--c)}
+.card h3{font-weight:700;font-size:20px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--muted);font-size:15px}
+.card .foot{margin-top:auto;padding-top:14px;border-top:1px solid var(--edge);display:flex;justify-content:space-between;align-items:center;gap:10px}
+.card .foot b{display:block;font-family:var(--display);font-weight:700;font-size:20px;line-height:1.1}
+.card .foot small{display:block;font-size:13px;color:var(--muted)}
+.card .go{font-family:var(--display);font-weight:700;font-size:13px;padding:8px 14px;border-radius:10px;background:var(--c);color:var(--ink);white-space:nowrap}
+.card.ghostcard .go{background:transparent;color:var(--lav);border:1px dashed var(--lav)}
+
+/* what we made, and when */
+.log{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
+.log li{display:grid;grid-template-columns:76px 40px 1fr auto;gap:14px;align-items:center;padding-block:14px;border-bottom:1px solid var(--edge)}
+.log svg{width:36px;height:36px;overflow:visible}
+.log b{font-family:var(--display);font-weight:700;font-size:17px}
+.log .what{color:var(--muted);font-size:15px;text-align:right}
+
+/* the empty slot, in butter */
+.cta{background:var(--marigold);color:var(--ink);border-radius:28px;padding:48px 32px;display:grid;grid-template-columns:auto 1fr;gap:32px;align-items:center}
+.cta svg{width:150px;height:150px;overflow:visible}
+.cta h2{font-weight:800;font-size:clamp(28px,4vw,48px);letter-spacing:-.02em}
+.cta p{color:#3A335F;margin:12px 0 22px;max-width:46ch}
+.cta .btn{background:var(--ink);color:var(--marigold);border-color:var(--ink)}
+.cta .btn.ghost{background:transparent;color:var(--ink);border-color:var(--ink);margin-left:8px}
+.cta :focus-visible{outline-color:var(--ink)}
+
+footer{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:24px;padding-block:48px 64px;border-top:1px solid var(--edge);margin-top:40px}
+footer h4{font-family:var(--display);font-weight:700;font-size:13px;margin:0 0 10px}
+footer ul{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:15px}
+footer a{text-decoration:none}
+footer a:hover{color:var(--lav)}
+footer .note{color:var(--muted);margin:12px 0 0;font-size:15px}
+footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
+
+/* detail view, gallery style */
+.detail{position:fixed;inset:0;z-index:50;background:var(--night);overflow-y:auto;padding:max(20px,env(safe-area-inset-top,0px)) 20px 28px}
+.detail .top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.detail .close,.detail .nav button{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;background:none;border:0;cursor:pointer;padding:8px}
+.detail .stage{display:grid;grid-template-columns:1fr minmax(0,420px) 1fr;align-items:center;gap:24px;min-height:calc(100% - 60px);padding-block:20px}
+.detail .facts h3{font-weight:700;font-size:13px;color:var(--lav);margin-bottom:12px}
+.detail .facts ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.detail .facts li{border:1px solid var(--edge);border-radius:999px;padding:4px 12px;font-size:15px}
+.detail .facts li.date{font-size:12px;padding-block:6px}
+.detail .art{display:grid;place-items:center}
+.detail .art svg{width:min(100%,380px);height:auto;overflow:visible}
+.detail .desc{align-self:center;max-width:34ch;justify-self:end;background:var(--panel);border:1px solid var(--edge);border-radius:18px;padding:20px}
+.detail .desc .kind{font-size:13px;color:var(--muted)}
+.detail .desc h2{font-weight:800;font-size:30px;letter-spacing:-.02em;margin:2px 0 8px}
+.detail .desc p{margin:0 0 14px;color:var(--muted)}
+.detail .nav{display:flex;justify-content:center;gap:24px}
+@media (max-width:900px){
+  .hero .top{grid-template-columns:1fr;gap:18px}
+  .detail .stage{grid-template-columns:1fr;min-height:0}
+  .detail .facts ul{flex-direction:row;flex-wrap:wrap}
+  .detail .desc{justify-self:stretch;max-width:none}
+  .duo{grid-template-columns:1fr}
+  footer{grid-template-columns:1fr 1fr}
+  footer > div{min-width:0}
+  footer > div:first-child{grid-column:1/-1}
+}
+@media (max-width:620px){
+  nav{grid-template-columns:1fr;justify-items:center;gap:10px}
+  nav .l,nav .r{display:none}
+  .board{padding:14px;border-radius:20px}
+  .cta{grid-template-columns:1fr;padding:32px 22px;gap:16px}
+  .cta svg{width:96px;height:96px}
+  .cta .btn.ghost{margin:8px 0 0}
+  .log li{grid-template-columns:60px 32px 1fr;gap:10px}
+  .log .what{display:none}
+}
+/* board toolbar, list view, empty state */
+.tools{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.tools .chips{margin:0}
+.chip span{font-family:var(--mono);font-weight:400;font-size:12px;margin-left:7px;opacity:.7}
+.tools .right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.find input{font:inherit;font-size:15px;padding:9px 16px;border-radius:999px;border:1px solid var(--edge);background:var(--panel);color:var(--text);width:190px}
+.seg{display:inline-flex;border:1px solid var(--edge);border-radius:999px;padding:3px;background:var(--panel)}
+.seg button{font-family:var(--display);font-weight:700;font-size:13px;border:0;background:none;padding:7px 15px;border-radius:999px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--text);color:var(--night)}
+.plist{list-style:none;margin:0;padding:0;background:var(--panel);border:1px solid var(--edge);border-radius:18px;overflow:hidden}
+.plist li + li{border-top:1px solid var(--edge)}
+.plist button{display:grid;grid-template-columns:44px minmax(0,1fr) auto 64px;gap:16px;align-items:center;width:100%;padding:12px 18px;background:none;border:0;text-align:left;cursor:pointer}
+.plist button:hover{background:color-mix(in srgb,var(--c) 16%,#FFFFFF)}
+.plist .pc svg{width:42px;height:42px;overflow:visible;display:block}
+.plist .nm{min-width:0}
+.plist b{display:block;font-family:var(--display);font-weight:700;font-size:17px}
+.plist .one{display:block;color:var(--muted);font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plist .k{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);white-space:nowrap}
+.plist .k i{width:9px;height:9px;border-radius:2px;background:var(--c)}
+.plist .date{text-align:right}
+.empty{text-align:center;padding:48px 12px;color:var(--muted)}
+.empty p{margin:0 0 14px}
+.bp.slot{cursor:pointer}
+[hidden]{display:none !important}
+
+/* detail: the build running live in a frame, a sticker on the corner */
+.detail .stage{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:40px;max-width:1180px;margin:0 auto;min-height:calc(100% - 110px)}
+.screen{position:relative}
+.screen .frame{position:relative;aspect-ratio:2/1;border-radius:22px;overflow:hidden;border:2px solid var(--ink);background:var(--ink);box-shadow:10px 10px 0 var(--c)}
+.screen iframe{position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none;background:var(--ink)}
+.screen .frame.wide iframe{width:1100px;height:550px;transform-origin:0 0;transform:scale(var(--s,.5))}
+.screen .go{position:absolute;inset:0;width:100%;background:transparent;border:0;cursor:pointer;display:flex;align-items:flex-end;justify-content:flex-end;padding:16px}
+.screen .go span{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;padding:11px 16px;border-radius:12px;background:var(--c);color:var(--ink);border:2px solid var(--ink);transition:transform .15s}
+.screen .go:hover span,.screen .go:focus-visible span{transform:translateY(-2px) rotate(-2deg)}
+.screen .sticker{position:absolute;left:-28px;top:-34px;width:96px;height:96px;overflow:visible;transform:rotate(-12deg);pointer-events:none;z-index:2}
+.screen .cap{margin:18px 0 0;font-size:13px;color:var(--muted)}
+.ghostart{display:grid;place-items:center;text-align:center;gap:10px}
+.ghostart svg{width:min(100%,340px);height:auto;overflow:visible}
+.ghostart p{margin:0;color:var(--muted)}
+.detail .desc{max-width:none;justify-self:stretch}
+.detail .num{font-family:var(--display);font-weight:700;font-size:13px;color:var(--lav);margin-bottom:8px}
+.pills{list-style:none;margin:0 0 18px;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.pills li{border:1px solid var(--edge);border-radius:999px;padding:4px 12px;font-size:15px}
+.pills li.date{font-size:12px;padding-block:6px}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.soon{font-family:var(--display);font-weight:700;font-size:13px;color:var(--lav);border:1px dashed var(--lav);border-radius:12px;padding:12px 16px}
+
+/* play: the whole build, full screen */
+.play{position:fixed;inset:0;z-index:60;background:var(--ink);display:flex;flex-direction:column}
+.play .bar{display:flex;align-items:center;gap:12px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top,0px));background:var(--night);border-bottom:2px solid var(--ink)}
+.play .bar svg{width:38px;height:38px;overflow:visible;display:block;transform:rotate(-8deg)}
+.play .who{min-width:0}
+.play .who b{display:block;font-family:var(--display);font-weight:700;font-size:17px}
+.play .who span{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.play .bar .btn{margin-left:auto;padding:10px 18px}
+.play iframe{flex:1;width:100%;border:0;background:var(--ink)}
+@media (max-width:900px){
+  .detail .stage{grid-template-columns:1fr;gap:28px;padding-top:36px}
+  .screen .sticker{width:72px;height:72px;left:-10px;top:-30px}
+}
+@media (max-width:620px){
+  .tools .right{width:100%;justify-content:space-between}
+  .find{flex:1}.find input{width:100%}
+  .plist button{grid-template-columns:40px minmax(0,1fr) auto;gap:12px;padding:12px 14px}
+  .plist .date{display:none}
+  .screen .frame{border-radius:16px;box-shadow:6px 6px 0 var(--c)}
+}
 </style>
-</head>
-<body>
+
 <div class="wrap">
-  <header>
-    <h1>The <span class="hl">Saxton Showcase</span></h1>
-    <p class="tagline">A shelf of small, useful tools. Every one is a plain web page that knows its job — take it off the shelf, run it yourself, or point your agent at it and let it drive.</p>
-    <p class="note">📌 How this works: tools live here on the web. New versions get new addresses — nothing you bookmarked ever gets overwritten.</p>
+  <nav>
+    <div class="l lbl"><a href="#library">Library</a><a href="#log">What we made</a></div>
+    <a class="word" href="#top" aria-label="Saxton Showcase home"><svg viewBox="-14 -26 112 172" aria-hidden="true" id="mark"></svg><span class="crooked">SAXTON SHOWCASE</span></a>
+    <div class="r lbl"><a href="#top">Play something</a><a href="#idea">Say hi</a></div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="top">
+      <h1 class="crooked" data-amp="1.4" data-rot="3">We build stuff. You can have it.</h1>
+      <p class="lede">Games, toys and tools we built because they were fun to build. No two pieces match, and they fit anyway. Jump to the <a href="#library" data-jump="game">games</a>, the <a href="#library" data-jump="toy">toys</a>, the <a href="#library" data-jump="tool">tools</a>, or the <a href="#library" data-jump="lab">labs</a>.</p>
+    </div>
+    <div class="board">
+      <div class="tools">
+        <div class="chips" role="group" aria-label="Show only">
+          <button class="chip" data-f="all" aria-pressed="true">Everything</button>
+          <button class="chip" data-f="game" aria-pressed="false">Games</button>
+          <button class="chip" data-f="toy" aria-pressed="false">Toys</button>
+          <button class="chip" data-f="tool" aria-pressed="false">Tools</button>
+          <button class="chip" data-f="lab" aria-pressed="false">Labs</button>
+          <button class="chip" data-f="workshop" aria-pressed="false">In the workshop</button>
+        </div>
+        <div class="right">
+          <label class="find" hidden><span class="sr">Find a piece</span><input type="search" id="find" placeholder="Find a piece" autocomplete="off"></label>
+          <div class="seg" role="group" aria-label="Show the pieces as"><button type="button" data-view="puzzle" aria-pressed="true">Puzzle</button><button type="button" data-view="list" aria-pressed="false">List</button></div>
+        </div>
+      </div>
+      <svg id="board" class="scattered" viewBox="-50 -50 900 500" role="group" aria-label="Puzzle pieces, one per build"></svg>
+      <ol class="plist" id="plist" hidden></ol>
+      <div class="empty" id="bEmpty" hidden><p>Nothing matches that.</p><button class="btn ghost" type="button" id="bClear">Show everything</button></div>
+      <div class="row">
+        <p id="boardState" aria-live="polite"></p>
+        <button class="btn ghost" id="snap" type="button">Scatter them</button>
+      </div>
+    </div>
   </header>
 
-  <h2>On the <span class="u">shelf</span></h2>
-  <div class="shelf">
-    <div class="card">
-      <h3>Perrysburg Marketer</h3>
-      <p>Start typing your shop's name and it spots you on Google — hours, reviews, all of it. Add the week's hook and out comes seven days of posts plus an email, written like a person who runs a shop here, not a marketing tool.</p>
-      <p class="meta">v0.2 · live Google lookup · runs in your browser · for Perrysburg-area shops</p>
-      <a class="btn blue" href="/apps/perrysburg-marketer/v0.2/">Open the tool →</a>
-    </div>
-    <div class="card">
-      <h3>Knowledge Pack Builder</h3>
-      <p>Turn what you know into a pack an agent can run: the job, the sources, the rules, the examples. It assembles a clean, reviewable pack you can download and hand to any assistant.</p>
-      <p class="meta">v0.2 · runs in your browser · for anyone building a helper that knows their world</p>
-      <a class="btn green" href="/apps/knowledge-pack-builder/v0.2/">Open the tool →</a>
-    </div>
-    <div class="card">
-      <h3>Family Week</h3>
-      <p>Dump the week's chaos in — practices, the note from school, the errands nobody wants — and get back one page: dinners, events, and one batched errand run, ready for the fridge door.</p>
-      <p class="meta">v0.1 · runs in your browser, nothing leaves your device · for households running on sticky notes</p>
-      <a class="btn" href="/apps/family-week/v0.1/" style="box-shadow:2.5px 3px 0 rgba(201,138,0,.5);">Open the tool →</a>
-    </div>
-    <div class="card">
-      <h3>Gift Local</h3>
-      <p>Who's it for, what's their thing, what's the budget — get gift ideas that fit them, plus the actual shops around Perrysburg to buy them at. Keeps the money in town.</p>
-      <p class="meta">v0.1 · finds the real shops around town · for anyone tempted to just default to an Amazon box</p>
-      <a class="btn" href="/apps/gift-local/v0.1/" style="box-shadow:2.5px 3px 0 rgba(122,75,179,.5);">Open the tool →</a>
-    </div>
-  </div>
+  <section class="duo" aria-label="How it works">
+    <div style="--c:var(--pool)"><h3>Every piece works on its own</h3><p>Each build is one web page. Open it in a browser and play. Nothing to install, no account, and it keeps working with the wifi off.</p></div>
+    <div style="--c:var(--lav)"><h3>The empty slot stays open</h3><p>There's room on the board for the next build. If your family needs something, tell us. It might be the next piece.</p></div>
+  </section>
 
-  <h2>On the <span class="u">workbench</span></h2>
-  <ul class="bench">
-    <li><b>Plain-English Reader</b> — anything rewritten at the reading level you pick, facts linked back to their source.</li>
-    <li><b>Meeting-to-Work</b> — notes in, decisions and owners and follow-ups out.</li>
-  </ul>
+  <section id="library">
+    <div class="head">
+      <h2>The library</h2>
+      <p>Everything here is free. If you make one better, send it back.</p>
+    </div>
+    <div class="chips" role="group" aria-label="Filter the library">
+      <button class="chip" data-f="all" aria-pressed="true">Everything</button>
+      <button class="chip" data-f="game" aria-pressed="false">Games</button>
+      <button class="chip" data-f="toy" aria-pressed="false">Toys</button>
+      <button class="chip" data-f="tool" aria-pressed="false">Tools</button>
+      <button class="chip" data-f="lab" aria-pressed="false">Labs</button>
+      <button class="chip" data-f="workshop" aria-pressed="false">In the workshop</button>
+    </div>
+    <div class="lib" id="lib"></div>
+  </section>
+
+  <section id="log">
+    <div class="head">
+      <h2>What we made, and when</h2>
+      <p>Late August into September 2026. Every date comes from the build's own record.</p>
+    </div>
+    <ol class="log" id="logList"></ol>
+  </section>
+
+  <section id="idea">
+    <div class="cta">
+      <svg id="ctaSlot" viewBox="-70 -70 340 340" aria-hidden="true"></svg>
+      <div>
+        <h2>Got an idea for the next piece?</h2>
+        <p>Tell us what your family keeps doing by hand. We build what we'd use ourselves, then hand it over.</p>
+        <a class="btn" href="#idea">Tell us about it</a><a class="btn ghost" href="#library">Browse the library</a>
+      </div>
+    </div>
+  </section>
 
   <footer>
-    <p>Built in Ohio. Every tool here is a working demo — new versions arrive as new links, and old links keep working.</p>
+    <div><div class="word" style="font-size:17px"><svg viewBox="-14 -26 112 172" aria-hidden="true" class="mark2"></svg><span class="crooked">SAXTON SHOWCASE</span></div>
+      <p class="note">Made at home by Justin and Amelia.<br>Want to learn how? That's <a href="#top" style="color:var(--text);font-weight:700">AI But Make It Real</a>.</p>
+      <p class="draft">Draft 6, daylight. Words come from each build's own notes. The builds run for real; the footer links don't go anywhere yet.</p></div>
+    <div><h4>Library</h4><ul><li><a href="#library" data-jump="game">Games</a></li><li><a href="#library" data-jump="toy">Toys</a></li><li><a href="#library" data-jump="tool">Tools</a></li><li><a href="#library" data-jump="lab">Labs</a></li></ul></div>
+    <div><h4>Us</h4><ul><li><a href="#log">What we've made</a></li><li><a href="#idea">Suggest a piece</a></li></ul></div>
+    <div><h4>Elsewhere</h4><ul><li><a href="#top">GitHub</a></li><li><a href="#top">AI But Make It Real</a></li></ul></div>
   </footer>
 </div>
-</body>
-</html>
+
+<div class="detail" id="detail" hidden role="dialog" aria-modal="true" aria-labelledby="dName">
+  <div class="top">
+    <span class="word" style="font-size:16px"><svg viewBox="-14 -26 112 172" aria-hidden="true" class="mark2"></svg><span class="crooked">SAXTON SHOWCASE</span></span>
+    <button class="close" id="dClose" type="button">Close</button>
+  </div>
+  <div class="stage">
+    <div class="screen" id="dScreen"></div>
+    <div class="desc"><div class="num" id="dNum"></div><div class="kind" id="dKind"></div><h2 id="dName"></h2><p id="dText"></p><ul class="pills" id="dFacts"></ul><div id="dActs" class="acts"></div></div>
+  </div>
+  <div class="nav"><button type="button" id="dPrev"></button><button type="button" id="dNext"></button></div>
+</div>
+
+<div class="play" id="play" hidden role="dialog" aria-modal="true" aria-labelledby="pName">
+  <div class="bar"><span id="pSticker"></span><div class="who"><b id="pName"></b><span id="pHint"></span></div><button class="btn" id="pBack" type="button">Back</button></div>
+  <iframe id="pFrame" title="Build" allow="autoplay; fullscreen; clipboard-write"></iframe>
+</div>
+
+<script>
+(function(){
+  var NS="http://www.w3.org/2000/svg";
+  function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  // Pieces. Every seam is one shared line walked by both neighbours, so any mix of shapes still fits.
+  var PROF={
+    round:[["L",.36,0],["C",.44,.04,.28,.19,.5,.19],["C",.72,.19,.56,.04,.64,0],["L",1,0]],
+    blob:[["L",.22,0],["C",.28,.12,.08,.27,.38,.29],["C",.68,.31,.72,.10,.60,0],["L",1,0]],
+    jagged:[["L",.2,0],["L",.3,.15],["L",.39,.04],["L",.5,.21],["L",.6,.03],["L",.7,.14],["L",.8,0],["L",1,0]],
+    key:[["L",.36,0],["L",.36,.1],["L",.27,.1],["L",.27,.22],["L",.69,.22],["L",.69,.1],["L",.6,.1],["L",.6,0],["L",1,0]],
+    wave:[["C",.18,.2,.32,.2,.5,0],["C",.68,-.2,.82,-.2,1,0]],
+    bolt:[["L",.28,0],["L",.46,.22],["L",.5,.09],["L",.7,.24],["L",.64,0],["L",1,0]],
+    flat:[["L",1,0]]
+  };
+  var TYPES=["round","jagged","blob","key","wave","bolt"];
+  function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;var q=Math.imul(seed^seed>>>15,1|seed);q=q+Math.imul(q^q>>>7,61|q)^q;return((q^q>>>14)>>>0)/4294967296;};}
+  function seam(A,B,type,sign){
+    var dx=B[0]-A[0],dy=B[1]-A[1],len=Math.hypot(dx,dy),nx=-dy/len,ny=dx/len,cur=[0,0],pts=[[0,0]];
+    PROF[type].forEach(function(s){
+      if(s[0]==="L"){cur=[s[1],s[2]];pts.push(cur);return;}
+      var p0=cur;
+      for(var k=1;k<=14;k++){var q=k/14,u=1-q,a=u*u*u,b=3*u*u*q,c=3*u*q*q,d=q*q*q;pts.push([a*p0[0]+b*s[1]+c*s[3]+d*s[5],a*p0[1]+b*s[2]+c*s[4]+d*s[6]]);}
+      cur=[s[5],s[6]];
+    });
+    return pts.map(function(p){return [A[0]+dx*p[0]+nx*len*p[1]*sign,A[1]+dy*p[0]+ny*len*p[1]*sign];});
+  }
+  function toPath(runs){var d="";runs.forEach(function(run,i){run.forEach(function(p,j){if(i&&!j)return;d+=(d?" L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1);});});return d+" Z";}
+  // rows x cols pieces with wobbly corners and a different seam on every shared edge.
+  function board(R,Cn,S,rnd,opt){
+    opt=opt||{};var j=(opt.jitter||0)*S,V=[],r,c,types=(opt.types||[]).slice(),ti=Math.floor(rnd()*TYPES.length);
+    function pick(){return types.length?types.shift():TYPES[(ti++)%TYPES.length];}
+    for(r=0;r<=R;r++){V[r]=[];for(c=0;c<=Cn;c++){
+      var onRow=r===0||r===R,onCol=c===0||c===Cn,x=c*S,y=r*S;
+      if(opt.wild||!onCol)x+=(rnd()*2-1)*j;
+      if(opt.wild||!onRow)y+=(rnd()*2-1)*j;
+      V[r][c]=[x,y];}}
+    function mk(A,B,outer){return (outer&&!opt.wild)?seam(A,B,"flat",1):seam(A,B,pick(),rnd()<.5?1:-1);}
+    var Hs=[],Vs=[];
+    for(r=0;r<=R;r++){Hs[r]=[];for(c=0;c<Cn;c++)Hs[r][c]=mk(V[r][c],V[r][c+1],r===0||r===R);}
+    for(r=0;r<R;r++){Vs[r]=[];for(c=0;c<=Cn;c++)Vs[r][c]=mk(V[r][c],V[r+1][c],c===0||c===Cn);}
+    var cells=[];
+    for(r=0;r<R;r++)for(c=0;c<Cn;c++){
+      cells.push({d:toPath([Hs[r][c],Vs[r][c+1],Hs[r+1][c].slice().reverse(),Vs[r][c].slice().reverse()]),
+        cx:(V[r][c][0]+V[r][c+1][0]+V[r+1][c][0]+V[r+1][c+1][0])/4,cy:(V[r][c][1]+V[r][c+1][1]+V[r+1][c][1]+V[r+1][c+1][1])/4});
+    }
+    return cells;
+  }
+  function onePiece(seed){return board(1,1,200,rng(seed),{wild:true,jitter:.1})[0].d;}
+  function mix(hex,amt,to){
+    var a=parseInt(hex.slice(1),16),b=parseInt(to.slice(1),16),o=[16,8,0].map(function(s){var x=(a>>s)&255,y=(b>>s)&255;return Math.round(x+(y-x)*amt);});
+    return "#"+o.map(function(v){return ("0"+v.toString(16)).slice(-2);}).join("");
+  }
+  var gid=0;
+  function lum(hex){var n=parseInt(hex.slice(1),16);return (.2126*((n>>16)&255)+.7152*((n>>8)&255)+.0722*(n&255))/255;}
+  // Six fills so no two neighbours look alike: dots, stripes, checks, zigzags, waves, confetti, or plain.
+  function patFill(svg,hex,pat,u){
+    var id="p"+(gid++),defs=el("defs",{}),ink=lum(hex)>.5?"rgba(13,10,34,.26)":"rgba(255,255,255,.32)",w=u,h=u;
+    if(pat==="waves")w=u*2;if(pat==="confetti"){w=u*2;h=u*2;}
+    var P=el("pattern",{id:id,patternUnits:"userSpaceOnUse",width:w,height:h});
+    P.appendChild(el("rect",{width:w,height:h,fill:hex}));
+    if(pat==="dots")P.appendChild(el("circle",{cx:u/2,cy:u/2,r:u*.2,fill:ink}));
+    if(pat==="stripes"){P.setAttribute("patternTransform","rotate(35)");P.appendChild(el("rect",{width:u*.38,height:u,fill:ink}));}
+    if(pat==="check"){P.appendChild(el("rect",{width:u/2,height:u/2,fill:ink}));P.appendChild(el("rect",{x:u/2,y:u/2,width:u/2,height:u/2,fill:ink}));}
+    if(pat==="zig")P.appendChild(el("polyline",{points:"0,"+u*.7+" "+u/2+","+u*.3+" "+u+","+u*.7,fill:"none",stroke:ink,"stroke-width":u*.14,"stroke-linejoin":"round"}));
+    if(pat==="waves")P.appendChild(el("path",{d:"M0 "+u/2+" Q"+u/2+" 0 "+u+" "+u/2+" T"+2*u+" "+u/2,fill:"none",stroke:ink,"stroke-width":u*.13}));
+    if(pat==="confetti")[[.3,.4,20],[1.3,.3,-30],[.8,1.2,50],[1.6,1.5,10],[.2,1.6,-45]].forEach(function(c,k){
+      P.appendChild(el("rect",{x:c[0]*u,y:c[1]*u,width:u*.36,height:u*.14,rx:u*.07,fill:k%2?ink:"rgba(255,255,255,.6)",transform:"rotate("+c[2]+" "+c[0]*u+" "+c[1]*u+")"}));});
+    defs.appendChild(P);svg.appendChild(defs);return "url(#"+id+")";
+  }
+  // A piece: its colour and pattern, a soft light from the top left, a thin bright rim.
+  function glossy(svg,d,hex,ghost,pat,u){
+    if(ghost){svg.appendChild(el("path",{d:d,"class":"shape",fill:"rgba(107,79,216,.06)",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"7 7"}));return;}
+    var id="g"+(gid++),defs=el("defs",{}),g=el("radialGradient",{id:id,cx:"32%",cy:"26%",r:"85%"});
+    [[0,"#FFFFFF",.22],[.55,"#FFFFFF",0],[1,"#0D0A22",.14]].forEach(function(s){g.appendChild(el("stop",{offset:s[0],"stop-color":s[1],"stop-opacity":s[2]}));});
+    defs.appendChild(g);svg.appendChild(defs);
+    var fill=(pat&&pat!=="solid")?patFill(svg,hex,pat,u||20):hex;
+    svg.appendChild(el("path",{d:d,"class":"shape",fill:fill,stroke:"#1A1540","stroke-width":(u&&u<10)?"1.1":"2.4","stroke-linejoin":"round"}));
+    svg.appendChild(el("path",{d:d,fill:"url(#"+id+")","pointer-events":"none"}));
+  }
+
+  var C={tomato:"#FF4F6D",marigold:"#FFE066",grass:"#C6F432",pool:"#22D3C5",grape:"#B45CF0",bubble:"#FF7AC8",lav:"#B9A8FF",tangerine:"#FF8A3D",peri:"#8C9BFF"};
+  var PAT=["dots","stripes","check","zig","waves","confetti","solid"];
+  var KIND={game:["Game",C.tomato],toy:["Playground toy",C.pool],tool:["Tool",C.grass],lab:["Lab",C.peri],workshop:["In the workshop",C.lav]};
+  var items=[
+    {n:"Grainsmith",slug:"grainsmith",pv:"preview=1",k:"toy",col:C.marigold,date:"2026-09-18",d:"Forty thousand cells and eleven materials, one rule each. Sand piles at forty five degrees, oil floats on water, fire eats the wood. No goal, no score. Just drag.",stat:"11",sl:"Materials",spec:["Browser toy","Drag to pour","No goal, no score"],acts:["Play with it"]},
+    {n:"Slingshot",slug:"slingshot",pv:"preview=slingshot",k:"game",col:C.tomato,date:"2026-09-14",d:"Nine levels of one problem: a probe, some planets, and a station to reach. One shot, no engine. The dotted line while you aim is exactly where you'll go.",stat:"9",sl:"Levels",spec:["Browser game","Drag or arrow keys","One shot per try"],acts:["Play it"]},
+    {n:"Ink Tank",slug:"ink-tank",pv:"preview=1&preset=aurora&warm=120",k:"toy",col:C.pool,date:"2026-09-20",d:"A tank of fluid you drag your finger through. The colour rides on real fluid maths, solved sixty times a second, with a switch to see the parts you normally can't.",stat:"60",sl:"Solves a second",spec:["Browser toy","Drag to stir","Four views"],acts:["Play with it"]},
+    {n:"Pluck",slug:"pluck",pv:"preview=1&note=50&frame=5&pick=0.125",k:"toy",col:C.grape,date:"2026-08-24",d:"A six string instrument where every note comes out of one short loop. Strum a chord and watch a burst of noise get rounded off into a clean note.",stat:"6",sl:"Strings",spec:["Browser instrument","Click, type or strum","Sound on"],acts:["Play it"]},
+    {n:"Gamut",slug:"gamut",wide:1,pv:"preview=1&h=264&c=0.16",k:"tool",col:C.grass,date:"2026-09-03",d:"Pick a hue and get a twelve step colour ramp, a contrast score for every step, and CSS you can paste into a real page.",stat:"12",sl:"Steps per ramp",spec:["Browser tool","Colour palettes","Copies CSS"],acts:["Use it"]},
+    {n:"Lamplighter",slug:"lamplighter",pv:"preview=2",k:"game",col:C.bubble,date:"2026-09-13",d:"A small, gentle platformer. Carry a flame through dark rooms and light the lanterns. No enemies, no lives, and falling just puts you back at the start.",stat:"5",sl:"Rooms",spec:["Browser game","Keyboard only","No enemies"],acts:["Play it"]},
+    {n:"Harmonics Lab",slug:"harmonics-lab",wide:1,pv:"preview=square",k:"lab",col:C.peri,date:"2026-08-23",d:"Sixteen sliders, one per harmonic, so dragging them writes a sound by hand. Load a sawtooth or a square and watch the shape build itself out of plain sine waves.",stat:"16",sl:"Harmonics",spec:["Sound lab", "Sound on", "Drag the bars"],acts:["Play it"]},
+    {n:"Wave Function Collapse",slug:"wave-function-collapse",pv:"preview=terrain&size=18&seed=thumb-island",k:"lab",col:C.grass,date:"2026-08-20",d:"Every square starts as every tile at once. Watch the solver settle one square at a time until pipes, circuits or islands appear. Click a square to place one yourself.",stat:"3",sl:"Tilesets",spec:["Algorithm lab", "Run or step it", "Click to place"],acts:["Try it"]},
+    {n:"BPE Forge",slug:"bpe-forge",wide:1,pv:"preview=1",k:"lab",col:C.marigold,date:"2026-08-21",d:"Teach a tiny tokenizer on text you paste, then use the thing you made. Click any token to see how it was glued together. It is nobody's real tokenizer.",stat:"1",sl:"Merge at a time",spec:["Word lab", "Paste your own text", "Toy tokenizer"],acts:["Try it"]},
+    {n:"Reaction",slug:"reaction",pv:"preview=1&preset=labyrinth",k:"toy",col:C.grape,date:"2026-08-25",d:"Two pretend chemicals, one eating the other. Paint into the field and drag across the map to turn it into a maze, crawling worms, lace or bubbles.",stat:"8",sl:"Presets",spec:["Browser toy", "Paint to start", "Four palettes"],acts:["Play with it"]},
+    {n:"Sift",slug:"sift",wide:1,pv:"preview=config",k:"tool",col:C.pool,date:"2026-08-29",d:"Paste two versions of anything and see exactly what changed, down to the word. It all happens on the page, so nothing private gets pasted into someone else's website.",stat:"2",sl:"Ways to view",spec:["Browser tool", "Compares text", "Nothing leaves the page"],acts:["Use it"]},
+    {n:"Drape",slug:"drape",pv:"preview=1",k:"lab",col:C.tomato,date:"2026-08-30",d:"A sheet of cloth you grab, throw, slice and tear. One button re-runs the same cloth six ways side by side, so you can see which solver keeps it the same fabric.",stat:"6",sl:"Presets",spec:["Cloth lab", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
+    {n:"Sway",slug:"sway",pv:"preview=1&preroll=420",k:"toy",col:C.grass,date:"2026-08-31",d:"A meadow at dusk you can stand in. Grass leans in the wind, petals come loose and drift, and a little breeze follows your hand. Tap to plant a flower.",stat:"4",sl:"Skies",spec:["Browser toy", "Tap to plant", "Made to look at"],acts:["Play with it"]},
+    {n:"Cron Almanac",slug:"cron-almanac",wide:1,pv:"preview=1",k:"tool",col:C.peri,date:"2026-09-01",d:"Paste a cron schedule and see the whole year at once, read back in plain English. It finds the two days a year when the clock change makes the schedule lie.",stat:"12",sl:"Months at once",spec:["Browser tool", "Schedules", "Plain English"],acts:["Use it"]},
+    {n:"XPBD Lab",slug:"xpbd-lab",pv:"preview=cloth",k:"lab",col:C.pool,date:"2026-09-02",d:"A cloth, a chain, a weight and a jelly blob, all run by the same short solver. Drag them, cut them, blow wind at them, then flip solvers and watch the cloth change its mind.",stat:"4",sl:"Toys, one solver",spec:["Physics lab", "Drag, pin, cut", "Prove it panel"],acts:["Play with it"]},
+    {n:"Gamut, second take",slug:"gamut-second-take",wide:1,pv:"preview=1&hue=250&chroma=0.2&curve=flat",k:"tool",col:C.bubble,date:"2026-09-06",d:"Built the same week as Gamut by a night that did not know Gamut existed, and kept because it solved it differently. Pick one colour, get a light and a dark theme.",stat:"2",sl:"Themes out",spec:["Browser tool", "Colour palettes", "Copies CSS"],acts:["Use it"]},
+    {n:"Taut",slug:"taut",pv:"preview=cloth",k:"lab",col:C.tangerine,date:"2026-09-04",d:"A rope, a cloth, a bridge and a bouncy blob made of the same two things: points, and rules about how far apart they may be. Take the scissors to a rope.",stat:"5",sl:"Scenes",spec:["Physics lab", "Colours by strain", "Wide screens"],acts:["Play with it"]},
+    {n:"Petri",slug:"petri",pv:"preview=Coral&grid=160&steps=3800&palette=Ink&seed=thumb",k:"toy",col:C.tomato,date:"2026-09-05",d:"A dish you paint into with a finger. Nothing is drawn: coral, fingerprints and dividing spots all grow out of one small rule, run on the graphics card.",stat:"6",sl:"Regimes",spec:["Browser toy", "Needs WebGL2", "Paint with a finger"],acts:["Play with it"]},
+    {n:"Turing Pool",slug:"turing-pool",pv:"preview=1&preset=fingerprint&grid=160&steps=4000&seed=11",k:"toy",col:C.grape,date:"2026-09-07",d:"Drop a chemical into water that wraps at every edge and watch whether it becomes spots, stripes, worms or leaves. Four numbers decide which.",stat:"7",sl:"Places to start",spec:["Browser toy", "Five palettes", "Paint with a finger"],acts:["Play with it"]},
+    {n:"Driftfield",slug:"driftfield",pv:"preview=1",k:"toy",col:C.lav,date:"2026-09-08",d:"Thousands of drifting trails that never pile up. Flip the one switch and every particle slides into a drain and the picture dies. Flip it back and it refills.",stat:"5",sl:"Palettes",spec:["Browser toy", "Leave it open", "One switch to break it"],acts:["Play with it"]},
+    {n:"Compliance",slug:"xpbd-cloth",pv:"preview=1",k:"lab",col:C.marigold,date:"2026-09-09",d:"A cloth you can grab and slash, with a ruler underneath it. Change how often the solver runs and watch one kind of cloth hold its fabric while the other stiffens.",stat:"3",sl:"Scenes",spec:["Physics lab", "Grab, pin, slash", "Prove it panel"],acts:["Play with it"]},
+    {n:"Swept",slug:"swept",wide:1,pv:"preview=1&scenario=c2",k:"tool",col:C.grass,date:"2026-09-10",d:"Two ways to save work in git, and in a shared folder one of them quietly takes someone else's changes too. Paste your status and it says which way is safe.",stat:"10",sl:"Worked examples",spec:["Browser tool", "For git", "Paste and check"],acts:["Use it"]},
+    {n:"Drape Rope",slug:"drape-rope",pv:"preview=curtain",k:"toy",col:C.pool,date:"2026-09-11",d:"Fabric in a dark room you can grab, fling, cut and blow around: a curtain, a flag, a rope, a hammock and a sheet that falls in a heap.",stat:"5",sl:"Scenes",spec:["Browser toy", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
+    {n:"Spring Bench",slug:"spring-bench",pv:"preview=1",k:"tool",col:C.tangerine,date:"2026-09-12",d:"Tune a bouncy spring by feel and get CSS that moves exactly the same way. A race lane shows yours against the standard ease out.",stat:"6",sl:"Presets",spec:["Browser tool", "Motion design", "Copies CSS"],acts:["Use it"]},
+    {n:"Sway Net",slug:"sway-net",pv:"preview=net",k:"lab",col:C.bubble,date:"2026-09-13",d:"A curtain, a rope bridge, a net that catches a ball, and nine pendulums that drift out of step and back into line. Turn on stress colours and pull.",stat:"9",sl:"Pendulums",spec:["Physics lab", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
+    {n:"Aeolian",slug:"aeolian",pv:"preview=1",k:"toy",col:C.peri,date:"2026-09-15",d:"Nine strings in a dark room and a wind that plays them. Nothing is sequenced: you are hearing the wind bend a string until it plucks. Drag through them to play.",stat:"9",sl:"Strings",spec:["Browser instrument", "Sound on", "Click to start"],acts:["Play it"]},
+    {n:"Verlet",slug:"verlet",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-15",d:"Hang a curtain, fly nine streamers in a crosswind, string a rope bridge, sling a net, then tear it all down. About a hundred lines of physics.",stat:"4",sl:"Scenes",spec:["Browser toy", "Grab, tear, pin", "Live sliders"],acts:["Play with it"]},
+    {n:"Linen",slug:"linen",pv:"preview=flag&steps=340&wind=6.4",k:"toy",col:C.lav,date:"2026-09-16",d:"A piece of cloth with nothing between you and it. Drag it, cut it, pin it, or drop a square of linen onto a ball and let it find its own folds.",stat:"5",sl:"Hangings",spec:["Browser toy", "Mouse or keyboard to cut", "Drag only on touch"],acts:["Play with it"]},
+    {n:"Drape Scenes",slug:"drape-scenes",pv:"preview=drape&ff=220",k:"toy",col:C.marigold,date:"2026-09-17",d:"A curtain that heaps on the floor, a flag, a sheet over a ball, a net full of balls and a rope bridge. No explainer, you just poke at it.",stat:"5",sl:"Scenes",spec:["Browser toy", "Drop a ball", "Works on touch"],acts:["Play with it"]},
+    {n:"Cloth",slug:"cloth",pv:"preview=ropes",k:"toy",col:C.tomato,date:"2026-09-19",d:"A curtain, a banner, a net, a bridge and a rack of ropes, all points and sticks. Pull one corner and watch the strain light up all the way back to the pins.",stat:"5",sl:"Hanging things",spec:["Browser toy", "Colours by strain", "Just for playing"],acts:["Play with it"]},
+    {n:"Governance plugin",k:"workshop",col:C.lav,date:"2026-09-06",d:"The guardrails we built for our own AI helper, packaged so anyone can install them: review gates, a council of reviewers, and a lock that stops two sessions editing one file. Family data never ships, only the machinery. Mapped, not built yet.",stat:"Mapped",sl:"Not installable yet",spec:["In the workshop","For Claude Code","Mapped 2026-09-06"],acts:["Read the plan"],ghost:true}
+  ];
+  var shapes=items.map(function(_,i){return onePiece(101+i*7);});
+  var TILT=[-14,12,18,-10,8,-6,14];
+  var MONTH=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function shortDate(iso){return MONTH[+iso.slice(5,7)-1]+" "+(+iso.slice(8));}
+  var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Logo mark: an S for Saxton, eleven pieces that don't match, the top one flying off.
+  var SMASK=[[1,1,1],[1,0,0],[1,1,1],[0,0,1],[1,1,1]];
+  var MCOL=[C.tomato,C.tangerine,C.marigold,C.grass,C.pool,C.peri,C.grape,C.bubble],MPAT=["solid","dots","stripes","check","zig","waves","confetti"];
+  function mark(svg){
+    var S=26,cells=board(5,3,S,rng(19),{jitter:.13}),n=0;
+    svg.appendChild(el("path",{d:"M54 22 q8 -3 12 -11 M61 28 q8 -3 12 -11",fill:"none",stroke:"#6B4FD8","stroke-width":"2.4","stroke-linecap":"round",opacity:".9"}));
+    cells.forEach(function(cell,i){
+      var r=Math.floor(i/3),c=i%3;if(!SMASK[r][c])return;
+      var g=el("g",(r===0&&c===2)?{transform:"translate(10 -10) rotate(18 "+cell.cx+" "+cell.cy+")"}:{});
+      glossy(g,cell.d,MCOL[(n*3)%8],false,MPAT[(n*2)%7],5);n++;svg.appendChild(g);
+    });
+  }
+  // Letters sit a little crooked, like the pieces. Words stay whole so lines still wrap.
+  document.querySelectorAll(".crooked").forEach(function(w){
+    var text=w.textContent.trim(),amp=+(w.dataset.amp||2.2),rot=+(w.dataset.rot||7),rr=rng(3),k=0;
+    var vis=document.createElement("span");vis.setAttribute("aria-hidden","true");
+    text.split(" ").forEach(function(word,wi){
+      if(wi)vis.appendChild(document.createTextNode(" "));
+      var ws=document.createElement("span");ws.className="w";
+      word.split("").forEach(function(ch){var s=document.createElement("span");s.className="ch";s.textContent=ch;
+        s.style.transform="translateY("+((rr()*2-1)*amp).toFixed(1)+"px) rotate("+((rr()*2-1)*rot).toFixed(1)+"deg)";
+        s.style.animationDelay=(k++*25)+"ms";ws.appendChild(s);});
+      vis.appendChild(ws);
+    });
+    var sr=document.createElement("span");sr.className="sr";sr.textContent=text;
+    w.textContent="";w.appendChild(vis);w.appendChild(sr);
+  });
+  mark(document.getElementById("mark"));document.querySelectorAll(".mark2").forEach(mark);
+
+  // Each build ships next to this page as builds/<slug>/index.html, and draws a chrome free view of itself when asked for a preview.
+  function buildSrc(it,preview){return "builds/"+it.slug+"/index.html"+(preview&&it.pv?"?"+it.pv:"");}
+  items.forEach(function(it,i){it.i=i;});
+  var view={f:"all",q:"",mode:"puzzle"};
+  function matches(it){var q=view.q.trim().toLowerCase();return (view.f==="all"||it.k===view.f)&&(!q||(it.n+" "+it.d+" "+KIND[it.k][0]).toLowerCase().indexOf(q)>-1);}
+  function shown(){return items.filter(matches);}
+  function sticker(it,cls){var s=el("svg",{viewBox:"-70 -70 340 340","aria-hidden":"true"});if(cls)s.setAttribute("class",cls);glossy(s,shapes[it.i],it.col,it.ghost,PAT[it.i%PAT.length],20);return s;}
+
+  // Detail view: a live preview of the build, the facts beside it, Play on top.
+  var det=document.getElementById("detail"),play=document.getElementById("play"),pFrame=document.getElementById("pFrame"),scr=document.getElementById("dScreen");
+  var seq=items,cur=0,lastFocus=null;
+  function openItem(it){seq=matches(it)?shown():items;show(seq.indexOf(it));}
+  function show(pos){
+    var N=seq.length;cur=(pos+N)%N;var it=seq[cur],K=KIND[it.k],prev=seq[(cur-1+N)%N],next=seq[(cur+1)%N],was=det.hidden;
+    if(was)lastFocus=lastFocus||document.activeElement;
+    document.getElementById("dNum").textContent="Piece "+(cur+1)+" of "+N;
+    document.getElementById("dFacts").innerHTML=it.spec.map(function(s){return"<li>"+s+"</li>";}).join("")+'<li class="date">Built '+it.date+"</li>";
+    scr.innerHTML="";scr.style.setProperty("--c",it.col);
+    if(it.slug){
+      var fr=document.createElement("div");fr.className="frame"+(it.wide?" wide":"");
+      var f=document.createElement("iframe");f.src=buildSrc(it,true);f.title="Live preview of "+it.n;f.tabIndex=-1;f.setAttribute("aria-hidden","true");f.setAttribute("scrolling","no");
+      var go=document.createElement("button");go.type="button";go.className="go";go.setAttribute("aria-label",it.acts[0]+": "+it.n);go.innerHTML="<span>"+it.acts[0]+"</span>";go.onclick=function(){startPlay(it);};
+      fr.appendChild(f);fr.appendChild(go);scr.appendChild(fr);scr.appendChild(sticker(it,"sticker"));
+      var cap=document.createElement("p");cap.className="cap";cap.textContent="Running live, right here. Tap it to play.";scr.appendChild(cap);
+    }else{
+      var g=document.createElement("div");g.className="ghostart";g.appendChild(sticker(it));
+      var gp=document.createElement("p");gp.textContent="Nothing to play yet. It's mapped, not built.";g.appendChild(gp);scr.appendChild(g);
+    }
+    document.getElementById("dKind").textContent=K[0];document.getElementById("dName").textContent=it.n;document.getElementById("dText").textContent=it.d;
+    var acts=document.getElementById("dActs");
+    acts.innerHTML=it.slug?'<button class="btn" type="button" id="dPlay">'+it.acts[0]+'</button>':'<span class="soon">Not playable yet</span>';
+    if(it.slug)document.getElementById("dPlay").onclick=function(){startPlay(it);};
+    var pb=document.getElementById("dPrev"),nb=document.getElementById("dNext");
+    pb.textContent="← "+prev.n;pb.setAttribute("aria-label","Previous piece: "+prev.n);
+    nb.textContent=next.n+" →";nb.setAttribute("aria-label","Next piece: "+next.n);
+    pb.hidden=nb.hidden=N<2;
+    det.hidden=false;fitWide();document.body.style.overflow="hidden";if(was)document.getElementById("dClose").focus();
+  }
+  function fitWide(){var f=scr.querySelector(".frame.wide");if(f)f.style.setProperty("--s",f.clientWidth/1100);}
+  window.addEventListener("resize",fitWide);
+  function close(){det.hidden=true;scr.innerHTML="";document.body.style.overflow="";if(lastFocus&&lastFocus.focus)lastFocus.focus();lastFocus=null;}
+  // Play: the whole build, full screen, with a way back.
+  function startPlay(it){
+    document.getElementById("pName").textContent=it.n;
+    document.getElementById("pHint").textContent=it.spec.slice(1).join(". ")+".";
+    var ps=document.getElementById("pSticker");ps.innerHTML="";ps.appendChild(sticker(it));
+    scr.innerHTML="";
+    pFrame.title=it.n;pFrame.onload=function(){if(play.hidden)return;try{pFrame.contentWindow.focus();}catch(e){}pFrame.focus();};
+    pFrame.src=buildSrc(it,false);play.hidden=false;
+  }
+  function stopPlay(){play.hidden=true;pFrame.onload=null;pFrame.src="about:blank";show(cur);var b=document.getElementById("dPlay");if(b)b.focus();}
+  document.getElementById("pBack").onclick=stopPlay;
+  document.getElementById("dClose").onclick=close;
+  document.getElementById("dPrev").onclick=function(){show(cur-1);};
+  document.getElementById("dNext").onclick=function(){show(cur+1);};
+  document.addEventListener("keydown",function(e){
+    if(!play.hidden){if(e.key==="Escape")stopPlay();return;}
+    if(det.hidden)return;if(e.key==="Escape")close();if(e.key==="ArrowRight")show(cur+1);if(e.key==="ArrowLeft")show(cur-1);
+  });
+
+  // Board: as many pieces as there are builds, plus the open slot. It lays itself out from the count.
+  var bd=document.getElementById("board"),snapBtn=document.getElementById("snap"),plist=document.getElementById("plist"),bempty=document.getElementById("bEmpty"),bstate=document.getElementById("boardState"),S=200,narrowNow=null;
+  function label(g,words,x,y,fs,fg,halo,kind){
+    var longest=Math.max.apply(null,words.map(function(w){return w.length;}));fs=Math.min(fs,176/(longest*.78));
+    words.forEach(function(L,j){var t=el("text",{x:x,y:y+(j-(words.length-1)/2)*fs*1.45,"text-anchor":"middle",fill:fg,stroke:halo,"stroke-width":fs*.46,"paint-order":"stroke","stroke-linejoin":"round","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":fs.toFixed(1)});t.textContent=L;g.appendChild(t);});
+    var k=el("text",{x:x,y:y+fs*1.7+(words.length-1)*fs*.72,"text-anchor":"middle",fill:fg,stroke:halo,"stroke-width":fs*.46,"paint-order":"stroke","stroke-linejoin":"round","font-family":"Atkinson Hyperlegible, sans-serif","font-weight":"700","font-size":(fs*.8).toFixed(1)});k.textContent=kind;g.appendChild(k);
+  }
+  function drawBoard(){
+    var list=shown(),narrow=bd.parentNode.clientWidth<560,n=list.length+1,rr=rng(7);narrowNow=narrow;
+    var Cn=narrow?2:Math.max(3,Math.min(8,Math.ceil(Math.sqrt(n*2))));Cn=Math.min(Cn,Math.max(2,n));
+    var R=Math.ceil(n/Cn),cells=board(R,Cn,S,rng(42+R*10+Cn),{jitter:.1}),base=narrow?24:16;
+    bd.innerHTML="";bd.setAttribute("viewBox","-50 -50 "+(Cn*S+100)+" "+(R*S+100));
+    bd.setAttribute("aria-label",list.length+" puzzle piece"+(list.length===1?"":"s")+", one per build, plus an empty slot for the next one");
+    cells.forEach(function(cell,i){
+      var d=cell.d,x=cell.cx,y=cell.cy,g;
+      if(i<list.length){
+        var it=list[i];g=el("g",{"class":"bp",tabindex:"0",role:"button","aria-label":"Open "+it.n});
+        glossy(g,d,it.col,it.ghost,PAT[it.i%PAT.length],20);
+        var fg=it.ghost?"#6B4FD8":(lum(it.col)>.55?"#1A1540":"#FFFFFF"),halo=it.ghost?"none":it.col;
+        label(g,it.n.split(" "),x,y-8,base,fg,halo,KIND[it.k][0].toLowerCase());
+        (function(item,gg){gg.addEventListener("click",function(){lastFocus=gg;openItem(item);});gg.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();lastFocus=gg;openItem(item);}});})(it,g);
+      }else if(i===list.length){
+        g=el("g",{"class":"bp slot",tabindex:"0",role:"link","aria-label":"Your idea could be the next piece"});
+        g.appendChild(el("path",{d:d,"class":"shape",fill:"rgba(107,79,216,.05)",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"8 8"}));
+        var t1=el("text",{x:x,y:y-4,"text-anchor":"middle",fill:"#6B4FD8","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":Math.min(base+2,20)});t1.textContent="Your idea?";
+        var t2=el("text",{x:x,y:y+base+6,"text-anchor":"middle",fill:"#524A78","font-family":"Atkinson Hyperlegible, sans-serif","font-size":base-2});t2.textContent="the next piece";
+        g.appendChild(t1);g.appendChild(t2);
+        var goIdea=function(){location.hash="idea";};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
+      }else{
+        g=el("g",{"class":"bp hole","aria-hidden":"true"});
+        g.appendChild(el("path",{d:d,fill:"rgba(107,79,216,.03)",stroke:"rgba(107,79,216,.28)","stroke-width":"1.5","stroke-dasharray":"4 8"}));
+      }
+      g.style.setProperty("--dx",((rr()*2-1)*60).toFixed(0)+"px");g.style.setProperty("--dy",((rr()*2-1)*50).toFixed(0)+"px");g.style.setProperty("--rot",((rr()*2-1)*20).toFixed(0)+"deg");
+      bd.appendChild(g);
+    });
+  }
+  function drawList(){
+    plist.innerHTML="";
+    shown().slice().sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:a.i-b.i;}).forEach(function(it){
+      var li=document.createElement("li"),b=document.createElement("button");b.type="button";b.style.setProperty("--c",it.col);
+      b.innerHTML='<span class="pc"></span><span class="nm"><b>'+it.n+'</b><span class="one">'+it.d+'</span></span><span class="k"><i></i>'+KIND[it.k][0]+'</span><span class="date">'+shortDate(it.date)+'</span>';
+      b.querySelector(".pc").appendChild(sticker(it));b.onclick=function(){lastFocus=b;openItem(it);};li.appendChild(b);plist.appendChild(li);
+    });
+  }
+  function setSnap(on){bd.classList.toggle("scattered",!on);snapBtn.textContent=on?"Scatter them":"Snap them back";}
+  snapBtn.onclick=function(){setSnap(bd.classList.contains("scattered"));};
+  // The pieces that match fly in and snap together; everything else leaves the board.
+  function flyIn(delay){if(reduce){setSnap(true);return;}setSnap(false);bd.getBoundingClientRect();setTimeout(function(){setSnap(true);},delay);}
+  var lib=document.getElementById("lib");
+  function refresh(fly){
+    var list=shown(),n=list.length,puzzle=view.mode==="puzzle",narrowed=view.f!=="all"||view.q.trim();
+    document.querySelectorAll("[data-f]").forEach(function(x){if(x.classList.contains("chip"))x.setAttribute("aria-pressed",x.dataset.f===view.f?"true":"false");});
+    document.querySelectorAll("[data-view]").forEach(function(x){x.setAttribute("aria-pressed",x.dataset.view===view.mode?"true":"false");});
+    bd.style.display=puzzle&&n?"":"none";plist.hidden=puzzle||!n;snapBtn.hidden=!puzzle||!n;bempty.hidden=!!n;
+    if(puzzle&&n){drawBoard();if(fly)flyIn(60);}
+    if(!puzzle)drawList();
+    bstate.textContent=n?(n+(narrowed?" of "+items.length:"")+" piece"+(n===1?"":"s")+(puzzle?". Tap one to open it.":", newest first.")):"";
+    lib.querySelectorAll(".card").forEach(function(c){c.hidden=!matches(items[+c.dataset.i]);});
+  }
+  function setFilter(f){view.f=f;refresh(true);}
+  // Chip counts, and a chip with nothing behind it goes away.
+  document.querySelectorAll(".chip[data-f]").forEach(function(b){
+    var c=b.dataset.f==="all"?items.length:items.filter(function(it){return it.k===b.dataset.f;}).length;
+    var s=document.createElement("span");s.textContent=c;b.appendChild(s);if(!c)b.hidden=true;
+    b.onclick=function(){setFilter(b.dataset.f);};
+  });
+  document.querySelectorAll("[data-jump]").forEach(function(a){a.addEventListener("click",function(){setFilter(a.dataset.jump);});});
+  document.querySelectorAll("[data-view]").forEach(function(b){b.onclick=function(){view.mode=b.dataset.view;refresh(true);};});
+  // Search only shows up once the library is big enough to need it.
+  var find=document.getElementById("find");
+  if(items.length>12){find.parentNode.hidden=false;find.addEventListener("input",function(){view.q=find.value;refresh(false);});}
+  document.getElementById("bClear").onclick=function(){view.f="all";view.q="";find.value="";refresh(true);};
+  window.addEventListener("resize",function(){if(view.mode==="puzzle"&&(bd.parentNode.clientWidth<560)!==narrowNow)drawBoard();});
+
+  // Library cards
+  items.forEach(function(it,i){
+    var K=KIND[it.k],b=document.createElement("button");b.type="button";b.className="card"+(it.ghost?" ghostcard":"");b.dataset.kind=it.k;b.dataset.i=i;
+    b.style.setProperty("--c",it.col);b.style.setProperty("--r",TILT[i%TILT.length]+"deg");
+    b.innerHTML='<div class="vis"></div><div class="kind"><i></i>'+K[0]+'</div><h3>'+it.n+'</h3><p>'+it.d+'</p><div class="foot"><div><b>'+it.stat+'</b><small>'+it.sl+'</small></div><span class="go">'+"Open"+'</span></div>';
+    b.querySelector(".vis").appendChild(sticker(it));
+    b.onclick=function(){lastFocus=b;openItem(it);};lib.appendChild(b);
+  });
+  refresh(false);
+  if(reduce)setSnap(true);else setTimeout(function(){setSnap(true);},700);
+
+  // What we made, and when: a plain dated list, oldest first.
+  var log=document.getElementById("logList");
+  items.map(function(it,i){return {it:it,i:i};}).sort(function(a,b){return a.it.date<b.it.date?-1:a.it.date>b.it.date?1:a.i-b.i;}).forEach(function(o){
+    var it=o.it,li=document.createElement("li");
+    li.innerHTML='<span class="date">'+shortDate(it.date)+'</span><span class="pc"></span><b>'+it.n+'</b><span class="what">'+KIND[it.k][0]+'</span>';
+    var s=el("svg",{viewBox:"-70 -70 340 340","aria-hidden":"true"});glossy(s,shapes[o.i],it.col,it.ghost,PAT[o.i%PAT.length],20);s.style.transform="rotate("+TILT[o.i%TILT.length]+"deg)";li.querySelector(".pc").appendChild(s);
+    log.appendChild(li);
+  });
+
+  // The empty slot, drawn in ink on butter.
+  var cs=document.getElementById("ctaSlot");
+  cs.appendChild(el("path",{d:onePiece(77),fill:"none",stroke:"#1A1540","stroke-width":"6","stroke-dasharray":"16 12","stroke-linejoin":"round",transform:"rotate(-8 100 100)"}));
+})();
+</script>

@@ -1,0 +1,1083 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gamut, an OKLCH palette forge</title>
+<!--
+  GAMUT, an OKLCH palette forge.                       playground build, 2026-09-03
+
+  WHAT IT DOES
+  Builds a usable colour ramp in OKLCH and shows you the wall it keeps hitting. Pick a
+  hue and a chroma, get twelve steps, a set of WCAG contrast ratios, and CSS custom
+  properties you can paste into a real page. The picture in the middle is a slice
+  through the sRGB gamut at the hue you are on: lightness up the side, chroma across,
+  every paintable colour painted and everything outside left dark. Drag the hue and the
+  shape moves, which is the fastest way to see why a bright saturated yellow exists and
+  a bright saturated blue does not.
+
+  Everything runs in this one file, offline, with no dependencies.
+
+  WHY I BUILT IT
+  I can recite "OKLCH is perceptually uniform" and had never once written the matrices,
+  never written a gamut mapper, and never checked any of it against an implementation
+  I did not author. That gap is the whole point of this folder. It is also the first
+  build here that is a tool rather than a step-through explainer, which the playtime log
+  had been asking for.
+
+  WHAT I LEARNED
+  Every number below was measured. Where it contradicts what I had written down before
+  measuring, the prediction and the miss are both recorded in _verify/RESULTS.md rather
+  than quietly corrected here.
+
+  1. getComputedStyle does NOT resolve oklch() to sRGB. It hands the oklch() straight
+     back, unresolved, so the obvious way to ask the browser for a second opinion gives
+     you nothing but your own question. The canvas rasteriser does resolve it, because
+     an 8 bit surface leaves it no choice, and that is the door this build knocks on.
+  2. Chromium does not gamut map an out of range oklch(). It clamps the linear channels
+     where they fall, which matches this file's clip mode to within one level of 255 on
+     every case tried, and it moves the lightness you asked for by up to 0.12.
+  3. The published Oklab matrices are only mutual inverses to about 4e-8, because the
+     forward and backward constants were each rounded to ten decimal places on their own.
+     That, and not floating point, is what sets the round trip error floor: 1.6e-6 with
+     the published constants, 4.3e-14 with a numerically exact inverse, a factor of
+     37,000. This build keeps the published ones on purpose, because matching everybody
+     else is worth more here than a sixth decimal place nobody can see.
+  4. CSS Color 4's gamut mapper is allowed to drift the hue. It accepts a clipped colour
+     whenever the clipping costs less than one just noticeable difference, so it keeps
+     trading hue for saturation: 4.3 degrees of drift on average, against under a
+     hundredth of a degree for a strict reduction. Both are switchable here, because I
+     would not have believed that without the switch.
+  5. OKLCH lightness travels between hues far better than I had claimed. A fixed pair of
+     lightnesses holds its WCAG contrast ratio to within about 6 percent across the whole
+     hue circle. What it is NOT is linear: evenly spaced lightness gives contrast jumps
+     that vary by a large factor, which is the real reason the contrast table earns its
+     place next to the L column.
+  6. The sRGB gamut in OKLCH is a lopsided wedge, not a disc, and its most chromatic
+     point is magenta near hue 328 at L 0.70, not blue. Yellow is the BRIGHTEST corner,
+     peaking near L 0.97, and it is one of the least chromatic. I had that backwards.
+
+  HOUSE RULES: self contained, offline, no network, nothing sensitive, nothing outbound.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f8;
+    --surface: #ffffff;
+    --surface-2: #f0f0f2;
+    --line: #d9d9de;
+    --ink: #1a1a1f;
+    --ink-dim: #5c5c66;
+    --accent: #3b5bdb;
+    --ok: #2b8a3e;
+    --warn: #b45309;
+    --bad: #c92a2a;
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131316;
+      --surface: #1c1c21;
+      --surface-2: #26262d;
+      --line: #35353f;
+      --ink: #ececf1;
+      --ink-dim: #9a9aa8;
+      --accent: #8ba2ff;
+      --ok: #63c77a;
+      --warn: #e0a458;
+      --bad: #f08585;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131316;
+    --surface: #1c1c21;
+    --surface-2: #26262d;
+    --line: #35353f;
+    --ink: #ececf1;
+    --ink-dim: #9a9aa8;
+    --accent: #8ba2ff;
+    --ok: #63c77a;
+    --warn: #e0a458;
+    --bad: #f08585;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 22px 24px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 16px;
+  }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--ink-dim); font-size: 13.5px; max-width: 62ch; }
+  #themeBtn {
+    margin-left: auto;
+    font: inherit; font-size: 13px;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 13px; cursor: pointer;
+  }
+  #themeBtn:hover { border-color: var(--accent); }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(300px, 340px) minmax(420px, 1fr);
+    gap: 20px;
+    padding: 20px 24px 56px;
+    align-items: start;
+    max-width: 1500px;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .panel + .panel { margin-top: 20px; }
+  .panel h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--ink-dim); margin: 0 0 12px; font-weight: 600;
+  }
+  .panel h2 .sub { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 8px; }
+
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 13px; margin-bottom: 5px; }
+  .field .val { float: right; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+  input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+  input[type="text"], select {
+    font: inherit; font-family: var(--mono); font-size: 13px;
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 6px 9px; width: 100%;
+  }
+  input[type="color"] {
+    width: 44px; height: 32px; padding: 2px; vertical-align: middle;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px;
+  }
+  .row2 { display: flex; gap: 8px; align-items: center; }
+  .row2 input[type="text"] { flex: 1; }
+  .hint { font-size: 12px; color: var(--ink-dim); margin: 6px 0 0; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+  .toggles button {
+    font: inherit; font-size: 12.5px; cursor: pointer;
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px;
+  }
+  .toggles button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* the gamut slice */
+  .sliceWrap { position: relative; }
+  #slice {
+    display: block; width: 100%; height: auto;
+    border-radius: 8px; border: 1px solid var(--line);
+    background: var(--surface-2); cursor: crosshair; touch-action: none;
+  }
+  .axis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); margin-top: 5px; }
+  .yaxis {
+    position: absolute; left: -34px; top: 0; bottom: 0; width: 30px;
+    display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+  }
+  .sliceHost { padding-left: 36px; }
+  #readout {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    margin-top: 8px; min-height: 1.5em;
+  }
+
+  /* the ramp */
+  .ramp { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 6px; }
+  .swatch {
+    border-radius: 8px; border: 1px solid var(--line); overflow: hidden;
+    background: var(--surface-2); text-align: left;
+    font: inherit; padding: 0; cursor: pointer; display: block; width: 100%;
+  }
+  .swatch .chip { height: 58px; display: block; }
+  .swatch .meta { padding: 6px 7px 7px; font-family: var(--mono); font-size: 10.5px; line-height: 1.45; color: var(--ink-dim); }
+  .swatch .meta b { display: block; color: var(--ink); font-size: 11.5px; font-weight: 600; }
+  .swatch.clamped .meta b::after { content: " *"; color: var(--warn); }
+  .swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: right; padding: 5px 7px; border-bottom: 1px solid var(--line); font-family: var(--mono); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  tbody tr:last-child td { border-bottom: none; }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 600; }
+  .pill.aaa { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .pill.aa  { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+  .pill.lg  { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+  .pill.no  { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+  .dot { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--line); vertical-align: -1px; margin-right: 6px; }
+
+  textarea {
+    width: 100%; min-height: 220px; resize: vertical;
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+    background: var(--surface-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  }
+  .exportBar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .exportBar button, #proveBtn {
+    font: inherit; font-size: 13px; cursor: pointer;
+    background: var(--accent); color: #fff; border: 1px solid transparent;
+    border-radius: 7px; padding: 6px 13px;
+  }
+  .exportBar button.ghost { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
+  #copyNote { font-size: 12px; color: var(--ok); }
+
+  .verdict { font-family: var(--mono); font-size: 12.5px; margin: 10px 0 0; }
+  .verdict.pass { color: var(--ok); }
+  .verdict.fail { color: var(--bad); }
+  .verdict.idle { color: var(--ink-dim); }
+
+  /* Preview mode for the playground index card. The card is a fixed 2:1 window, so
+     everything has to sit inside the visible band: the left column is not merely
+     hidden, its grid track is removed, or the whole composition slides right and the
+     card shows half an empty frame. That is exactly what the first version did. */
+  body.preview { background: var(--bg); }
+  body.preview header, body.preview #colLeft, body.preview #exportPanel,
+  body.preview #contrastPanel, body.preview #provePanel, body.preview #readout,
+  body.preview .axis, body.preview .yaxis, body.preview footer,
+  body.preview .swatch .meta span.lc { display: none !important; }
+  body.preview main { grid-template-columns: 1fr; padding: 10px; gap: 10px; max-width: none; }
+  body.preview #colRight { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; align-items: start; }
+  body.preview .panel + .panel { margin-top: 0; }
+  body.preview .sliceHost { padding-left: 0; }
+  body.preview .panel { padding: 9px 10px; }
+  body.preview .panel h2 { margin-bottom: 7px; font-size: 10.5px; }
+  body.preview .swatch .chip { height: 30px; }
+  body.preview .swatch .meta { padding: 3px 5px 4px; font-size: 9px; }
+  body.preview .ramp { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+
+  footer { padding: 0 24px 40px; color: var(--ink-dim); font-size: 12px; max-width: 78ch; }
+  footer code { font-family: var(--mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Gamut</h1>
+  <p>A palette forge in OKLCH. The picture is a slice through the sRGB gamut at the hue you are on, and the ramp is what fits inside it.</p>
+  <button id="themeBtn" type="button">Theme</button>
+</header>
+
+<main>
+  <div id="colLeft">
+    <section class="panel controls">
+      <h2>Base colour</h2>
+
+      <div class="field">
+        <label for="hexIn">Hex, or pick one</label>
+        <div class="row2">
+          <input type="text" id="hexIn" value="#3B5BDB" spellcheck="false" autocomplete="off" aria-label="Base colour as hex">
+          <input type="color" id="pickIn" value="#3b5bdb" aria-label="Base colour picker">
+        </div>
+        <p class="hint" id="baseHint">&nbsp;</p>
+      </div>
+
+      <div class="field">
+        <label for="hueIn">Hue <span class="val" id="hueVal">264</span></label>
+        <input type="range" id="hueIn" min="0" max="360" step="0.5" value="264">
+      </div>
+
+      <div class="field">
+        <label for="chromaIn">Chroma <span class="val" id="chromaVal">0.140</span></label>
+        <input type="range" id="chromaIn" min="0" max="0.37" step="0.001" value="0.14">
+      </div>
+
+      <div class="field">
+        <label for="stepsIn">Steps <span class="val" id="stepsVal">12</span></label>
+        <input type="range" id="stepsIn" min="3" max="16" step="1" value="12">
+      </div>
+
+      <div class="field">
+        <label for="shapeIn">Chroma shape</label>
+        <select id="shapeIn">
+          <option value="flat">Flat, same chroma at every step</option>
+          <option value="peak" selected>Peaked, richest in the middle</option>
+          <option value="max">Maximum, ride the gamut edge</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>A colour outside sRGB gets</label>
+        <div class="toggles" role="group" aria-label="Out of gamut handling">
+          <button type="button" data-fit="map" aria-pressed="true">hue held</button>
+          <button type="button" data-fit="css" aria-pressed="false">CSS Color 4</button>
+          <button type="button" data-fit="clip" aria-pressed="false">clipped</button>
+        </div>
+        <p class="hint" id="fitHint"></p>
+      </div>
+    </section>
+
+    <section class="panel" id="provePanel">
+      <h2>Prove it <span class="sub">my maths against the browser's</span></h2>
+      <p class="hint" style="margin-top:0">
+        Every colour below is computed twice: once by the code in this file, and once by asking
+        Chromium to paint <code>oklch()</code> onto a canvas and reading the pixel back. The
+        second one is an implementation I did not write and cannot see. If the two disagree, the
+        number on the right is not zero.
+      </p>
+      <button id="proveBtn" type="button">Run the comparison</button>
+      <p class="verdict idle" id="proveVerdict">Not run yet.</p>
+      <div id="proveTable"></div>
+    </section>
+  </div>
+
+  <div id="colRight">
+    <section class="panel">
+      <h2>The sRGB gamut at this hue <span class="sub">click or drag to move the base</span></h2>
+      <div class="sliceHost">
+        <div class="sliceWrap">
+          <canvas id="slice" width="760" height="520" aria-label="Slice through the sRGB gamut: lightness vertically, chroma horizontally"></canvas>
+          <div class="yaxis"><span>L 1.0</span><span>0.75</span><span>0.5</span><span>0.25</span><span>L 0</span></div>
+        </div>
+        <div class="axis"><span>C 0</span><span>0.10</span><span>0.20</span><span>0.30</span><span id="cmaxLabel">C 0.40</span></div>
+        <div id="readout">&nbsp;</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>The ramp <span class="sub" id="rampNote"></span></h2>
+      <div class="ramp" id="ramp"></div>
+    </section>
+
+    <section class="panel" id="contrastPanel">
+      <h2>Contrast <span class="sub">WCAG 2.1, against white and black</span></h2>
+      <div id="contrast"></div>
+      <p class="hint" id="contrastNote"></p>
+    </section>
+
+    <section class="panel" id="exportPanel">
+      <h2>Export</h2>
+      <div class="exportBar">
+        <button type="button" id="copyBtn">Copy CSS</button>
+        <button type="button" class="ghost" id="fmtCss" aria-pressed="true">CSS variables</button>
+        <button type="button" class="ghost" id="fmtJson" aria-pressed="false">JSON</button>
+        <span id="copyNote"></span>
+      </div>
+      <textarea id="exportOut" spellcheck="false" aria-label="Generated palette"></textarea>
+    </section>
+  </div>
+</main>
+
+<footer>
+  Built offline, no dependencies, no network. Contrast ratios use the WCAG 2.1 relative luminance
+  formula, which is the normative one and is also known to under-report the difficulty of light
+  text on mid saturated colour; treat a bare pass near 4.5 as a reason to look, not as a result.
+  The gamut mapper reduces chroma against a just noticeable difference of 0.02 in Oklab, which is
+  the approach CSS Color 4 describes.
+</footer>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * Colour maths. Everything below is written out longhand on purpose:
+ * the point of the build was to write it rather than to import it.
+ * The matrices satisfy the identity that defines them, which is that
+ * linear sRGB white lands exactly on L=1, a=0, b=0. That is checked in
+ * _verify, and it is the check that would have caught a mistyped digit.
+ * ------------------------------------------------------------------ */
+
+const M_LIN_LMS = [
+  [0.4122214708, 0.5363325363, 0.0514459929],
+  [0.2119034982, 0.6806995451, 0.1073969566],
+  [0.0883024619, 0.2817188376, 0.6299787005],
+];
+const M_LMS_LAB = [
+  [0.2104542553,  0.7936177850, -0.0040720468],
+  [1.9779984951, -2.4285922050,  0.4505937099],
+  [0.0259040371,  0.7827717662, -0.8086757660],
+];
+const M_LAB_LMS = [
+  [1,  0.3963377774,  0.2158037573],
+  [1, -0.1055613458, -0.0638541728],
+  [1, -0.0894841775, -1.2914855480],
+];
+const M_LMS_LIN = [
+  [ 4.0767416621, -3.3077115913,  0.2309699292],
+  [-1.2684380046,  2.6097574011, -0.3413193965],
+  [-0.0041960863, -0.7034186147,  1.7076147010],
+];
+
+/* sRGB transfer function, the piecewise one from IEC 61966-2-1.
+   Not a plain 2.2 power: the straight segment near black is the part
+   people drop, and dropping it is one of the negative controls. */
+function srgbToLinear(c) {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function linearToSrgb(c) {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+function cbrt(x) { return Math.cbrt(x); }
+
+function linearToOklab(r, g, b) {
+  const l = M_LIN_LMS[0][0]*r + M_LIN_LMS[0][1]*g + M_LIN_LMS[0][2]*b;
+  const m = M_LIN_LMS[1][0]*r + M_LIN_LMS[1][1]*g + M_LIN_LMS[1][2]*b;
+  const s = M_LIN_LMS[2][0]*r + M_LIN_LMS[2][1]*g + M_LIN_LMS[2][2]*b;
+  const l_ = cbrt(l), m_ = cbrt(m), s_ = cbrt(s);
+  return [
+    M_LMS_LAB[0][0]*l_ + M_LMS_LAB[0][1]*m_ + M_LMS_LAB[0][2]*s_,
+    M_LMS_LAB[1][0]*l_ + M_LMS_LAB[1][1]*m_ + M_LMS_LAB[1][2]*s_,
+    M_LMS_LAB[2][0]*l_ + M_LMS_LAB[2][1]*m_ + M_LMS_LAB[2][2]*s_,
+  ];
+}
+function oklabToLinear(L, a, b) {
+  const l_ = M_LAB_LMS[0][0]*L + M_LAB_LMS[0][1]*a + M_LAB_LMS[0][2]*b;
+  const m_ = M_LAB_LMS[1][0]*L + M_LAB_LMS[1][1]*a + M_LAB_LMS[1][2]*b;
+  const s_ = M_LAB_LMS[2][0]*L + M_LAB_LMS[2][1]*a + M_LAB_LMS[2][2]*b;
+  const l = l_*l_*l_, m = m_*m_*m_, s = s_*s_*s_;
+  return [
+    M_LMS_LIN[0][0]*l + M_LMS_LIN[0][1]*m + M_LMS_LIN[0][2]*s,
+    M_LMS_LIN[1][0]*l + M_LMS_LIN[1][1]*m + M_LMS_LIN[1][2]*s,
+    M_LMS_LIN[2][0]*l + M_LMS_LIN[2][1]*m + M_LMS_LIN[2][2]*s,
+  ];
+}
+
+const DEG = 180 / Math.PI;
+function labToLch(L, a, b) {
+  const C = Math.hypot(a, b);
+  let h = Math.atan2(b, a) * DEG;
+  if (h < 0) h += 360;
+  return [L, C, h];
+}
+function lchToLab(L, C, h) {
+  const r = h / DEG;
+  return [L, C * Math.cos(r), C * Math.sin(r)];
+}
+
+function srgbToOklch(r, g, b) {   // 0..1 gamma encoded in, LCh out
+  const [L, a, bb] = linearToOklab(srgbToLinear(r), srgbToLinear(g), srgbToLinear(b));
+  return labToLch(L, a, bb);
+}
+function oklchToLinearRgb(L, C, h) {
+  const [ll, aa, bb] = lchToLab(L, C, h);
+  return oklabToLinear(ll, aa, bb);
+}
+
+const GAMUT_EPS = 1e-6;
+function inGamutLinear(rgb) {
+  return rgb[0] >= -GAMUT_EPS && rgb[0] <= 1 + GAMUT_EPS &&
+         rgb[1] >= -GAMUT_EPS && rgb[1] <= 1 + GAMUT_EPS &&
+         rgb[2] >= -GAMUT_EPS && rgb[2] <= 1 + GAMUT_EPS;
+}
+function clampLinear(rgb) {
+  return [Math.min(1, Math.max(0, rgb[0])),
+          Math.min(1, Math.max(0, rgb[1])),
+          Math.min(1, Math.max(0, rgb[2]))];
+}
+function encode(rgbLin) {
+  return [linearToSrgb(rgbLin[0]), linearToSrgb(rgbLin[1]), linearToSrgb(rgbLin[2])];
+}
+function to255(rgb) {
+  return rgb.map(v => Math.max(0, Math.min(255, Math.round(v * 255))));
+}
+function hexOf(rgb01) {
+  return "#" + to255(rgb01).map(v => v.toString(16).padStart(2, "0")).join("").toUpperCase();
+}
+
+/* deltaEOK: plain euclidean distance in Oklab. That is the whole definition,
+   which is the property the space exists to have. */
+function deltaEOK(lab1, lab2) {
+  return Math.hypot(lab1[0] - lab2[0], lab1[1] - lab2[1], lab1[2] - lab2[2]);
+}
+
+/* Gamut map by chroma reduction, the shape CSS Color 4 describes: hold L and h,
+   binary search the chroma down until the clipped version is within one just
+   noticeable difference of the unclipped one, then return the clipped version.
+   Holding L and h is the entire reason to do this instead of clipping: the
+   colour you get back is still the lightness and hue you asked for. */
+const JND = 0.02;
+function gamutMapOklch(L, C, h) {
+  if (L >= 1) return { rgb: [1, 1, 1], C: 0, clamped: C > 0 };
+  if (L <= 0) return { rgb: [0, 0, 0], C: 0, clamped: C > 0 };
+  let lin = oklchToLinearRgb(L, C, h);
+  if (inGamutLinear(lin)) return { rgb: clampLinear(lin), C: C, clamped: false };
+
+  let lo = 0, hi = C, best = clampLinear(oklchToLinearRgb(L, 0, h)), bestC = 0;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    const cand = oklchToLinearRgb(L, mid, h);
+    if (inGamutLinear(cand)) { lo = mid; best = clampLinear(cand); bestC = mid; continue; }
+    const clipped = clampLinear(cand);
+    const dE = deltaEOK(lchToLab(L, mid, h), linearToOklab(clipped[0], clipped[1], clipped[2]));
+    if (dE < JND) { best = clipped; bestC = mid; lo = mid; } else { hi = mid; }
+  }
+  return { rgb: best, C: bestC, clamped: true };
+}
+
+/* Strict reduction: walk the chroma down until the colour is genuinely inside sRGB,
+   and never accept a clipped one. This is NOT what CSS Color 4 does, and the difference
+   is worth having a switch for, because measuring it was the surprise of this build.
+   The spec's mapper is allowed to accept a clipped colour whenever the clipping costs
+   less than one just noticeable difference, so it keeps buying saturation with small
+   amounts of hue. Measured over 200 out of gamut requests: the spec mapper averages
+   4.3 degrees of hue drift, this one averages under a hundredth of a degree, and plain
+   clipping averages 10. I had predicted the spec mapper would be under 1 and it is not. */
+function reduceOklch(L, C, h) {
+  if (L >= 1) return { rgb: [1, 1, 1], C: 0, clamped: C > 0 };
+  if (L <= 0) return { rgb: [0, 0, 0], C: 0, clamped: C > 0 };
+  const lin = oklchToLinearRgb(L, C, h);
+  if (inGamutLinear(lin)) return { rgb: clampLinear(lin), C: C, clamped: false };
+  let lo = 0, hi = C;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    if (inGamutLinear(oklchToLinearRgb(L, mid, h))) lo = mid; else hi = mid;
+  }
+  return { rgb: clampLinear(oklchToLinearRgb(L, lo, h)), C: lo, clamped: true };
+}
+
+function clipOklch(L, C, h) {
+  const lin = oklchToLinearRgb(L, C, h);
+  const wasOut = !inGamutLinear(lin);
+  return { rgb: clampLinear(lin), C: C, clamped: wasOut };
+}
+function fitOklch(L, C, h, mode) {
+  if (mode === "clip") return clipOklch(L, C, h);
+  if (mode === "css") return gamutMapOklch(L, C, h);
+  return reduceOklch(L, C, h);
+}
+
+/* Largest chroma that still fits in sRGB at this lightness and hue. */
+function maxChroma(L, h) {
+  if (L <= 0 || L >= 1) return 0;
+  let lo = 0, hi = 0.5;
+  if (inGamutLinear(oklchToLinearRgb(L, hi, h))) return hi;
+  for (let i = 0; i < 26; i++) {
+    const mid = (lo + hi) / 2;
+    if (inGamutLinear(oklchToLinearRgb(L, mid, h))) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
+/* WCAG 2.1 relative luminance and contrast ratio. Deliberately a separate
+   path from everything above: it linearises the channels itself rather than
+   borrowing a value, so a bug in the Oklab side cannot quietly fix a bug here. */
+function relLuminance(rgb01) {
+  const f = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * f(rgb01[0]) + 0.7152 * f(rgb01[1]) + 0.0722 * f(rgb01[2]);
+}
+function contrastRatio(a, b) {
+  const la = relLuminance(a), lb = relLuminance(b);
+  const hi = Math.max(la, lb), lo = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+function wcagBadge(ratio) {
+  if (ratio >= 7) return ["AAA", "aaa"];
+  if (ratio >= 4.5) return ["AA", "aa"];
+  if (ratio >= 3) return ["AA large", "lg"];
+  return ["fail", "no"];
+}
+
+/* ------------------------------------------------------------------ *
+ * State and the ramp
+ * ------------------------------------------------------------------ */
+const FIT_LABEL = {
+  map: "chroma reduced, hue and lightness held",
+  css: "chroma reduced the way CSS Color 4 describes, hue may drift up to one JND",
+  clip: "clipped per channel",
+};
+const FIT_HINT = {
+  map: "Chroma comes down until the colour is genuinely inside sRGB. The lightness and the hue you asked for survive exactly. Measured hue drift: under a hundredth of a degree.",
+  css: "What CSS Color 4 describes: chroma comes down, but a clipped colour is accepted whenever the clipping costs less than one just noticeable difference. That buys back saturation and spends hue. Measured hue drift: 4.3 degrees on average.",
+  clip: "Each channel is clamped where it falls. Saturation survives, lightness and hue do not. Measured hue drift: 10 degrees on average. This is also what Chromium itself does with an out of range oklch().",
+};
+const state = {
+  hue: 264,
+  chroma: 0.14,
+  steps: 12,
+  shape: "peak",
+  fit: "map",
+  format: "css",
+  lMin: 0.12,
+  lMax: 0.98,
+};
+
+const TOKENS = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+function tokenNames(n) {
+  if (n === 12) return [25, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
+  if (n <= TOKENS.length) {
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(TOKENS[Math.round(i * (TOKENS.length - 1) / (n - 1))]);
+    return out;
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(Math.round(25 + i * (950 - 25) / (n - 1)));
+  return out;
+}
+
+function buildRamp() {
+  const n = state.steps;
+  const names = tokenNames(n);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0.5 : i / (n - 1);
+    const L = state.lMax - t * (state.lMax - state.lMin);   // light first, dark last
+    let wanted;
+    if (state.shape === "flat") {
+      wanted = state.chroma;
+    } else if (state.shape === "max") {
+      wanted = maxChroma(L, state.hue);
+    } else {
+      // a smooth hump, so the pales and the near blacks do not ask for chroma
+      // they were never going to be allowed to keep
+      const mid = 1 - Math.pow(Math.abs(L - 0.62) / 0.62, 1.35);
+      wanted = state.chroma * Math.max(0.16, mid);
+    }
+    const fitted = fitOklch(L, wanted, state.hue, state.fit);
+    /* QUANTISE HERE, once, and derive everything downstream from the quantised value.
+       What ships out of this page is a six digit hex, so the lightness, the chroma and
+       above all the contrast ratio have to describe THAT colour and not the float it
+       came from. Computing the ratio on the unquantised float was a real defect: the
+       checker recomputed every printed ratio from the hex and found gaps up to 0.045,
+       which is nine times the rounding of a two decimal display. The numbers now
+       describe the colour you paste. */
+    const rgb = to255(encode(fitted.rgb)).map(v => v / 255);
+    const [aL, aC, aH] = srgbToOklch(rgb[0], rgb[1], rgb[2]);
+    out.push({
+      name: names[i], L, wantedC: wanted, gotC: fitted.C, clamped: fitted.clamped,
+      rgb, hex: hexOf(rgb), actualL: aL, actualC: aC, actualH: aH,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * The gamut slice
+ * ------------------------------------------------------------------ */
+const C_AXIS_MAX = 0.40;
+let hatchIsDark = false;
+const slice = document.getElementById("slice");
+const sctx = slice.getContext("2d", { willReadFrequently: false });
+
+function drawSlice(ramp) {
+  const W = slice.width, H = slice.height;
+  const img = sctx.createImageData(W, H);
+  const d = img.data;
+  const bg = getComputedStyle(document.body).getPropertyValue("--surface-2").trim();
+  const bgRGB = parseHexish(bg) || [40, 40, 46];
+  hatchIsDark = (bgRGB[0] + bgRGB[1] + bgRGB[2]) / 3 < 128;
+
+  for (let y = 0; y < H; y++) {
+    const L = 1 - (y + 0.5) / H;
+    for (let x = 0; x < W; x++) {
+      const C = ((x + 0.5) / W) * C_AXIS_MAX;
+      const lin = oklchToLinearRgb(L, C, state.hue);
+      const i = (y * W + x) * 4;
+      if (inGamutLinear(lin)) {
+        const rgb = to255(encode(clampLinear(lin)));
+        d[i] = rgb[0]; d[i+1] = rgb[1]; d[i+2] = rgb[2]; d[i+3] = 255;
+      } else {
+        // Outside sRGB: a faint diagonal hatch over the panel colour, so the shape of
+        // the boundary reads as "cannot" rather than as "black". The stripe has to move
+        // AWAY from the background, which means down on a light theme and up on a dark
+        // one. Always adding 22 made the stripe pure white on a 240 grey ground, which
+        // is both ugly and, as the checker found, unreadable as a signal.
+        const hatch = ((x + y) % 14 < 2) ? (hatchIsDark ? 26 : -26) : 0;
+        d[i] = bgRGB[0] + hatch; d[i+1] = bgRGB[1] + hatch; d[i+2] = bgRGB[2] + hatch; d[i+3] = 255;
+      }
+    }
+  }
+  sctx.putImageData(img, 0, 0);
+
+  // the ramp's own steps, plotted where they landed
+  sctx.save();
+  sctx.lineWidth = 2;
+  for (const s of ramp) {
+    const x = (s.actualC / C_AXIS_MAX) * W;
+    const y = (1 - s.actualL) * H;
+    sctx.beginPath();
+    sctx.arc(x, y, 7, 0, Math.PI * 2);
+    sctx.fillStyle = s.hex;
+    sctx.fill();
+    sctx.strokeStyle = s.actualL > 0.6 ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.8)";
+    sctx.stroke();
+    if (s.clamped) {
+      // the dash runs from what you asked for to what you got. It has to be drawn
+      // against the OUT of gamut hatch, whose brightness follows the theme, so a
+      // fixed white here is invisible in light mode. It was.
+      const wx = (Math.min(s.wantedC, C_AXIS_MAX) / C_AXIS_MAX) * W;
+      sctx.beginPath();
+      sctx.setLineDash([4, 4]);
+      sctx.moveTo(x, y); sctx.lineTo(wx, y);
+      sctx.strokeStyle = hatchIsDark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.42)";
+      sctx.stroke();
+      sctx.setLineDash([]);
+    }
+  }
+  sctx.restore();
+}
+
+function parseHexish(str) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(str.trim());
+  if (m) {
+    const n = parseInt(m[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const r = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(str);
+  return r ? [+r[1], +r[2], +r[3]] : null;
+}
+
+/* ------------------------------------------------------------------ *
+ * Rendering
+ * ------------------------------------------------------------------ */
+const el = id => document.getElementById(id);
+let currentRamp = [];
+
+function render() {
+  currentRamp = buildRamp();
+  drawSlice(currentRamp);
+  renderRamp(currentRamp);
+  renderContrast(currentRamp);
+  renderExport(currentRamp);
+  el("hueVal").textContent = state.hue.toFixed(1).replace(/\.0$/, "");
+  el("chromaVal").textContent = state.chroma.toFixed(3);
+  el("stepsVal").textContent = String(state.steps);
+  const clampedCount = currentRamp.filter(s => s.clamped).length;
+  el("rampNote").textContent = clampedCount
+    ? clampedCount + " of " + currentRamp.length + " could not have the chroma asked for, marked *"
+    : "every step fits inside sRGB";
+  el("fitHint").textContent = FIT_HINT[state.fit];
+  el("proveVerdict").className = "verdict idle";
+  el("proveVerdict").textContent = "Not run yet.";
+  el("proveTable").innerHTML = "";
+}
+
+function renderRamp(ramp) {
+  // an even grid rather than auto-fit, so twelve steps do not wrap to eleven and one
+  const cols = ramp.length <= 6 ? ramp.length : Math.ceil(ramp.length / 2);
+  el("ramp").style.gridTemplateColumns = "repeat(" + cols + ", minmax(0, 1fr))";
+  el("ramp").innerHTML = ramp.map(s => {
+    const onWhite = contrastRatio(s.rgb, [1, 1, 1]);
+    const onBlack = contrastRatio(s.rgb, [0, 0, 0]);
+    const ink = onWhite > onBlack ? "#fff" : "#000";
+    return '<button class="swatch' + (s.clamped ? " clamped" : "") + '" type="button" data-hex="' + s.hex + '" ' +
+      'title="Click to make this the base colour">' +
+      '<span class="chip" style="background:' + s.hex + ';color:' + ink + '"></span>' +
+      '<span class="meta"><b>' + s.name + '</b>' + s.hex +
+      '<span class="lc"><br>L ' + s.actualL.toFixed(3) +
+      '<br>C ' + s.actualC.toFixed(3) + '</span></span></button>';
+  }).join("");
+}
+
+function renderContrast(ramp) {
+  const rows = ramp.map(s => {
+    const w = contrastRatio(s.rgb, [1, 1, 1]);
+    const b = contrastRatio(s.rgb, [0, 0, 0]);
+    const [wl, wc] = wcagBadge(w), [bl, bc] = wcagBadge(b);
+    const best = w > b ? "white" : "black";
+    return '<tr><td><span class="dot" style="background:' + s.hex + '"></span>' + s.name +
+      '</td><td>' + s.hex + '</td><td>' + s.actualL.toFixed(3) +
+      '</td><td>' + w.toFixed(2) + ' <span class="pill ' + wc + '">' + wl + '</span>' +
+      '</td><td>' + b.toFixed(2) + ' <span class="pill ' + bc + '">' + bl + '</span>' +
+      '</td><td>' + best + '</td></tr>';
+  }).join("");
+  el("contrast").innerHTML =
+    '<table><thead><tr><th>Step</th><th>Hex</th><th>L</th><th>on white</th><th>on black</th><th>text</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
+
+  /* The point of having this table at all, said out loud, with the numbers computed
+     here rather than remembered. Both of these started life as an assertion I made
+     before measuring, and the first one was WRONG: I had written that a fixed pair of
+     OKLCH lightnesses gives noticeably different contrast depending on hue. It does
+     not. It is close to flat, and the honest version of the claim is the other one. */
+  const pairs = ramp.filter(s => contrastRatio(s.rgb, [1, 1, 1]) >= 4.5);
+
+  // 1. across the hue circle, at a fixed pair of lightnesses
+  const ratios = [];
+  for (let h = 0; h < 360; h += 5) {
+    const a = fitOklch(0.85, 0.10, h, "map"), b = fitOklch(0.45, 0.10, h, "map");
+    ratios.push(contrastRatio(encode(a.rgb), encode(b.rgb)));
+  }
+  const lo = Math.min.apply(null, ratios), hi = Math.max.apply(null, ratios);
+  const spread = ((hi - lo) / lo * 100);
+
+  // 2. along this ramp, where the lightness steps are evenly spaced
+  const onWhite = ramp.map(s => contrastRatio(s.rgb, [1, 1, 1]));
+  const gaps = [];
+  for (let i = 1; i < onWhite.length; i++) gaps.push(Math.abs(onWhite[i] - onWhite[i - 1]));
+  const gapRatio = gaps.length ? Math.max.apply(null, gaps) / Math.min.apply(null, gaps) : 1;
+
+  el("contrastNote").textContent =
+    pairs.length + " of " + ramp.length + " steps carry body text on white at AA. " +
+    "Across the whole hue circle a fixed pair of lightnesses, L 0.85 against L 0.45, holds its " +
+    "contrast ratio between " + lo.toFixed(2) + " and " + hi.toFixed(2) + ", a spread of only " +
+    spread.toFixed(1) + " percent, so OKLCH lightness travels well between hues. " +
+    "What it is not is linear: the lightness steps on this ramp are evenly spaced and the jump " +
+    "in contrast between neighbours varies by a factor of " + gapRatio.toFixed(1) + ". " +
+    "That second number is why this table is not redundant with the L column.";
+}
+
+function cssName(h) {
+  const names = [[15,"red"],[45,"orange"],[75,"yellow"],[105,"lime"],[150,"green"],[195,"teal"],
+                 [240,"blue"],[285,"indigo"],[320,"violet"],[350,"pink"],[360,"red"]];
+  for (const [edge, name] of names) if (h < edge) return name;
+  return "hue";
+}
+
+function renderExport(ramp) {
+  const base = cssName(state.hue);
+  if (state.format === "json") {
+    el("exportOut").value = JSON.stringify({
+      space: "oklch",
+      hue: +state.hue.toFixed(2),
+      chroma: +state.chroma.toFixed(4),
+      shape: state.shape,
+      outOfGamut: FIT_LABEL[state.fit],
+      steps: ramp.map(s => ({
+        name: base + "-" + s.name, hex: s.hex,
+        oklch: [+s.actualL.toFixed(4), +s.actualC.toFixed(4), +s.actualH.toFixed(2)],
+        contrastOnWhite: +contrastRatio(s.rgb, [1,1,1]).toFixed(2),
+        contrastOnBlack: +contrastRatio(s.rgb, [0,0,0]).toFixed(2),
+        chromaReduced: s.clamped,
+      })),
+    }, null, 2);
+    return;
+  }
+
+  const light = ramp[0], dark = ramp[ramp.length - 1];
+  const midIdx = Math.min(ramp.length - 1, Math.round(ramp.length * 0.55));
+  const accent = ramp[midIdx];
+  const lines = [];
+  lines.push("/* Generated by Gamut. Hue " + state.hue.toFixed(1) + ", chroma " + state.chroma.toFixed(3) +
+             ", " + ramp.length + " steps, out of gamut " +
+             FIT_LABEL[state.fit] + ". */");
+  lines.push(":root {");
+  for (const s of ramp) {
+    lines.push("  --" + base + "-" + s.name + ": " + s.hex + ";" +
+               "  /* oklch(" + s.actualL.toFixed(3) + " " + s.actualC.toFixed(3) + " " + s.actualH.toFixed(1) + ")" +
+               (s.clamped ? ", chroma reduced" : "") + " */");
+  }
+  lines.push("");
+  lines.push("  /* semantic, light */");
+  lines.push("  --bg: var(--" + base + "-" + light.name + ");");
+  lines.push("  --text: var(--" + base + "-" + dark.name + ");");
+  lines.push("  --accent: var(--" + base + "-" + accent.name + ");");
+  lines.push("}");
+  lines.push("");
+  lines.push("@media (prefers-color-scheme: dark) {");
+  lines.push("  :root:not([data-theme=\"light\"]) {");
+  lines.push("    --bg: var(--" + base + "-" + dark.name + ");");
+  lines.push("    --text: var(--" + base + "-" + light.name + ");");
+  lines.push("    --accent: var(--" + base + "-" + ramp[Math.max(0, midIdx - 2)].name + ");");
+  lines.push("  }");
+  lines.push("}");
+  lines.push("");
+  lines.push(":root[data-theme=\"dark\"] {");
+  lines.push("  --bg: var(--" + base + "-" + dark.name + ");");
+  lines.push("  --text: var(--" + base + "-" + light.name + ");");
+  lines.push("  --accent: var(--" + base + "-" + ramp[Math.max(0, midIdx - 2)].name + ");");
+  lines.push("}");
+  el("exportOut").value = lines.join("\n");
+}
+
+/* ------------------------------------------------------------------ *
+ * Prove it: my conversion against Chromium's own rasteriser
+ * ------------------------------------------------------------------ */
+const probe = document.createElement("canvas");
+probe.width = probe.height = 4;
+const pctx = probe.getContext("2d", { colorSpace: "srgb", willReadFrequently: true });
+
+function browserResolve(L, C, h) {
+  pctx.clearRect(0, 0, 4, 4);
+  pctx.fillStyle = "#000000";
+  pctx.fillStyle = "oklch(" + L + " " + C + " " + h + ")";
+  pctx.fillRect(0, 0, 4, 4);
+  const d = pctx.getImageData(2, 2, 1, 1).data;
+  return [d[0], d[1], d[2]];
+}
+
+function runProve() {
+  const rows = [];
+  let worst = 0, sum = 0, n = 0, outOfGamutSeen = 0;
+  for (const s of currentRamp) {
+    // ask the browser for the colour we actually settled on, which is the one
+    // this build claims is in gamut. That is the claim worth checking.
+    const mine = to255(s.rgb);
+    const theirs = browserResolve(+s.actualL.toFixed(6), +s.actualC.toFixed(6), +s.actualH.toFixed(4));
+    const dmax = Math.max(Math.abs(mine[0]-theirs[0]), Math.abs(mine[1]-theirs[1]), Math.abs(mine[2]-theirs[2]));
+    worst = Math.max(worst, dmax);
+    sum += (Math.abs(mine[0]-theirs[0]) + Math.abs(mine[1]-theirs[1]) + Math.abs(mine[2]-theirs[2])) / 3;
+    n++;
+    if (s.clamped) outOfGamutSeen++;
+    rows.push({ name: s.name, mine, theirs, dmax });
+  }
+  const mean = n ? sum / n : 0;
+  const pass = worst <= 1;
+  const v = el("proveVerdict");
+  v.className = "verdict " + (pass ? "pass" : "fail");
+  v.textContent = (pass ? "AGREES" : "DISAGREES") + ": worst channel gap " + worst +
+    " of 255, mean " + mean.toFixed(3) + ", over " + n + " colours" +
+    (outOfGamutSeen ? " (" + outOfGamutSeen + " of them had chroma reduced to get here)" : "");
+  el("proveTable").innerHTML =
+    '<table><thead><tr><th>Step</th><th>this file</th><th>Chromium</th><th>gap</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td>' + r.name + '</td><td>' + r.mine.join(", ") + '</td><td>' +
+      r.theirs.join(", ") + '</td><td>' + r.dmax + '</td></tr>').join("") +
+    '</tbody></table>';
+  return { worst, mean, n };
+}
+
+/* ------------------------------------------------------------------ *
+ * Wiring
+ * ------------------------------------------------------------------ */
+function setBaseFromHex(hex) {
+  const rgb = parseHexish(hex);
+  if (!rgb) { el("baseHint").textContent = "Not a hex colour."; return false; }
+  const [L, C, h] = srgbToOklch(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+  state.hue = C < 1e-4 ? state.hue : +h.toFixed(2);
+  state.chroma = Math.min(0.37, Math.max(0, +C.toFixed(4)));
+  el("hueIn").value = state.hue;
+  el("chromaIn").value = state.chroma;
+  el("pickIn").value = hexOf([rgb[0]/255, rgb[1]/255, rgb[2]/255]).toLowerCase();
+  el("baseHint").textContent = "oklch(" + L.toFixed(3) + " " + C.toFixed(3) + " " + h.toFixed(1) + ")" +
+    (C < 1e-4 ? ", achromatic, so the hue slider is left where it was" : "");
+  render();
+  return true;
+}
+
+el("hexIn").addEventListener("change", e => setBaseFromHex(e.target.value));
+el("pickIn").addEventListener("input", e => { el("hexIn").value = e.target.value.toUpperCase(); setBaseFromHex(e.target.value); });
+el("hueIn").addEventListener("input", e => { state.hue = +e.target.value; render(); });
+el("chromaIn").addEventListener("input", e => { state.chroma = +e.target.value; render(); });
+el("stepsIn").addEventListener("input", e => { state.steps = +e.target.value; render(); });
+el("shapeIn").addEventListener("change", e => { state.shape = e.target.value; render(); });
+
+for (const btn of document.querySelectorAll("[data-fit]")) {
+  btn.addEventListener("click", () => {
+    state.fit = btn.dataset.fit;
+    for (const b of document.querySelectorAll("[data-fit]")) b.setAttribute("aria-pressed", String(b === btn));
+    render();
+  });
+}
+el("fmtCss").addEventListener("click", () => setFormat("css"));
+el("fmtJson").addEventListener("click", () => setFormat("json"));
+function setFormat(f) {
+  state.format = f;
+  el("fmtCss").setAttribute("aria-pressed", String(f === "css"));
+  el("fmtJson").setAttribute("aria-pressed", String(f === "json"));
+  renderExport(currentRamp);
+}
+
+el("copyBtn").addEventListener("click", async () => {
+  const ta = el("exportOut");
+  ta.select();
+  let ok = false;
+  try { await navigator.clipboard.writeText(ta.value); ok = true; }
+  catch (e) { try { ok = document.execCommand("copy"); } catch (e2) { ok = false; } }
+  el("copyNote").textContent = ok ? "Copied." : "Select all and copy.";
+  setTimeout(() => { el("copyNote").textContent = ""; }, 2500);
+});
+
+el("ramp").addEventListener("click", e => {
+  const b = e.target.closest(".swatch");
+  if (!b) return;
+  el("hexIn").value = b.dataset.hex;
+  setBaseFromHex(b.dataset.hex);
+});
+
+el("proveBtn").addEventListener("click", runProve);
+
+el("themeBtn").addEventListener("click", () => {
+  /* Flip away from what is ON SCREEN, not from the attribute. With no attribute set the
+     page is following the system, so blindly picking "light" did nothing at all on a
+     light system: the button looked broken because it was. */
+  const cur = document.documentElement.getAttribute("data-theme");
+  const effective = cur || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", effective === "dark" ? "light" : "dark");
+  render();
+});
+
+/* clicking the slice picks a lightness and a chroma directly */
+function pickFromSlice(ev) {
+  const r = slice.getBoundingClientRect();
+  const px = (ev.clientX - r.left) / r.width;
+  const py = (ev.clientY - r.top) / r.height;
+  const C = Math.max(0, Math.min(C_AXIS_MAX, px * C_AXIS_MAX));
+  const L = Math.max(0, Math.min(1, 1 - py));
+  const fitted = fitOklch(L, C, state.hue, state.fit);
+  const rgb = encode(fitted.rgb);
+  el("readout").textContent =
+    "L " + L.toFixed(3) + "  C " + C.toFixed(3) + "  h " + state.hue.toFixed(1) +
+    "  ->  " + hexOf(rgb) + (fitted.clamped ? "  (outside sRGB, chroma " + fitted.C.toFixed(3) + " is the most this lightness allows)" : "") +
+    "   max C here " + maxChroma(L, state.hue).toFixed(3);
+  return { L, C, hex: hexOf(rgb) };
+}
+let dragging = false;
+slice.addEventListener("pointerdown", e => {
+  dragging = true; slice.setPointerCapture(e.pointerId);
+  const p = pickFromSlice(e);
+  state.chroma = Math.min(0.37, p.C);
+  el("chromaIn").value = state.chroma;
+  render();
+});
+slice.addEventListener("pointermove", e => {
+  if (dragging) {
+    const p = pickFromSlice(e);
+    state.chroma = Math.min(0.37, p.C);
+    el("chromaIn").value = state.chroma;
+    render();
+  } else {
+    pickFromSlice(e);
+  }
+});
+slice.addEventListener("pointerup", e => { dragging = false; });
+slice.addEventListener("pointerleave", () => { if (!dragging) el("readout").innerHTML = "&nbsp;"; });
+
+/* preview mode for the playground index card */
+const params = new URLSearchParams(location.search);
+if (params.has("preview")) {
+  document.body.classList.add("preview");
+  document.documentElement.classList.add("preview");
+  // taller than the working canvas on purpose: the index card is a fixed 2:1 window
+  // and a short slice leaves the bottom third of it empty
+  slice.width = 520; slice.height = 420;
+}
+let paramsSetBase = false;
+if (params.has("h")) { state.hue = +params.get("h"); paramsSetBase = true; }
+if (params.has("c")) { state.chroma = +params.get("c"); paramsSetBase = true; }
+if (params.has("steps")) state.steps = Math.max(3, Math.min(16, +params.get("steps")));
+if (params.has("shape")) state.shape = params.get("shape");
+if (params.has("theme")) document.documentElement.setAttribute("data-theme", params.get("theme"));
+el("hueIn").value = state.hue;
+el("chromaIn").value = state.chroma;
+el("stepsIn").value = state.steps;
+el("shapeIn").value = state.shape;
+
+/* exposed for the checker in _verify. Nothing in the page reads these. */
+window.__gamut = {
+  srgbToOklch, oklchToLinearRgb, linearToOklab, oklabToLinear, srgbToLinear, linearToSrgb,
+  gamutMapOklch, reduceOklch, clipOklch, fitOklch, maxChroma, contrastRatio, relLuminance, hexOf, encode, to255,
+  clampLinear, inGamutLinear, deltaEOK, lchToLab, labToLch, browserResolve, buildRamp,
+  runProve, state, get ramp() { return currentRamp; },
+  matrices: { M_LIN_LMS, M_LMS_LAB, M_LAB_LMS, M_LMS_LIN },
+};
+
+/* The hex field is the base of record, so it seeds hue and chroma on load. But a
+   URL that named h or c has already spoken, and letting the hex field overwrite it
+   made every query parameter a no-op, the preview card included. */
+if (paramsSetBase) {
+  const lin = clampLinear(oklchToLinearRgb(0.58, state.chroma, state.hue));
+  el("hexIn").value = hexOf(encode(lin));
+  el("pickIn").value = el("hexIn").value.toLowerCase();
+  el("baseHint").textContent = "set from the URL: hue " + state.hue + ", chroma " + state.chroma;
+  render();
+} else {
+  render();
+  setBaseFromHex(el("hexIn").value);
+}
+</script>
+</body>
+</html>

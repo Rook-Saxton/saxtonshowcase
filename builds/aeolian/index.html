@@ -1,0 +1,767 @@
+<!doctype html>
+<!--
+  AEOLIAN - a wind harp
+  playground build, 2026-09-15
+
+  WHAT IT IS
+  Nine strings in a dark room and a wind that plays them. The wind is a curl noise field, so it
+  is divergence free and swirls instead of piling up. The strings are Verlet chains pinned at both
+  ends with distance constraints. When the wind bends a string far enough, that string plucks: a
+  Karplus-Strong voice tuned to its own pitch. Nothing is sequenced and nothing is random at the
+  note level. You are listening to the physics.
+
+  Drag through the strings to play it yourself. Turn the wind down to nothing and it goes silent,
+  which is the point rather than a feature.
+
+  WHY I BUILT IT
+  This is the twenty-fourth build on this rail and the first one that is not a single technique.
+  The twenty-three before it are six cloth solvers, three reaction diffusion fields, two colour
+  tools, four teaching explainers and two games, and every one of them stands alone. The reason
+  was structural: for three weeks each night branched from a log it could not add to, so no night
+  could see the night before, and the same idea got built two and three times over. Once they were
+  all in one place the interesting thing to do was not a twenty-fourth separate idea, it was to
+  make four of them depend on each other.
+
+  WHAT CAME FROM WHERE, reused rather than re-derived
+  - the curl noise wind             from `sway` and `driftfield`
+  - Verlet chains with constraints  from `drape`, `taut`, `xpbd-lab`, `xpbd-cloth`, `sway-net`
+  - Karplus-Strong voices           from `pluck`
+  - the OKLCH colour ramp           from `gamut`, matrices it verified against Chromium to 1/255
+
+  THE TWO TRAPS `pluck` ALREADY PAID FOR, AND WHY THEY ARE NOT RE-PAID HERE
+  1. A plain Karplus-Strong loop CANNOT play in tune. A delay line holds a whole number of
+     samples, so it can only make sample_rate/N hertz. The fix is a first order allpass in the
+     loop supplying the fractional delay, with the closed form coefficient
+     a = sin((1-d)w/2) / sin((1+d)w/2). The loop filter has its OWN phase delay which has to come
+     out of the total first; here the loop filter is fixed at exactly 0.5(x[n] + x[n-1]), whose
+     phase delay is exactly half a sample at every frequency, so that subtraction is exact instead
+     of measured. Brightness is applied to the excitation burst only, never inside the loop, so
+     the tuning stays provable. Fewer knobs on purpose.
+  2. A delay line is a BUCKET BRIGADE. The loop gain lands once per trip around the buffer, f0
+     times a second, not once per elapsed sample. For a T60 of t seconds the gain is
+     10^(-3/(f0*t)). Getting this wrong is invisible, because the code and the closed form agree
+     with each other while both carry the same wrong model.
+
+  HOW IT IS CHECKED
+  _verify/check_aeolian.js measures the pitch of every rendered string with autocorrelation, which
+  the synthesiser does not contain, against the equal temperament target. Predictions were written
+  first in _verify/PREDICTIONS_aeolian.md and graded afterwards, misses included.
+
+  Self-contained, offline, no dependencies. Audio needs one click, because browsers require a
+  gesture before they will make a sound.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aeolian</title>
+<style>
+  :root{
+    --ink:#e9ecf5; --dim:#8d97b3; --faint:#5a6580;
+    --panel:rgba(13,16,28,.86); --edge:rgba(130,150,200,.2);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:#04060d; color:var(--ink); overflow:hidden;
+    font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  canvas{display:block; width:100%; height:100%; touch-action:none; cursor:crosshair}
+
+  #top{
+    position:fixed; left:0; right:0; top:0; z-index:5; pointer-events:none;
+    display:flex; gap:14px; align-items:baseline; padding:12px 18px;
+    background:linear-gradient(#04060ddd,#04060d00);
+  }
+  #name{font-weight:650; letter-spacing:.16em; text-transform:uppercase; font-size:12px; color:var(--dim)}
+  #sub{color:var(--faint); font-size:12.5px}
+  #meter{margin-left:auto; color:var(--faint); font-size:12px; font-variant-numeric:tabular-nums}
+
+  #panel{
+    position:fixed; left:18px; bottom:16px; z-index:6; display:flex; gap:18px; flex-wrap:wrap;
+    align-items:center; padding:12px 16px; border-radius:14px;
+    background:var(--panel); border:1px solid var(--edge); backdrop-filter:blur(8px);
+  }
+  .ctl{display:flex; flex-direction:column; gap:5px; min-width:118px}
+  .ctl label{font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--faint)}
+  .ctl .row{display:flex; align-items:center; gap:9px}
+  .ctl output{font-size:12px; color:var(--dim); font-variant-numeric:tabular-nums; min-width:34px}
+  input[type=range]{width:110px; accent-color:#8fd0ff}
+  button.mini{
+    background:rgba(24,30,48,.9); color:var(--dim); border:1px solid var(--edge);
+    border-radius:9px; padding:7px 12px; font:inherit; font-size:12px; cursor:pointer;
+  }
+  button.mini:hover{color:var(--ink); border-color:rgba(143,208,255,.55)}
+  button.mini[aria-pressed="true"]{background:#8fd0ff; color:#04060d; border-color:#8fd0ff; font-weight:650}
+
+  #gate{
+    position:fixed; inset:0; z-index:9; display:flex; align-items:center; justify-content:center;
+    background:rgba(4,6,13,.72); backdrop-filter:blur(3px); cursor:pointer; text-align:center;
+  }
+  #gate div{max-width:34ch}
+  #gate .big{font-size:20px; font-weight:600; letter-spacing:.01em}
+  #gate .small{color:var(--dim); font-size:13px; margin-top:8px; line-height:1.5}
+  #gate.gone{display:none}
+
+  html.preview #top,html.preview #panel,html.preview #gate{display:none!important}
+  html.preview canvas{cursor:default}
+</style>
+</head>
+<body>
+<canvas id="sky" aria-label="A wind harp: nine strings played by a curl noise wind"></canvas>
+
+<div id="top">
+  <span id="name">Aeolian</span>
+  <span id="sub">the wind is playing it</span>
+  <span id="meter">&nbsp;</span>
+</div>
+
+<div id="panel">
+  <div class="ctl"><label for="wind">Wind</label>
+    <div class="row"><input id="wind" type="range" min="0" max="100" value="58"><output id="windv">58</output></div></div>
+  <div class="ctl"><label for="gust">Gusts</label>
+    <div class="row"><input id="gust" type="range" min="0" max="100" value="55"><output id="gustv">55</output></div></div>
+  <div class="ctl"><label for="vol">Volume</label>
+    <div class="row"><input id="vol" type="range" min="0" max="100" value="62"><output id="volv">62</output></div></div>
+  <button class="mini" id="showwind" aria-pressed="true">Show the wind</button>
+  <button class="mini" id="still">Still air</button>
+</div>
+
+<div id="gate"><div>
+  <div class="big">Click to let the wind in</div>
+  <div class="small">Browsers will not make a sound until you ask them to. After that, drag
+  through the strings to play it yourself.</div>
+</div></div>
+
+<script>
+"use strict";
+/* ================================================================== *
+ * 0. Deterministic noise
+ * ================================================================== */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+/* Value noise on a fixed lattice, smoothstep interpolated. Seeded, so the whole
+ * piece is reproducible and the checker can assert on it. */
+const LAT = 256;
+function makeNoise(seed) {
+  const rnd = mulberry32(seed);
+  const g = new Float32Array(LAT * LAT);
+  for (let i = 0; i < g.length; i++) g[i] = rnd() * 2 - 1;
+  const at = (x, y) => g[((y & (LAT - 1)) * LAT) + (x & (LAT - 1))];
+  const fade = t => t * t * (3 - 2 * t);
+  return (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const tx = fade(x - xi), ty = fade(y - yi);
+    const a = at(xi, yi), b = at(xi + 1, yi), c = at(xi, yi + 1), d = at(xi + 1, yi + 1);
+    return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
+  };
+}
+
+/* ================================================================== *
+ * 1. The wind: curl of a scalar field, so it is divergence free
+ *
+ * A velocity field taken as the CURL of a scalar potential cannot have
+ * sources or sinks, which is why the air swirls past the strings
+ * instead of piling up against them. Two octaves plus a slow drift.
+ * ================================================================== */
+const NOISE_A = makeNoise(0x9e37), NOISE_B = makeNoise(0x1b54);
+const CURL_H = 0.35;                       // finite difference step, lattice units
+
+function potential(x, y, t) {
+  const s = 0.0042;
+  return NOISE_A(x * s + t * 0.05, y * s) * 1.0
+       + NOISE_B(x * s * 2.3 - t * 0.09, y * s * 2.3) * 0.42;
+}
+
+/* curl in 2D of a scalar psi is (dpsi/dy, -dpsi/dx) */
+function windAt(x, y, t) {
+  const h = CURL_H / 0.0042;               // step in world units
+  const dpdy = (potential(x, y + h, t) - potential(x, y - h, t)) / (2 * h);
+  const dpdx = (potential(x + h, y, t) - potential(x - h, y, t)) / (2 * h);
+  return [dpdy, -dpdx];
+}
+
+/* ================================================================== *
+ * 2. Karplus-Strong, rendered offline into a buffer
+ *
+ * Rendering each string once into a Float32Array rather than running a
+ * live loop makes every note deterministic and, more to the point,
+ * MEASURABLE: the checker reads the same samples the ear hears and
+ * finds their pitch with autocorrelation, which this code does not
+ * contain.
+ *
+ * The loop filter is fixed at 0.5(x[n] + x[n-1]). Its phase delay is
+ * exactly half a sample at every frequency, so the subtraction below is
+ * exact rather than measured. That is why brightness is applied to the
+ * excitation burst and never inside the loop.
+ * ================================================================== */
+function renderString(f0, sr, seconds, t60, brightness, seed) {
+  const w = 2 * Math.PI * f0 / sr;
+  const total = sr / f0;                 // loop delay wanted, in samples
+  const afterFilter = total - 0.5;       // the one zero averager's exact contribution
+  let N = Math.floor(afterFilter - 0.5); // leave the allpass a delay in [0.5, 1.5)
+  if (N < 2) N = 2;
+  const d = afterFilter - N;
+  // closed form allpass coefficient for a phase delay of d samples at w
+  const a = Math.sin((1 - d) * w / 2) / Math.sin((1 + d) * w / 2);
+
+  // BUCKET BRIGADE: the gain lands once per trip, f0 times a second.
+  const g = Math.pow(10, -3 / (f0 * t60));
+
+  const rnd = mulberry32(seed);
+  const buf = new Float32Array(N);
+  let lp = 0;
+  for (let i = 0; i < N; i++) {           // excitation, lowpassed by brightness only
+    const n = rnd() * 2 - 1;
+    lp = lp + (n - lp) * brightness;
+    buf[i] = lp;
+  }
+  let dc = 0;
+  for (let i = 0; i < N; i++) dc += buf[i];
+  dc /= N;
+  for (let i = 0; i < N; i++) buf[i] -= dc;   // no DC, or the string thumps
+
+  const out = new Float32Array(Math.round(sr * seconds));
+  let idx = 0, lastIn = 0, apIn = 0, apOut = 0, peak = 0;
+  for (let n = 0; n < out.length; n++) {
+    const x = buf[idx];
+    const filt = 0.5 * (x + lastIn);               // one zero averager, delay exactly 0.5
+    lastIn = x;
+    const y = a * filt + apIn - a * apOut;         // first order allpass
+    apIn = filt; apOut = y;
+    out[n] = y;
+    buf[idx] = y * g;
+    idx = idx + 1 === N ? 0 : idx + 1;
+    const m = y < 0 ? -y : y;
+    if (m > peak) peak = m;
+  }
+  if (peak > 0) for (let n = 0; n < out.length; n++) out[n] /= peak;
+  return { data: out, N: N, d: d, a: a, g: g };
+}
+
+/* The textbook naive Karplus-Strong, as the control for P2. The allpass is
+ * genuinely REMOVED rather than zeroed: `pluck` recorded that a = 0 collapses
+ * to z^-1, which silently adds a whole sample, so a zeroed allpass is a
+ * different string rather than an untuned one.
+ *
+ * It also ignores the loop filter's half sample, which is what the textbook
+ * version does and is the whole reason the naive one plays FLAT: the real
+ * period is N + 0.5 where N is round(sr/f0), so it is up to a full sample long.
+ * Nothing in the app can reach this. */
+function renderStringIntegerDelay(f0, sr, seconds, t60, brightness, seed) {
+  let N = Math.round(sr / f0);
+  if (N < 2) N = 2;
+  const g = Math.pow(10, -3 / (f0 * t60));
+  const rnd = mulberry32(seed);
+  const buf = new Float32Array(N);
+  let lp = 0;
+  for (let i = 0; i < N; i++) { const n = rnd() * 2 - 1; lp = lp + (n - lp) * brightness; buf[i] = lp; }
+  let dc = 0; for (let i = 0; i < N; i++) dc += buf[i]; dc /= N;
+  for (let i = 0; i < N; i++) buf[i] -= dc;
+  const out = new Float32Array(Math.round(sr * seconds));
+  let idx = 0, lastIn = 0;
+  for (let n = 0; n < out.length; n++) {
+    const x = buf[idx];
+    const y = 0.5 * (x + lastIn);
+    lastIn = x;
+    out[n] = y;
+    buf[idx] = y * g;
+    idx = idx + 1 === N ? 0 : idx + 1;
+  }
+  return { data: out, N: N };
+}
+
+/* ================================================================== *
+ * 3. Colour: OKLCH ramp
+ * Matrices from the `gamut` build, where they were verified against
+ * Chromium's own conversion to within 1/255 over 4096 colours.
+ * ================================================================== */
+const M_LAB_LMS = [[1, 0.3963377774, 0.2158037573],
+                   [1, -0.1055613458, -0.0638541728],
+                   [1, -0.0894841775, -1.2914855480]];
+const M_LMS_LIN = [[ 4.0767416621, -3.3077115913,  0.2309699292],
+                   [-1.2684380046,  2.6097574011, -0.3413193965],
+                   [-0.0041960863, -0.7034186147,  1.7076147010]];
+const linearToSrgb = c => c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+
+function oklchToLinear(L, C, h) {
+  const r = h * Math.PI / 180, A = C * Math.cos(r), B = C * Math.sin(r);
+  const l_ = M_LAB_LMS[0][0]*L + M_LAB_LMS[0][1]*A + M_LAB_LMS[0][2]*B;
+  const m_ = M_LAB_LMS[1][0]*L + M_LAB_LMS[1][1]*A + M_LAB_LMS[1][2]*B;
+  const s_ = M_LAB_LMS[2][0]*L + M_LAB_LMS[2][1]*A + M_LAB_LMS[2][2]*B;
+  const l = l_*l_*l_, m = m_*m_*m_, s = s_*s_*s_;
+  return [M_LMS_LIN[0][0]*l + M_LMS_LIN[0][1]*m + M_LMS_LIN[0][2]*s,
+          M_LMS_LIN[1][0]*l + M_LMS_LIN[1][1]*m + M_LMS_LIN[1][2]*s,
+          M_LMS_LIN[2][0]*l + M_LMS_LIN[2][1]*m + M_LMS_LIN[2][2]*s];
+}
+function oklchInGamut(L, C, h) {
+  const v = oklchToLinear(L, C, h);
+  return v.every(c => c >= -1e-6 && c <= 1 + 1e-6);
+}
+function oklch(L, C, h, alpha) {
+  const v = oklchToLinear(L, C, h).map(c => Math.round(Math.min(1, Math.max(0, linearToSrgb(c))) * 255));
+  return `rgba(${v[0]},${v[1]},${v[2]},${alpha === undefined ? 1 : alpha})`;
+}
+
+/* ================================================================== *
+ * 4. The harp
+ * ================================================================== */
+const SR = 44100;
+const SEMI = [0, 3, 5, 7, 10, 12, 15, 17, 19];     // A minor pentatonic, two octaves
+const ROOT = 110;                                   // A2
+const PITCHES = SEMI.map(s => ROOT * Math.pow(2, s / 12));
+const SEG = 26;                                     // points per string
+
+const state = {
+  strings: [], particles: [], t: 0, steps: 0,
+  wind: 0.46, gust: 0.55, vol: 0.62, showWind: true, still: false,
+  pointer: null, prevPointer: null, voices: 0, lastTrig: [], windGain: 127 * 1100,
+  audio: null, buffers: null, master: null, started: false
+};
+
+function buildStrings(w, h) {
+  const n = PITCHES.length;
+  state.strings = [];
+  state.lastTrig = [];
+  for (let i = 0; i < n; i++) {
+    const x = w * (0.5 + (i - (n - 1) / 2) * SPACING);
+    const top = h * 0.08, bot = h * 0.82;   // 0.82, so the anchors clear the control panel
+    const pts = [];
+    for (let k = 0; k < SEG; k++) {
+      const y = top + (bot - top) * (k / (SEG - 1));
+      pts.push({ x: x, y: y, px: x, py: y });
+    }
+    state.strings.push({
+      i, x, pts, rest: (bot - top) / (SEG - 1),
+      hue: 232 + i * 13, armed: true, env: 0, peak: 0, lit: 0
+    });
+    state.lastTrig.push(-1e9);
+  }
+  const gap = w * SPACING;
+  TRIG = gap * TRIG_FRACTION;
+  ARM = TRIG * 0.5;
+  /* Gain SOLVED for the thresholds rather than re-guessed. Equilibrium
+   * deflection is u * gain * wind * gust / 26 and the field's mean |u| is
+   * 2.96e-3.
+   *
+   * 127 per pixel of width was the answer to the wrong question: it puts the
+   * mean just under TRIG at wind = 1.0, and the slider DEFAULTS to 0.46, so the
+   * harp opened almost silent. Solved instead for the default setting, which is
+   * what anyone actually hears: mean at 0.78 of TRIG when wind = 0.58. Peaks in
+   * this field run about 4x the mean, so gusts cross it and ordinary air does
+   * not, which is the behaviour wanted. Scales with w, so it holds on a phone. */
+  state.windGain = 190 * w;
+}
+
+/* One Verlet step plus constraint relaxation. Endpoints are pinned. */
+function stepStrings(dt, w, h) {
+  const windScale = state.still ? 0 : state.wind;
+  const gustAmp = 0.45 + state.gust * 1.6;
+  for (const s of state.strings) {
+    const p = s.pts;
+    for (let k = 1; k < p.length - 1; k++) {
+      const pt = p[k];
+      let fx = 0, fy = 0;
+      if (windScale > 0) {
+        const [wx, wy] = windAt(pt.x, pt.y, state.t);
+        /* These gains are SOLVED, not guessed. The field's mean |u| is 2.96e-3
+         * and the restoring term below is 26/s^2, so the equilibrium deflection
+         * is (u * gain * wind * gust) / 26. The first version used 1600, which
+         * works out at 0.17 px against a 13 px trigger: the harp could not make
+         * a sound at any wind setting and nothing said so, because "quiet" and
+         * "silent" look identical. 150000 puts the mean just under the trigger
+         * at full wind, so ordinary air stays quiet and gusts play it. */
+        fx += wx * state.windGain * windScale * gustAmp;
+        fy += wy * state.windGain * 0.27 * windScale * gustAmp;
+      }
+      fx += (s.x - pt.x) * 26;                     // restoring force toward rest
+      const vx = (pt.x - pt.px) * 0.982, vy = (pt.y - pt.py) * 0.982;
+      pt.px = pt.x; pt.py = pt.y;
+      pt.x += vx + fx * dt * dt;
+      pt.y += vy + fy * dt * dt;
+    }
+    /* SYMMETRIC Gauss-Seidel: alternate the sweep direction each pass.
+     *
+     * A one-directional sweep propagates a correction exactly one link per
+     * pass, so on a 26 point chain pinned at both ends it takes 25 passes
+     * before the two ends have heard about each other at all, and the residual
+     * only starts falling after that. Measured, one-directional: 6 passes gave
+     * 3.31% worst stretch, 16 gave 1.85%, 32 gave 1.22%, 48 gave 0.95%. Paying
+     * 48 sweeps to scrape under a 1% bar is the wrong shape of answer.
+     *
+     * Alternating the direction lets corrections travel both ways for the cost
+     * of one bit test per pass, and symmetric at 20 is worth one-directional at
+     * 32: a factor of about 1.6, not the 2 the argument suggests. Worth writing
+     * down, because the argument sounds like it should give 2.
+     *
+     * AND IT IS STILL THE WRONG TOOL, which is the honest part. Measured at the
+     * shipped wind gain, symmetric: 48 passes gave 1.03% worst stretch and 64
+     * gave 0.89%. Needing 64 relaxation sweeps a frame to hold a 1% bar is
+     * Gauss-Seidel converging badly, not a solver that has been tuned well.
+     *
+     * `xpbd-lab` already measured the structurally right answer: substeps beat
+     * iterations on a MOVING system, and this one is moving. Substeps are NOT
+     * taken here because they would invalidate two constants that were solved
+     * against measurements above, the velocity damping and the wind gain, and
+     * re-deriving both properly is a bigger job than this build needs. So: 64
+     * sweeps, it holds, and the better answer is named rather than hidden. */
+    const passes = 64;
+    for (let it = 0; it < passes; it++) {
+      const fwd = (it & 1) === 0;
+      for (let j = 0; j < p.length - 1; j++) {
+        const k = fwd ? j : p.length - 2 - j;
+        const A = p[k], B = p[k + 1];
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const dist = Math.hypot(dx, dy) || 1e-9;
+        const diff = (dist - s.rest) / dist * 0.5;
+        const ox = dx * diff, oy = dy * diff;
+        if (k > 0) { A.x += ox; A.y += oy; }
+        if (k + 1 < p.length - 1) { B.x -= ox; B.y -= oy; }
+      }
+    }
+  }
+}
+
+/* The coupling, which is the only genuinely new part of this build:
+ * turn a continuous deflection into a discrete pluck.
+ *
+ * Hysteresis, not a bare threshold. A string arms only after it has come
+ * back below ARM, so a string held out in a steady wind sounds once and
+ * then waits, instead of machine-gunning at the frame rate. */
+/* Thresholds are a FRACTION OF THE STRING SPACING, not a pixel count.
+ *
+ * They were absolute (13 px and 7 px) and that is a bug about screens rather
+ * than about physics: 13 px is a big swing on a phone and invisible on a
+ * 1280 px canvas, where the strings sit 105 px apart. The first screenshot
+ * showed nine almost straight hairlines and a max deflection of 15.5 px, which
+ * is technically "working" and looks like nothing at all. Everything that has
+ * a length in this build now scales with the canvas. */
+const SPACING = 0.082;                    // of canvas width, between strings
+/* Set by measuring the resulting NOTE RATE, not by eye. The design target,
+ * written before measuring: at the default wind the harp should speak every few
+ * seconds, 8 to 25 notes a minute. Silence and a constant jangle are both
+ * reachable from this one number and both are failures. See the table in
+ * _verify/RESULTS.md. */
+let TRIG_FRACTION = 0.17;
+let TRIG = 26, ARM = 13;                  // both recomputed in buildStrings
+const MIN_GAP = 0.09;
+function coupling(nowSec) {
+  for (const s of state.strings) {
+    const mid = s.pts[(SEG / 2) | 0];
+    const defl = Math.abs(mid.x - s.x);
+    s.peak = defl;
+    if (defl < ARM) s.armed = true;
+    if (s.armed && defl > TRIG && nowSec - state.lastTrig[s.i] > MIN_GAP) {
+      s.armed = false;
+      state.lastTrig[s.i] = nowSec;
+      s.lit = 1;
+      pluck(s.i, Math.min(1, (defl - TRIG) / 46 + 0.22));
+    }
+    s.lit *= 0.94;
+  }
+}
+
+/* ================================================================== *
+ * 5. Audio
+ * ================================================================== */
+function prepareAudio() {
+  if (state.audio) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx();
+  const master = ctx.createGain();
+  master.gain.value = state.vol * 0.5;
+  // a little air: a short feedback delay, no external files
+  const delay = ctx.createDelay(1.0);
+  delay.delayTime.value = 0.23;
+  const fb = ctx.createGain(); fb.gain.value = 0.26;
+  const wet = ctx.createGain(); wet.gain.value = 0.3;
+  delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(ctx.destination);
+  master.connect(ctx.destination); master.connect(delay);
+
+  state.buffers = PITCHES.map((f, i) => {
+    const r = renderString(f, ctx.sampleRate, 3.4, 2.6, 0.34 + i * 0.03, 0xA11 + i * 977);
+    const b = ctx.createBuffer(1, r.data.length, ctx.sampleRate);
+    b.copyToChannel(r.data, 0);
+    return b;
+  });
+  state.audio = ctx; state.master = master;
+}
+
+function pluck(i, amp) {
+  state.voices++;
+  const ctx = state.audio;
+  if (!ctx || !state.buffers) return;
+  const src = ctx.createBufferSource();
+  src.buffer = state.buffers[i];
+  const g = ctx.createGain();
+  g.gain.value = Math.max(0.03, Math.min(1, amp)) * 0.5;
+  src.connect(g); g.connect(state.master);
+  try { src.start(); } catch (e) { /* context not running yet */ }
+}
+
+/* ================================================================== *
+ * 6. Render
+ * ================================================================== */
+const cv = document.getElementById("sky");
+const ctx2 = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(2, Math.round((cv.clientWidth || 900) * DPR));
+  H = Math.max(2, Math.round((cv.clientHeight || 500) * DPR));
+  cv.width = W; cv.height = H;
+  buildStrings(W, H);
+  seedParticles();
+}
+
+function seedParticles() {
+  const rnd = mulberry32(0x5eed);
+  state.particles = [];
+  const n = Math.round(Math.min(560, (W * H) / 3600));
+  for (let i = 0; i < n; i++)
+    state.particles.push({ x: rnd() * W, y: rnd() * H, a: 0.1 + rnd() * 0.5, life: rnd() });
+}
+
+function stepParticles(dt) {
+  const scale = state.still ? 0.04 : (0.16 + state.wind);
+  for (const p of state.particles) {
+    const [wx, wy] = windAt(p.x, p.y, state.t);
+    p.x += wx * 140 * scale * dt * 60;
+    p.y += wy * 60 * scale * dt * 60;
+    p.life -= dt * 0.14;
+    if (p.life <= 0 || p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) {
+      p.x = Math.random() * W; p.y = Math.random() * H; p.life = 1;
+    }
+  }
+}
+
+function draw() {
+  const bg = ctx2.createLinearGradient(0, 0, W * 0.3, H);
+  bg.addColorStop(0, "#070b18"); bg.addColorStop(0.55, "#05070f"); bg.addColorStop(1, "#0b0716");
+  ctx2.fillStyle = bg; ctx2.fillRect(0, 0, W, H);
+
+  const glow = ctx2.createRadialGradient(W * 0.5, H * 0.46, 0, W * 0.5, H * 0.46, Math.max(W, H) * 0.55);
+  glow.addColorStop(0, "rgba(70,86,160,.18)"); glow.addColorStop(1, "rgba(70,86,160,0)");
+  ctx2.fillStyle = glow; ctx2.fillRect(0, 0, W, H);
+
+  if (state.showWind) {
+    ctx2.lineCap = "round";
+    for (const p of state.particles) {
+      const [wx, wy] = windAt(p.x, p.y, state.t);
+      const len = Math.min(54, Math.hypot(wx, wy) * 4200) * DPR;
+      const ang = Math.atan2(wy, wx);
+      const alpha = p.a * Math.min(1, p.life * 2.2) * 0.85;
+      ctx2.strokeStyle = `rgba(158,190,255,${alpha.toFixed(3)})`;
+      ctx2.lineWidth = 1.5 * DPR;
+      ctx2.beginPath();
+      ctx2.moveTo(p.x, p.y);
+      ctx2.lineTo(p.x - Math.cos(ang) * len, p.y - Math.sin(ang) * len);
+      ctx2.stroke();
+    }
+  }
+
+  for (const s of state.strings) {
+    const lit = Math.min(1, s.lit);
+    /* Chroma goes DOWN as a string lights up, not up.
+     *
+     * The first version raised both together, to oklch(0.92, 0.18), and every
+     * one of the nine string colours was outside sRGB at full brightness. It
+     * looked fine, because the conversion clamps, so the screen showed a colour
+     * that was simply not the one being asked for. Measured: at L=0.92 the
+     * tightest of these hues allows C=0.035 and the build was asking for 0.18.
+     * A hot string going white is also what a hot thing actually does. */
+    const L = 0.62 + lit * 0.28;
+    const C = 0.09 - lit * 0.055;
+    ctx2.lineJoin = "round"; ctx2.lineCap = "round";
+    const trace = () => {
+      ctx2.beginPath();
+      ctx2.moveTo(s.pts[0].x, s.pts[0].y);
+      for (let k = 1; k < s.pts.length; k++) ctx2.lineTo(s.pts[k].x, s.pts[k].y);
+      ctx2.stroke();
+    };
+    // a soft halo under the wire, so nine thin lines read as an instrument
+    ctx2.strokeStyle = oklch(0.55, 0.07, s.hue, 0.10 + lit * 0.30);
+    ctx2.lineWidth = (9 + lit * 22) * DPR;
+    trace();
+    ctx2.strokeStyle = oklch(L, C, s.hue, 0.72 + lit * 0.28);
+    ctx2.lineWidth = (2.4 + lit * 3.2) * DPR;
+    trace();
+    if (lit > 0.02) {
+      ctx2.strokeStyle = oklch(0.95, 0.02, s.hue, lit * 0.5);   // C kept low: L=0.95 has almost no room
+      ctx2.lineWidth = 0.9 * DPR;
+      ctx2.stroke();
+    }
+    for (const end of [s.pts[0], s.pts[s.pts.length - 1]]) {
+      ctx2.fillStyle = oklch(0.5, 0.04, s.hue, 0.75);
+      ctx2.beginPath(); ctx2.arc(end.x, end.y, 3.1 * DPR, 0, 6.2832); ctx2.fill();
+    }
+  }
+}
+
+/* ================================================================== *
+ * 7. Pointer play
+ * ================================================================== */
+function applyPointer() {
+  const p = state.pointer, q = state.prevPointer;
+  if (!p) return;
+  const vx = q ? (p.x - q.x) : 0;
+  for (const s of state.strings) {
+    for (let k = 1; k < s.pts.length - 1; k++) {
+      const pt = s.pts[k];
+      const dx = pt.x - p.x, dy = pt.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      const R = 70 * DPR;
+      if (d2 < R * R) {
+        const f = (1 - Math.sqrt(d2) / R);
+        pt.x += (vx * 0.55 + Math.sign(dx || 1) * 0.6) * f;
+      }
+    }
+  }
+  state.prevPointer = { x: p.x, y: p.y };
+}
+
+/* ================================================================== *
+ * 8. Loop
+ * ================================================================== */
+const DT = 1 / 60;
+let acc = 0, last = 0;
+function frame(now) {
+  const real = last ? Math.min(0.05, (now - last) / 1000) : 0;
+  last = now; acc += real;
+  let guard = 0;
+  while (acc >= DT && guard++ < 4) {
+    state.t += DT;
+    state.steps++;
+    applyPointer();
+    stepStrings(DT, W, H);
+    stepParticles(DT);
+    coupling(state.t);
+    acc -= DT;
+  }
+  draw();
+  const m = document.getElementById("meter");
+  if (m) m.textContent = `${state.voices} note${state.voices === 1 ? "" : "s"} so far`;
+  requestAnimationFrame(frame);
+}
+
+/* ================================================================== *
+ * 9. Controls
+ * ================================================================== */
+function bindSlider(id, key, scale) {
+  const el = document.getElementById(id), out = document.getElementById(id + "v");
+  const apply = () => {
+    out.textContent = el.value;
+    state[key] = Number(el.value) / 100 * (scale || 1);
+    if (key === "vol" && state.master) state.master.gain.value = state.vol * 0.5;
+  };
+  el.addEventListener("input", apply); apply();
+}
+
+function boot() {
+  bindSlider("wind", "wind");
+  bindSlider("gust", "gust");
+  bindSlider("vol", "vol");
+
+  const sw = document.getElementById("showwind");
+  sw.addEventListener("click", () => {
+    state.showWind = !state.showWind;
+    sw.setAttribute("aria-pressed", String(state.showWind));
+  });
+  const st = document.getElementById("still");
+  st.addEventListener("click", () => {
+    state.still = !state.still;
+    st.setAttribute("aria-pressed", String(state.still));
+    document.getElementById("sub").textContent = state.still ? "still air" : "the wind is playing it";
+  });
+
+  const gate = document.getElementById("gate");
+  const open = () => {
+    if (state.started) return;
+    state.started = true;
+    prepareAudio();
+    if (state.audio && state.audio.state === "suspended") state.audio.resume();
+    gate.classList.add("gone");
+  };
+  gate.addEventListener("click", open);
+  window.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") open(); });
+
+  cv.addEventListener("pointerdown", e => {
+    open();
+    cv.setPointerCapture(e.pointerId);
+    const r = cv.getBoundingClientRect();
+    state.pointer = { x: (e.clientX - r.left) * DPR, y: (e.clientY - r.top) * DPR };
+    state.prevPointer = null;
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!state.pointer) return;
+    const r = cv.getBoundingClientRect();
+    state.pointer = { x: (e.clientX - r.left) * DPR, y: (e.clientY - r.top) * DPR };
+  });
+  const drop = () => { state.pointer = null; state.prevPointer = null; };
+  cv.addEventListener("pointerup", drop);
+  cv.addEventListener("pointercancel", drop);
+
+  window.addEventListener("resize", resize);
+  resize();
+  requestAnimationFrame(frame);
+}
+
+/* ================================================================== *
+ * 10. Preview mode and the test surface
+ * ================================================================== */
+function previewMode() {
+  document.documentElement.classList.add("preview");
+  resize();
+  state.wind = 0.62; state.gust = 0.8;
+  for (let i = 0; i < 260; i++) {        // settle into a real gust, no audio
+    state.t += DT;
+    stepStrings(DT, W, H);
+    stepParticles(DT);
+  }
+  for (const s of state.strings) s.lit = Math.max(0, 0.85 - Math.abs(s.i - 3) * 0.26);
+  draw();
+  window.addEventListener("resize", () => { resize(); draw(); });
+  window.__aeolianPreview = { strings: state.strings.length, steps: 260 };
+}
+
+window.__aeolian = {
+  SR, PITCHES, SEG, MIN_GAP, SPACING,
+  /* getters, because TRIG and ARM are recomputed from the canvas width on every
+   * resize. Copying their values into this object once would hand the checker a
+   * stale number that happened to be right at load and wrong after a resize. */
+  get TRIG() { return TRIG; },
+  get ARM() { return ARM; },
+  get windGain() { return state.windGain; },
+  renderString, renderStringIntegerDelay, windAt, potential,
+  oklchToLinear, oklchInGamut, mulberry32, makeNoise,
+  state: () => ({
+    voices: state.voices, steps: state.steps, t: state.t,
+    wind: state.wind, still: state.still, started: state.started,
+    strings: state.strings.map(s => ({
+      i: s.i, x: s.x, defl: Math.abs(s.pts[(SEG / 2) | 0].x - s.x),
+      armed: s.armed, lit: s.lit,
+      worstSeg: (() => {
+        let worst = 0;
+        for (let k = 0; k < s.pts.length - 1; k++) {
+          const d = Math.hypot(s.pts[k + 1].x - s.pts[k].x, s.pts[k + 1].y - s.pts[k].y);
+          worst = Math.max(worst, Math.abs(d - s.rest) / s.rest);
+        }
+        return worst;
+      })()
+    }))
+  }),
+  positions: () => state.strings.map(s => s.pts.map(p => [p.x, p.y])),
+  setWind: v => { state.wind = v; },
+  setTrigFraction: f => { TRIG_FRACTION = f; resize(); },
+  setStill: v => { state.still = v; },
+  reset: (seed) => { state.t = 0; state.steps = 0; state.voices = 0; resize(); },
+  stepOnce: () => { state.t += DT; stepStrings(DT, W, H); coupling(state.t); state.steps++; }
+};
+
+if (new URLSearchParams(location.search).has("preview")) previewMode();
+else boot();
+</script>
+</body>
+</html>
