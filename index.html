@@ -205,6 +205,21 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 .pills li{border:1px solid var(--edge);border-radius:999px;padding:4px 12px;font-size:15px}
 .pills li.date{font-size:12px;padding-block:6px}
 .acts{display:flex;gap:8px;flex-wrap:wrap}
+.detail .desc h3.sub{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;color:var(--lav);margin:18px 0 6px}
+.detail .desc h3.sub:first-of-type{margin-top:4px}
+.whycols{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+.whycols p{margin:0;color:var(--muted);max-width:60ch}
+@media (max-width:900px){.whycols{grid-template-columns:1fr}}
+.sortby select{font:inherit;font-size:15px;padding:9px 14px;border-radius:999px;border:1px solid var(--edge);background:var(--panel);color:var(--text);cursor:pointer}
+.topget{margin:14px 0 0}
+.rowacts{display:flex;gap:10px;flex-wrap:wrap}
+#ideaForm{display:grid;gap:8px;max-width:520px}
+#ideaForm label{font-weight:700;font-size:15px}
+#ideaForm textarea,#ideaForm input{font:inherit;font-size:16px;width:100%;padding:10px 14px;border:2px solid var(--ink);border-radius:12px;background:#FFFDF2;color:var(--ink)}
+#ideaForm .fine{margin:2px 0 6px;font-size:13px;color:#3A335F}
+#ideaForm .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.formacts{display:flex;gap:8px;flex-wrap:wrap}.formacts .btn.ghost{margin:0}
+#ideaMsg{margin:4px 0 0;font-weight:700;min-height:1.5em}
 .soon{font-family:var(--display);font-weight:700;font-size:13px;color:var(--lav);border:1px dashed var(--lav);border-radius:12px;padding:12px 16px}
 
 /* play: the whole build, full screen */
@@ -239,7 +254,8 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   <header class="hero" id="top">
     <div class="top">
       <h1 class="crooked" data-amp="1.4" data-rot="3">We build stuff. You can have it.</h1>
-      <p class="lede">Games, toys and tools we built because they were fun to build. No two pieces match, and they fit anyway. Jump to the <a href="#library" data-jump="game">games</a>, the <a href="#library" data-jump="toy">toys</a>, the <a href="#library" data-jump="tool">tools</a>, or the <a href="#library" data-jump="lab">labs</a>.</p>
+      <div><p class="lede">Games, toys and tools we built because they were fun to build. No two pieces match, and they fit anyway. Jump to the <a href="#library" data-jump="game">games</a>, the <a href="#library" data-jump="toy">toys</a>, the <a href="#library" data-jump="tool">tools</a>, or the <a href="#library" data-jump="lab">labs</a>.</p>
+      <p class="topget"><a class="btn getAll" href="saxton-showcase-all.zip" download>Download all of them</a></p></div>
     </div>
     <div class="board">
       <div class="tools">
@@ -253,7 +269,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
         </div>
         <div class="right">
           <label class="find" hidden><span class="sr">Find a piece</span><input type="search" id="find" placeholder="Find a piece" autocomplete="off"></label>
-          <div class="seg" role="group" aria-label="Show the pieces as"><button type="button" data-view="puzzle" aria-pressed="true">Puzzle</button><button type="button" data-view="list" aria-pressed="false">List</button></div>
+          <label class="sortby"><span class="sr">Sort the pieces</span><select id="sort"><option value="pick">Our order</option><option value="new">Newest first</option><option value="old">Oldest first</option><option value="az">A to Z</option><option value="kind">By kind</option></select></label><div class="seg" role="group" aria-label="Show the pieces as"><button type="button" data-view="puzzle" aria-pressed="true">Puzzle</button><button type="button" data-view="list" aria-pressed="false">List</button></div>
         </div>
       </div>
       <svg id="board" class="scattered" viewBox="-50 -50 900 500" role="group" aria-label="Puzzle pieces, one per build"></svg>
@@ -261,7 +277,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       <div class="empty" id="bEmpty" hidden><p>Nothing matches that.</p><button class="btn ghost" type="button" id="bClear">Show everything</button></div>
       <div class="row">
         <p id="boardState" aria-live="polite"></p>
-        <button class="btn ghost" id="snap" type="button">Scatter them</button>
+        <span class="rowacts"><a class="btn getAll" href="saxton-showcase-all.zip" download>Download all of them</a><button class="btn ghost" id="snap" type="button">Scatter them</button></span>
       </div>
     </div>
   </header>
@@ -455,6 +471,9 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     {n:"Linen",slug:"linen",pv:"preview=flag&steps=340&wind=6.4",k:"toy",col:C.lav,date:"2026-09-16",d:"A piece of cloth with nothing between you and it. Drag it, cut it, pin it, or drop a square of linen onto a ball and let it find its own folds.",stat:"5",sl:"Hangings",spec:["Browser toy", "Mouse or keyboard to cut", "Drag only on touch"],acts:["Play with it"]},
     {n:"Drape Scenes",slug:"drape-scenes",pv:"preview=drape&ff=220",k:"toy",col:C.marigold,date:"2026-09-17",d:"A curtain that heaps on the floor, a flag, a sheet over a ball, a net full of balls and a rope bridge. No explainer, you just poke at it.",stat:"5",sl:"Scenes",spec:["Browser toy", "Drop a ball", "Works on touch"],acts:["Play with it"]},
     {n:"Cloth",slug:"cloth",pv:"preview=ropes",k:"toy",col:C.tomato,date:"2026-09-19",d:"A curtain, a banner, a net, a bridge and a rack of ropes, all points and sticks. Pull one corner and watch the strain light up all the way back to the pins.",stat:"5",sl:"Hanging things",spec:["Browser toy", "Colours by strain", "Just for playing"],acts:["Play with it"]},
+    {n:"Seam",slug:"seam",wide:1,pv:"preview=1&fixture=config",k:"tool",col:C.tangerine,date:"2026-09-22",d:"A line diff with three engines running on every input: a textbook grid, Myers' greedy search, and Myers' linear space version. All three must agree, and the page says on screen whether they did.",stat:"3",sl:"Engines",spec:["Browser tool","Compares text","Eight worked examples"],acts:["Use it"]},
+    {n:"Loom",slug:"loom",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-22",d:"One dark room, a pleated curtain and seven threads. The wind moves the cloth, a growing dye stiffens it where it's dense, and a thread bent far enough plucks its own note. Drag the cloth, stir the air, and they sing.",stat:"4",sl:"Ideas in one piece",spec:["Browser toy","Sound on","Drag the cloth"],acts:["Play with it"]},
+    {n:"Mosaic",slug:"mosaic",wide:1,pv:"preview=1",k:"lab",col:C.pool,date:"2026-09-23",d:"The same 108 files packed into one rectangle three ways, side by side, with every tile's shape measured underneath. Every tile is a real file from the folder these builds live in.",stat:"3",sl:"Layouts",spec:["Algorithm lab","Treemaps","Every count computed"],acts:["Try it"]},
     {n:"Governance plugin",k:"workshop",col:C.lav,date:"2026-09-06",d:"The guardrails we built for our own AI helper, packaged so anyone can install them: review gates, a council of reviewers, and a lock that stops two sessions editing one file. Family data never ships, only the machinery. Mapped, not built yet.",stat:"Mapped",sl:"Not installable yet",spec:["In the workshop","For Claude Code","Mapped 2026-09-06"],acts:["Read the plan"],ghost:true}
   ];
   var shapes=items.map(function(_,i){return onePiece(101+i*7);});
@@ -495,9 +514,15 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   // Each build ships next to this page as builds/<slug>/index.html, and draws a chrome free view of itself when asked for a preview.
   function buildSrc(it,preview){return "builds/"+it.slug+"/index.html"+(preview&&it.pv?"?"+it.pv:"");}
   items.forEach(function(it,i){it.i=i;});
-  var view={f:"all",q:"",mode:"puzzle"};
+  var view={f:"all",q:"",mode:"puzzle",sort:"pick"};
   function matches(it){var q=view.q.trim().toLowerCase();return (view.f==="all"||it.k===view.f)&&(!q||(it.n+" "+it.d+" "+KIND[it.k][0]).toLowerCase().indexOf(q)>-1);}
-  function shown(){return items.filter(matches);}
+  var KORDER=["game","toy","tool","lab","workshop"];
+  var SORTS={pick:function(a,b){return a.i-b.i;},
+    "new":function(a,b){return a.date<b.date?1:a.date>b.date?-1:a.i-b.i;},
+    old:function(a,b){return a.date<b.date?-1:a.date>b.date?1:a.i-b.i;},
+    az:function(a,b){return a.n.localeCompare(b.n);},
+    kind:function(a,b){return (KORDER.indexOf(a.k)-KORDER.indexOf(b.k))||a.i-b.i;}};
+  function shown(){return items.filter(matches).sort(SORTS[view.sort]);}
   function sticker(it,cls){var s=el("svg",{viewBox:"-70 -70 340 340","aria-hidden":"true"});if(cls)s.setAttribute("class",cls);glossy(s,shapes[it.i],it.col,it.ghost,PAT[it.i%PAT.length],20);return s;}
 
   // Detail view: a live preview of the build, the facts beside it, Play on top.
@@ -515,14 +540,17 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       var f=document.createElement("iframe");f.src=buildSrc(it,true);f.title="Live preview of "+it.n;f.tabIndex=-1;f.setAttribute("aria-hidden","true");f.setAttribute("scrolling","no");
       var go=document.createElement("button");go.type="button";go.className="go";go.setAttribute("aria-label",it.acts[0]+": "+it.n);go.innerHTML="<span>"+it.acts[0]+"</span>";go.onclick=function(){startPlay(it);};
       fr.appendChild(f);fr.appendChild(go);scr.appendChild(fr);scr.appendChild(sticker(it,"sticker"));
-      var cap=document.createElement("p");cap.className="cap";cap.textContent="Running live, right here. Tap it to play.";scr.appendChild(cap);
+      var cap=document.createElement("p");cap.className="cap";cap.textContent="Running live, right here. Tap it to play, or download it and keep it.";scr.appendChild(cap);
     }else{
       var g=document.createElement("div");g.className="ghostart";g.appendChild(sticker(it));
       var gp=document.createElement("p");gp.textContent="Nothing to play yet. It's mapped, not built.";g.appendChild(gp);scr.appendChild(g);
     }
     document.getElementById("dKind").textContent=K[0];document.getElementById("dName").textContent=it.n;document.getElementById("dText").textContent=it.d;
     var acts=document.getElementById("dActs");
-    acts.innerHTML=it.slug?'<button class="btn" type="button" id="dPlay">'+it.acts[0]+'</button>':'<span class="soon">Not playable yet</span>';
+    acts.innerHTML=it.slug?'<button class="btn" type="button" id="dPlay">'+it.acts[0]+'</button>'
+      +'<a class="btn ghost" href="builds/'+it.slug+'/index.html" download="'+it.slug+'.html">Download it</a>'
+      +'<a class="btn ghost" href="builds/'+it.slug+'/LEARNED.md" download="'+it.slug+'-LEARNED.md">Notes for your AI</a>'
+      :'<span class="soon">Not playable yet</span>';
     if(it.slug)document.getElementById("dPlay").onclick=function(){startPlay(it);};
     var pb=document.getElementById("dPrev"),nb=document.getElementById("dNext");
     pb.textContent="← "+prev.n;pb.setAttribute("aria-label","Previous piece: "+prev.n);
@@ -586,7 +614,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
         bd.appendChild(g);
         var bb=tg.getBBox(),pad=9;
         tg.insertBefore(el("rect",{x:bb.x-pad,y:bb.y-pad,width:bb.width+pad*2,height:bb.height+pad*2,rx:14,fill:"#ECE5FF",stroke:"#6B4FD8","stroke-width":"2"}),t1);
-        var goIdea=function(){location.hash="idea";};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
+        var goIdea=function(){location.hash="idea";var f=document.querySelector("#ideaForm input");if(f)f.focus({preventScroll:true});};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
       }else{
         g=el("g",{"class":"bp hole","aria-hidden":"true"});
         g.appendChild(el("path",{d:d,fill:"rgba(107,79,216,.03)",stroke:"rgba(107,79,216,.28)","stroke-width":"1.5","stroke-dasharray":"4 8"}));
@@ -597,7 +625,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   }
   function drawList(){
     plist.innerHTML="";
-    shown().slice().sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:a.i-b.i;}).forEach(function(it){
+    shown().forEach(function(it){
       var li=document.createElement("li"),b=document.createElement("button");b.type="button";b.style.setProperty("--c",it.col);
       b.innerHTML='<span class="pc"></span><span class="nm"><b>'+it.n+'</b><span class="one">'+it.d+'</span></span><span class="k"><i></i>'+KIND[it.k][0]+'</span><span class="date">'+shortDate(it.date)+'</span>';
       b.querySelector(".pc").appendChild(sticker(it));b.onclick=function(){lastFocus=b;openItem(it);};li.appendChild(b);plist.appendChild(li);
@@ -615,8 +643,9 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     bd.style.display=puzzle&&n?"":"none";plist.hidden=puzzle||!n;snapBtn.hidden=!puzzle||!n;bempty.hidden=!!n;
     if(puzzle&&n){drawBoard();if(fly)flyIn(60);}
     if(!puzzle)drawList();
-    bstate.textContent=n?(n+(narrowed?" of "+items.length:"")+" piece"+(n===1?"":"s")+(puzzle?". Tap one to open it.":", newest first.")):"";
-    lib.querySelectorAll(".card").forEach(function(c){c.hidden=!matches(items[+c.dataset.i]);});
+    bstate.textContent=n?(n+(narrowed?" of "+items.length:"")+" piece"+(n===1?"":"s")+(puzzle?". Tap one to open it.":".")):"";
+    var cardEls={};lib.querySelectorAll(".card").forEach(function(c){cardEls[c.dataset.i]=c;});
+    items.slice().sort(SORTS[view.sort]).forEach(function(it){var c=cardEls[it.i];c.hidden=!matches(it);lib.appendChild(c);});
   }
   function setFilter(f){view.f=f;refresh(true);}
   // Chip counts, and a chip with nothing behind it goes away.
@@ -630,6 +659,9 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   // Search only shows up once the library is big enough to need it.
   var find=document.getElementById("find");
   if(items.length>12){find.parentNode.hidden=false;find.addEventListener("input",function(){view.q=find.value;refresh(false);});}
+  document.getElementById("sort").addEventListener("change",function(e){view.sort=e.target.value;refresh(true);});
+  // Opened from the unzipped download there is no zip beside the page, so the button goes away.
+  if(location.protocol==="file:")document.querySelectorAll(".getAll").forEach(function(a){a.hidden=true;});
   document.getElementById("bClear").onclick=function(){view.f="all";view.q="";find.value="";refresh(true);};
   window.addEventListener("resize",function(){if(view.mode==="puzzle"&&(bd.parentNode.clientWidth<560)!==narrowNow)drawBoard();});
 
@@ -658,13 +690,13 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   ideaForm.addEventListener("submit",function(ev){
     ev.preventDefault();
     if(!ideaForm.checkValidity()){ideaForm.reportValidity();return;}
+    if(location.protocol==="file:"){ideaMsg.className="err";ideaMsg.textContent="This is the offline copy, so it cannot send. Visit saxtonshowcase.com to send an idea.";return;}
     var btn=ideaForm.querySelector("button[type=submit]");btn.disabled=true;ideaMsg.className="";ideaMsg.textContent="Sending\u2026";
     fetch("/api/idea",{method:"POST",body:new FormData(ideaForm)}).then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(res){
       if(res.ok&&res.j.ok){ideaForm.reset();ideaMsg.className="ok";ideaMsg.textContent="Got it. We read every one.";}
       else{ideaMsg.className="err";ideaMsg.textContent="That didn't send. Try again in a minute?";}
     }).catch(function(){ideaMsg.className="err";ideaMsg.textContent="That didn't send. Try again in a minute?";}).finally(function(){btn.disabled=false;});
   });
-
   // The empty slot, drawn in ink on butter.
   var cs=document.getElementById("ctaSlot");
   cs.appendChild(el("path",{d:onePiece(77),fill:"none",stroke:"#1A1540","stroke-width":"6","stroke-dasharray":"16 12","stroke-linejoin":"round",transform:"rotate(-8 100 100)"}));

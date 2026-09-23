@@ -1,0 +1,1558 @@
+<!doctype html>
+<!--
+  LOOM, the master build
+  playground build, 2026-09-22
+
+  WHAT IT IS
+  One dark room under a night sky. A sheet of cloth hangs gathered from a rail, and seven threads
+  hang from its hem, each a different length. A wind circulates through the room. A dye grows its
+  own pattern IN THE CLOTH'S MATERIAL COORDINATES, and where the dye is dense the cloth is stiffer,
+  so the pattern is a material, not a texture painted on top. When the wind bends a thread far
+  enough it plucks, and the note is tuned to that thread's length.
+
+      wind moves cloth -> cloth carries dye -> dye stiffens cloth -> cloth plucks threads
+
+  Drag through it. Grab the cloth and it follows you and leaves dye where you held it; stir the
+  air near the threads and they sing. Sound starts on your first touch, never on load.
+  No tabs, no modes, no settings.
+
+  WHAT IT TAUGHT ME
+  It is built from thirty earlier builds in this folder, and its job is to make their strongest
+  lessons hold at the same time, in one world, rather than one at a time in a lab. The full list,
+  seventy-six lessons with the builds they came from, is in LEDGER.md beside this file. The ones
+  that are load bearing here:
+  - XPBD compliance is an inverse spring constant, and alpha is divided by the SUBSTEP squared
+    (xpbd-lab, xpbd-cloth, linen). Damping is taken per substep on velocity BEFORE gravity, or it
+    quietly rescales gravity (the bug that shipped three times).
+  - A compliance that is a SCALE can reach zero, and zero is a rigid plate (drape-scenes). The dye
+    scales compliance, so every dyed constraint has a floor.
+  - Curl noise is exactly divergence free, and the look depends on it (sway, driftfield). Motes
+    are advected at the midpoint, because forward Euler compresses a divergence free flow anyway.
+  - Gray-Scott's nine point stencil and its diffusion constants are a matched pair (petri), and
+    the timestep sits at 80% of explicit Euler's ceiling of 2/1.6 (reaction).
+  - Karplus-Strong cannot play in tune without a fractional-delay allpass, and loop gain lands
+    once per trip around the buffer (pluck). Thresholds are relative and hysteretic, because a
+    harp that cannot make a sound looks exactly like a quiet one (aeolian).
+  - Browsers do not gamut map (gamut, gamut-second-take). Every colour here comes from ONE OKLCH
+    hue, the hue of the Showcase's night sky ground #0D0A22, chroma-bisected into sRGB, spaced on
+    WCAG contrast rather than on lightness, with contrast computed from the shipped hex.
+  - Every draw is hashed from seed and position, never from a shared random stream (grainsmith),
+    so two runs from one seed are bit identical.
+
+  And what it taught that none of the thirty had:
+  - Skip-one bend links, fine on every flat cloth in this folder, fight a gathered rail: they want
+    the flat width back. Rail links sat at 15 to 19% strain at ANY compliance (at one iteration per
+    substep a stiff link's correction is set by inverse mass, not compliance) and the restless
+    sheet plucked 36 notes in 20 seconds of dead calm. The pleats are now sewn into the rest shape.
+  - Without self-collision one drag can pass the sheet through itself into a crease that no local
+    constraint can tell from rest. It was found by looking at a screenshot with every check green.
+  - A hysteresis band that is too wide silences a harp as surely as a threshold that is too high:
+    a thread held in a steady curve never falls far enough to re-arm.
+
+  WHY IT EXISTS
+  The playtime log found that half of the thirty builds were the same three shapes: ten cloth
+  solvers, three reaction diffusion fields, two colour tools. Each stood alone. `aeolian` was the
+  first to make four ideas depend on each other; this is the second, and it tries to be the one a
+  person with no interest in any of that would still want to play with.
+
+  HOW IT IS CHECKED
+  Predictions first, in _verify/PREDICTIONS_loom.md. Engine suite _verify/check_loom.js (physics,
+  wind, dye, colour, sound against closed forms that live in the checker, never here), end to end
+  suite _verify/check_loom_ui.js (real pointer, real audio gesture, preview contract, screenshots
+  that were looked at). Receipts in _verify/RESULTS.md.
+
+  Self-contained, offline, no dependencies. ?seed=N picks a world. ?preview=1 is the index card.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Loom</title>
+<style>
+  :root{ --ground:#0d0a22; --ink:#d9d2ff; --dim:#9d93d6; --edge:#6f64b0; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--ground);overflow:hidden}
+  body{color:var(--ink);font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       -webkit-user-select:none;user-select:none}
+  canvas{position:fixed;left:0;top:0;width:100%;height:100%;display:block}
+  #back{z-index:0} #gl{z-index:1} #front{z-index:2;touch-action:none;cursor:grab}
+  #front.grabbing{cursor:grabbing}
+  #chrome{position:fixed;inset:0;z-index:3;pointer-events:none}
+  #title{position:absolute;left:22px;top:18px}
+  #name{font-weight:650;letter-spacing:.32em;font-size:13px;color:var(--ink)}
+  #hint{position:absolute;left:22px;bottom:18px;color:var(--dim);font-size:13px;max-width:24em;transition:opacity 1.6s;margin-right:150px}
+  #hint.gone{opacity:0}
+  #sound{position:absolute;right:18px;bottom:16px;pointer-events:auto;cursor:pointer;
+         background:transparent;color:var(--dim);border:1px solid var(--edge);border-radius:999px;
+         padding:6px 14px;font:inherit;font-size:12.5px;letter-spacing:.06em}
+  #sound[aria-pressed="true"]{color:var(--ink)}
+  #sound:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  html.preview #chrome{display:none!important}
+  html.preview #front{cursor:default}
+</style>
+</head>
+<body>
+<canvas id="back"></canvas>
+<canvas id="gl"></canvas>
+<canvas id="front"></canvas>
+<div id="chrome">
+  <div id="title"><div id="name">LOOM</div></div>
+  <div id="hint">Wind moves the cloth, the dye stiffens it, the threads sing. Drag through it.</div>
+  <button id="sound" type="button" aria-pressed="false">sound off</button>
+</div>
+<script>
+"use strict";
+/* ================================================================== *
+ * 0. Query, seed, hashing
+ *
+ * No shared random stream anywhere. Every draw is a hash of what it is
+ * for (seed, purpose, index, step), so skipping or reordering work can
+ * never change another draw. That is what lets two runs be compared
+ * bit for bit (grainsmith's lesson).
+ * ================================================================== */
+const QS = new URLSearchParams(location.search);
+const PREVIEW = QS.has("preview");
+const SEED = (parseInt(QS.get("seed"), 10) >>> 0) || 1618;
+
+function hash32(a, b, c, d) {
+  let h = Math.imul(a | 0, 0x85EBCA6B) ^ 0x9E3779B9;
+  h = Math.imul(h ^ (h >>> 16), 0x7FEB352D) ^ Math.imul(b | 0, 0xC2B2AE35);
+  h = Math.imul(h ^ (h >>> 15), 0x846CA68B) ^ Math.imul(c | 0, 0x27D4EB2F);
+  h = Math.imul(h ^ (h >>> 16), 0x165667B1) ^ Math.imul(d | 0, 0x9E3779B1);
+  h ^= h >>> 15; h = Math.imul(h, 0x2C1B3C6D);
+  h ^= h >>> 12; h = Math.imul(h, 0x297A2D39);
+  h ^= h >>> 15;
+  return h >>> 0;
+}
+const rand01 = (a, b, c, d) => hash32(a, b, c, d) / 4294967296;
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+/* ================================================================== *
+ * 1. Colour. One hue, OKLCH, chroma bisection, spaced on contrast.
+ *
+ * Published Oklab constants (Ottosson). The checker converts with its
+ * own numerically exact inverse, and the gap between the two is its
+ * tolerance (gamut's lesson: the published pair are inverses only to
+ * about 4e-8).
+ * ================================================================== */
+const M_LIN_LMS = [[0.4122214708, 0.5363325363, 0.0514459929],
+                   [0.2119034982, 0.6806995451, 0.1073969566],
+                   [0.0883024619, 0.2817188376, 0.6299787005]];
+const M_LMS_LAB = [[0.2104542553, 0.7936177850, -0.0040720468],
+                   [1.9779984951, -2.4285922050, 0.4505937099],
+                   [0.0259040371, 0.7827717662, -0.8086757660]];
+const M_LAB_LMS = [[1, 0.3963377774, 0.2158037573],
+                   [1, -0.1055613458, -0.0638541728],
+                   [1, -0.0894841775, -1.2914855480]];
+const M_LMS_LIN = [[4.0767416621, -3.3077115913, 0.2309699292],
+                   [-1.2684380046, 2.6097574011, -0.3413193965],
+                   [-0.0041960863, -0.7034186147, 1.7076147010]];
+
+function oklchToLin(L, C, H) {
+  const r = H * Math.PI / 180, A = C * Math.cos(r), B = C * Math.sin(r);
+  let l = M_LAB_LMS[0][0] * L + M_LAB_LMS[0][1] * A + M_LAB_LMS[0][2] * B;
+  let m = M_LAB_LMS[1][0] * L + M_LAB_LMS[1][1] * A + M_LAB_LMS[1][2] * B;
+  let s = M_LAB_LMS[2][0] * L + M_LAB_LMS[2][1] * A + M_LAB_LMS[2][2] * B;
+  l = l * l * l; m = m * m * m; s = s * s * s;
+  return [M_LMS_LIN[0][0] * l + M_LMS_LIN[0][1] * m + M_LMS_LIN[0][2] * s,
+          M_LMS_LIN[1][0] * l + M_LMS_LIN[1][1] * m + M_LMS_LIN[1][2] * s,
+          M_LMS_LIN[2][0] * l + M_LMS_LIN[2][1] * m + M_LMS_LIN[2][2] * s];
+}
+function linToOklch(rgb) {
+  const [r, g, b] = rgb;
+  const l = Math.cbrt(M_LIN_LMS[0][0] * r + M_LIN_LMS[0][1] * g + M_LIN_LMS[0][2] * b);
+  const m = Math.cbrt(M_LIN_LMS[1][0] * r + M_LIN_LMS[1][1] * g + M_LIN_LMS[1][2] * b);
+  const s = Math.cbrt(M_LIN_LMS[2][0] * r + M_LIN_LMS[2][1] * g + M_LIN_LMS[2][2] * b);
+  const L = M_LMS_LAB[0][0] * l + M_LMS_LAB[0][1] * m + M_LMS_LAB[0][2] * s;
+  const A = M_LMS_LAB[1][0] * l + M_LMS_LAB[1][1] * m + M_LMS_LAB[1][2] * s;
+  const B = M_LMS_LAB[2][0] * l + M_LMS_LAB[2][1] * m + M_LMS_LAB[2][2] * s;
+  return [L, Math.hypot(A, B), ((Math.atan2(B, A) * 180 / Math.PI) + 360) % 360];
+}
+const linToSrgb = c => c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+const srgbToLin = c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+const GAMUT_EPS = 1e-9;
+function inGamut(L, C, H) {
+  const v = oklchToLin(L, C, H);
+  return v[0] >= -GAMUT_EPS && v[0] <= 1 + GAMUT_EPS && v[1] >= -GAMUT_EPS &&
+         v[1] <= 1 + GAMUT_EPS && v[2] >= -GAMUT_EPS && v[2] <= 1 + GAMUT_EPS;
+}
+/* Chroma bisection: hold L and H, find the largest chroma still inside
+ * sRGB. 24 halvings of the requested chroma. Browsers do not do this;
+ * they clip each channel, which is a walk along a cube axis and moves
+ * the hue (gamut-second-take measured 32.67 degrees at worst). */
+const BISECT_ITERS = 24;
+function gamutMap(L, C, H) {
+  if (inGamut(L, C, H)) return { L, C, H, mapped: false, requested: C };
+  let lo = 0, hi = C;
+  for (let i = 0; i < BISECT_ITERS; i++) {
+    const mid = (lo + hi) / 2;
+    if (inGamut(L, mid, H)) lo = mid; else hi = mid;
+  }
+  return { L, C: lo, H, mapped: true, requested: C };
+}
+function linToBytes(lin) { return lin.map(c => Math.round(clamp(linToSrgb(clamp(c, 0, 1)), 0, 1) * 255)); }
+function bytesToHex(b) { return "#" + b.map(x => x.toString(16).padStart(2, "0")).join(""); }
+function lumFromLin(lin) { const c = lin.map(x => clamp(x, 0, 1)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+function lumFromBytes(b) { const c = b.map(x => srgbToLin(x / 255)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+const contrastY = (y1, y2) => (Math.max(y1, y2) + 0.05) / (Math.min(y1, y2) + 0.05);
+
+/* The hue. #0D0A22, the Showcase ground, is oklch(0.1651 0.0485 285.48).
+ * Seeding the one hue from the ground rather than from the violet
+ * accent (281.7, four degrees away) makes ramp[0] the ground itself, so
+ * the room does not merely resemble the night sky, it is that colour. */
+const HUE = 285.478;
+const GROUND = { L: 0.165136, C: 0.048482 };
+const C_PEAK = 0.205;              // requested; beyond sRGB near both ends of the ramp
+function chromaRequest(L) {
+  return GROUND.C + (C_PEAK - GROUND.C) * smooth(GROUND.L, 0.50, L) * (1 - 0.86 * smooth(0.60, 0.99, L));
+}
+const colourRequests = [];
+function colourAtL(L, record) {
+  const req = chromaRequest(L);
+  const m = gamutMap(L, req, HUE);
+  const lin = oklchToLin(m.L, m.C, HUE);
+  const bytes = linToBytes(lin);
+  if (record) colourRequests.push({ L, C: req, H: HUE, mappedC: m.C, mapped: m.mapped });
+  return { L, C: m.C, requested: req, mapped: m.mapped, lin, bytes, hex: bytesToHex(bytes) };
+}
+const Y_GROUND = lumFromBytes(linToBytes(oklchToLin(GROUND.L, GROUND.C, HUE)));
+/* L for a target contrast against the ground, by bisection on the float. */
+function lForContrast(target) {
+  let lo = GROUND.L, hi = 0.995;
+  for (let i = 0; i < 48; i++) {
+    const mid = (lo + hi) / 2;
+    const c = colourAtL(mid, false);
+    if (contrastY(lumFromLin(c.lin), Y_GROUND) < target) lo = mid; else hi = mid;
+  }
+  return hi;
+}
+/* The ramp: 256 colours whose CONTRAST against the ground rises
+ * geometrically from 1 to C_MAX, so equal steps in index are equal
+ * perceived steps in legibility. Oklab uniformity is not WCAG
+ * uniformity (gamut-second-take: 14.9x between largest and smallest
+ * step), and every renderer below indexes this ramp, so lighting is a
+ * move along the ramp and never a new colour. */
+const C_MAX = 15;
+const RAMP_N = 256;
+const ramp = [];
+for (let i = 0; i < RAMP_N; i++) {
+  const target = Math.pow(C_MAX, i / (RAMP_N - 1));
+  const L = i === 0 ? GROUND.L : lForContrast(target);
+  ramp.push(colourAtL(L, true));
+}
+const toneOf = c => Math.log(c) / Math.log(C_MAX);      // contrast -> ramp position 0..1
+/* Named tokens: a target contrast, and for anything a person must read
+ * or see as a control, a floor. The floor is checked on the HEX that
+ * ships, never on the float (gamut's lesson), and a token that misses
+ * is walked up the ramp until it clears. */
+const TOKEN_SPEC = {
+  ground: { c: 1.0 },  haze: { c: 1.2 },  star: { c: 9.5 },
+  clothDeep: { c: 1.28 }, cloth: { c: 1.9 }, dye: { c: 4.6 }, sheen: { c: 9 },
+  thread: { c: 3.4, floor: 3.0 }, bead: { c: 5.5, floor: 3.0 }, glow: { c: 13.5 },
+  rail: { c: 3.6, floor: 3.0 }, mote: { c: 7.5 },
+  ink: { c: 11, floor: 7.0 }, dim: { c: 5.6, floor: 4.5 }, edge: { c: 3.4, floor: 3.0 }
+};
+const tokens = {};
+for (const [name, spec] of Object.entries(TOKEN_SPEC)) {
+  let L = spec.c <= 1 ? GROUND.L : lForContrast(spec.c);
+  let col = colourAtL(L, true), guard = 0;
+  while (spec.floor && contrastY(lumFromBytes(col.bytes), Y_GROUND) < spec.floor && guard++ < 200) {
+    L += 0.0005; col = colourAtL(L, true);
+  }
+  tokens[name] = {
+    name, L: col.L, C: col.C, H: HUE, hex: col.hex, bytes: col.bytes, lin: col.lin,
+    target: spec.c, floor: spec.floor || null, tone: toneOf(Math.max(1, spec.c)),
+    contrastHex: contrastY(lumFromBytes(col.bytes), Y_GROUND),
+    contrastFloat: contrastY(lumFromLin(col.lin), lumFromLin(oklchToLin(GROUND.L, GROUND.C, HUE)))
+  };
+}
+const rgba = (tok, a) => `rgba(${tok.bytes[0]},${tok.bytes[1]},${tok.bytes[2]},${a})`;
+const rampAt = t => ramp[clamp(Math.round(t * (RAMP_N - 1)), 0, RAMP_N - 1)];
+function applyCssTokens() {
+  const s = document.documentElement.style;
+  s.setProperty("--ground", tokens.ground.hex);
+  s.setProperty("--ink", tokens.ink.hex);
+  s.setProperty("--dim", tokens.dim.hex);
+  s.setProperty("--edge", tokens.edge.hex);
+}
+
+/* ================================================================== *
+ * 2. The wind: curl of a 3D vector potential, so exactly divergence
+ *    free. Open domain: the lattice is hashed, never taken modulo, so
+ *    no seam can staple a source and a sink to the room (driftfield).
+ * ================================================================== */
+const WIND = { S: 0.85, AMP: 1.55, HC: 0.02, DRIFT: 0.42 };
+function lattice(c, x, y, z, salt) {
+  let h = Math.imul(x, 0x8DA6B343) ^ Math.imul(y, 0xD8163841) ^ Math.imul(z, 0xCB1AB31F) ^ Math.imul(c + salt, 0x165667B1);
+  h = Math.imul(h ^ (h >>> 15), 0x2C1B3C6D);
+  h = Math.imul(h ^ (h >>> 12), 0x297A2D39);
+  h ^= h >>> 15;
+  return (h >>> 0) / 2147483648 - 1;
+}
+function vnoise(c, x, y, z, salt) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const fx = x - xi, fy = y - yi, fz = z - zi;
+  const u = fx * fx * fx * (fx * (fx * 6 - 15) + 10);
+  const v = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+  const w = fz * fz * fz * (fz * (fz * 6 - 15) + 10);
+  const a = lattice(c, xi, yi, zi, salt), b = lattice(c, xi + 1, yi, zi, salt);
+  const cc = lattice(c, xi, yi + 1, zi, salt), d = lattice(c, xi + 1, yi + 1, zi, salt);
+  const e = lattice(c, xi, yi, zi + 1, salt), f = lattice(c, xi + 1, yi, zi + 1, salt);
+  const g = lattice(c, xi, yi + 1, zi + 1, salt), hh = lattice(c, xi + 1, yi + 1, zi + 1, salt);
+  const x1 = a + (b - a) * u, x2 = cc + (d - cc) * u, x3 = e + (f - e) * u, x4 = g + (hh - g) * u;
+  const y1 = x1 + (x2 - x1) * v, y2 = x3 + (x4 - x3) * v;
+  return y1 + (y2 - y1) * w;
+}
+/* gust and drift are functions of time only, so they are uniform in
+ * space and cannot add divergence */
+const gustOf = t => 0.78 + 0.22 * Math.sin(0.21 * t + 0.4) + 0.14 * Math.sin(0.57 * t + 1.9);
+/* A component c of the vector potential. The pointer eddy is a bump IN
+ * THE POTENTIAL (sway's lesson): a dipole whose curl pushes along the
+ * drag direction and returns round the sides, which is what a hand
+ * moving through air does. Added as a velocity it would be a source. */
+function potential(F, c, x, y, z, t) {
+  const s = WIND.S, sc = F.windScale * gustOf(t) * WIND.AMP / s;
+  let a = sc * (vnoise(c, x * s + t * 0.11, y * s - t * 0.05, z * s + t * 0.07, F.salt)
+        + 0.45 / 2.2 * vnoise(c + 3, x * s * 2.2 - t * 0.19, y * s * 2.2 + t * 0.13, z * s * 2.2, F.salt));
+  const E = F.eddy;
+  if (c === 2 && E && E.s !== 0) {
+    const dx = x - E.x, dy = y - E.y, dz = z - E.z;
+    const g = Math.exp(-(dx * dx + dy * dy + dz * dz) / (E.r * E.r));
+    a += E.s * (E.dx * dy - E.dy * dx) * g;
+  }
+  return a;
+}
+/* Curl by central differences at step HC. Every mixed difference in
+ * the divergence of this field cancels one for one, which is why the
+ * checker can hold it to 1e-12 and not merely "small". */
+function windAt(F, x, y, z, t, out) {
+  const h = WIND.HC, k = 1 / (2 * h);
+  const dAz_dy = (potential(F, 2, x, y + h, z, t) - potential(F, 2, x, y - h, z, t)) * k;
+  const dAy_dz = (potential(F, 1, x, y, z + h, t) - potential(F, 1, x, y, z - h, t)) * k;
+  const dAx_dz = (potential(F, 0, x, y, z + h, t) - potential(F, 0, x, y, z - h, t)) * k;
+  const dAz_dx = (potential(F, 2, x + h, y, z, t) - potential(F, 2, x - h, y, z, t)) * k;
+  const dAy_dx = (potential(F, 1, x + h, y, z, t) - potential(F, 1, x - h, y, z, t)) * k;
+  const dAx_dy = (potential(F, 0, x, y + h, z, t) - potential(F, 0, x, y - h, z, t)) * k;
+  out[0] = dAz_dy - dAy_dz;
+  out[1] = dAx_dz - dAz_dx;
+  out[2] = dAy_dx - dAx_dy + F.windScale * WIND.DRIFT * (0.8 + 0.35 * Math.sin(0.13 * t));
+  return out;
+}
+/* The control the checker uses: same potential, wired as a gradient.
+ * Nothing in the app can reach it. */
+function gradientWindAt(F, x, y, z, t, out) {
+  const h = WIND.HC, k = 1 / (2 * h);
+  out[0] = (potential(F, 0, x + h, y, z, t) - potential(F, 0, x - h, y, z, t)) * k;
+  out[1] = (potential(F, 0, x, y + h, z, t) - potential(F, 0, x, y - h, z, t)) * k;
+  out[2] = (potential(F, 0, x, y, z + h, t) - potential(F, 0, x, y, z - h, t)) * k;
+  return out;
+}
+/* One advection step. Midpoint is what the app uses; Euler exists for
+ * the checker's comparison (driftfield: Euler's Jacobian is
+ * 1 + dt*div + dt^2*det, and only the middle term is zero). */
+const _wa = [0, 0, 0], _wb = [0, 0, 0];
+function advect(F, p, t, dt, method, field) {
+  const fn = field || windAt;
+  fn(F, p[0], p[1], p[2], t, _wa);
+  if (method === "euler") { p[0] += dt * _wa[0]; p[1] += dt * _wa[1]; p[2] += dt * _wa[2]; return p; }
+  const mx = p[0] + 0.5 * dt * _wa[0], my = p[1] + 0.5 * dt * _wa[1], mz = p[2] + 0.5 * dt * _wa[2];
+  fn(F, mx, my, mz, t + 0.5 * dt, _wb);
+  p[0] += dt * _wb[0]; p[1] += dt * _wb[1]; p[2] += dt * _wb[2];
+  return p;
+}
+
+/* ================================================================== *
+ * 3. The solver: XPBD, one particle system for cloth and threads.
+ *
+ * alpha_tilde = alpha / h^2 with h the SUBSTEP. Damping per substep on
+ * velocity, BEFORE gravity, as a rate per second, so it neither rescales
+ * gravity nor changes with the schedule. One iteration per substep: a
+ * wind-loaded sheet is always moving, and on a moving sheet substeps beat
+ * iterations (taut, 27.9x). Constraints are swept rail-first so a
+ * correction travels down the sheet in one pass (drape-rope, verlet).
+ * ================================================================== */
+class System {
+  constructor(cap, conCap) {
+    this.x = new Float64Array(cap * 3); this.v = new Float64Array(cap * 3);
+    this.p = new Float64Array(cap * 3); this.a = new Float64Array(cap * 3);
+    this.w = new Float64Array(cap); this.mass = new Float64Array(cap);
+    this.kin = new Int8Array(cap); this.kt = new Float64Array(cap * 3);
+    this.n = 0;
+    this.ci = new Int32Array(conCap); this.cj = new Int32Array(conCap);
+    this.rest = new Float64Array(conCap); this.alpha = new Float64Array(conCap);
+    this.lambda = new Float64Array(conCap); this.type = new Int8Array(conCap);
+    this.nc = 0;
+    /* signed pleat constraints: node b's offset from the midpoint of a and c,
+     * along the local sheet normal (a->c crossed with u->d), held to its rest */
+    this.pa = []; this.pb = []; this.pc = []; this.pu = []; this.pd = [];
+    this.prest = []; this.palpha = []; this.np = 0;
+    this.mode = "xpbd"; this.pbdK = 0.5; this.dampRate = 0.6; this.dampBug = false;
+    this.gravity = -9.81; this.iters = 1;
+  }
+  addParticle(x, y, z, mass) {
+    const i = this.n++;
+    this.x[3 * i] = x; this.x[3 * i + 1] = y; this.x[3 * i + 2] = z;
+    this.mass[i] = mass; this.w[i] = isFinite(mass) && mass > 0 ? 1 / mass : 0;
+    return i;
+  }
+  addCon(i, j, rest, alpha, type) {
+    const k = this.nc++;
+    this.ci[k] = i; this.cj[k] = j; this.rest[k] = rest; this.alpha[k] = alpha; this.type[k] = type;
+    return k;
+  }
+  step(dt, substeps) {
+    const h = dt / substeps, n = this.n, x = this.x, v = this.v, p = this.p, a = this.a, w = this.w;
+    const damp = Math.exp(-this.dampRate * h), g = this.gravity;
+    for (let s = 0; s < substeps; s++) {
+      for (let i = 0; i < n; i++) {
+        const o = 3 * i;
+        if (this.kin[i]) {                       // held by the pointer: moved, not simulated
+          const f = (s + 1) / substeps;
+          p[o] = x[o] + (this.kt[o] - x[o]) * f; p[o + 1] = x[o + 1] + (this.kt[o + 1] - x[o + 1]) * f;
+          p[o + 2] = x[o + 2] + (this.kt[o + 2] - x[o + 2]) * f;
+          continue;
+        }
+        if (w[i] === 0) { p[o] = x[o]; p[o + 1] = x[o + 1]; p[o + 2] = x[o + 2]; continue; }
+        if (this.dampBug) {                      // the bug that shipped three times, for the checker
+          v[o] = (v[o] + a[o] * h) * damp; v[o + 1] = (v[o + 1] + (g + a[o + 1]) * h) * damp;
+          v[o + 2] = (v[o + 2] + a[o + 2] * h) * damp;
+        } else {
+          v[o] = v[o] * damp + a[o] * h; v[o + 1] = v[o + 1] * damp + (g + a[o + 1]) * h;
+          v[o + 2] = v[o + 2] * damp + a[o + 2] * h;
+        }
+        p[o] = x[o] + v[o] * h; p[o + 1] = x[o + 1] + v[o + 1] * h; p[o + 2] = x[o + 2] + v[o + 2] * h;
+      }
+      this.lambda.fill(0, 0, this.nc);
+      for (let it = 0; it < this.iters; it++) { this.project(h); if (this.np) this.projectPleats(h); }
+      if (this.collide) this.selfCollide();
+      const ih = 1 / h;
+      for (let i = 0; i < n; i++) {
+        const o = 3 * i;
+        v[o] = (p[o] - x[o]) * ih; v[o + 1] = (p[o + 1] - x[o + 1]) * ih; v[o + 2] = (p[o + 2] - x[o + 2]) * ih;
+        x[o] = p[o]; x[o + 1] = p[o + 1]; x[o + 2] = p[o + 2];
+      }
+    }
+  }
+  /* Self-collision for the sheet: nodes that are not near each other in
+   * the weave may not come closer than 2R in space. Without it a drag could
+   * pass one half of the sheet through the other into a crossed state that
+   * nothing local can undo (found by looking, P27). R is chosen so that no
+   * gap in the 8 cm lattice lets a node through: the widest gap, the centre
+   * of a cell, is 5.7 cm from its corners, under 2R. Spatial hash, rebuilt
+   * every substep; weave neighbours within 2 in both directions are exempt. */
+  enableCollision(first, count, gi, gj, R) {
+    this.collide = { first, count, gi, gj, R, cs: 2 * R, size: 2048,
+      head: new Int32Array(2048), next: new Int32Array(count) };
+  }
+  selfCollide() {
+    const K = this.collide, p = this.p, w = this.w, kin = this.kin, cs = K.cs, R2 = 4 * K.R * K.R;
+    const key = (x, y, z) => ((Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) >>> 0) & (K.size - 1);
+    K.head.fill(-1);
+    for (let k = 0; k < K.count; k++) {
+      const i = K.first + k, h = key(Math.floor(p[3 * i] / cs), Math.floor(p[3 * i + 1] / cs), Math.floor(p[3 * i + 2] / cs));
+      K.next[k] = K.head[h]; K.head[h] = k;
+    }
+    for (let k = 0; k < K.count; k++) {
+      const i = K.first + k, oi = 3 * i;
+      const cx = Math.floor(p[oi] / cs), cy = Math.floor(p[oi + 1] / cs), cz = Math.floor(p[oi + 2] / cs);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        for (let m = K.head[key(cx + dx, cy + dy, cz + dz)]; m !== -1; m = K.next[m]) {
+          if (m <= k) continue;
+          if (Math.abs(K.gi[k] - K.gi[m]) <= 2 && Math.abs(K.gj[k] - K.gj[m]) <= 2) continue;
+          const j = K.first + m, oj = 3 * j;
+          const ex = p[oi] - p[oj], ey = p[oi + 1] - p[oj + 1], ez = p[oi + 2] - p[oj + 2];
+          const d2 = ex * ex + ey * ey + ez * ez;
+          if (d2 >= R2 || d2 < 1e-18) continue;
+          const wi = kin[i] ? 0 : w[i], wj = kin[j] ? 0 : w[j], ws = wi + wj;
+          if (ws === 0) continue;
+          const d = Math.sqrt(d2), s = (2 * K.R - d) / (d * ws);
+          p[oi] += wi * s * ex; p[oi + 1] += wi * s * ey; p[oi + 2] += wi * s * ez;
+          p[oj] -= wj * s * ex; p[oj + 1] -= wj * s * ey; p[oj + 2] -= wj * s * ez;
+        }
+      }
+    }
+  }
+  addPleat(a, b, c, u, d, alpha) {
+    this.pa.push(a); this.pb.push(b); this.pc.push(c); this.pu.push(u); this.pd.push(d);
+    this.palpha.push(alpha); this.prest.push(this.pleatOffset(this.x, a, b, c, u, d));
+    return this.np++;
+  }
+  pleatOffset(q, a, b, c, u, d, nOut) {
+    const ex = q[3 * c] - q[3 * a], ey = q[3 * c + 1] - q[3 * a + 1], ez = q[3 * c + 2] - q[3 * a + 2];
+    const vx = q[3 * d] - q[3 * u], vy = q[3 * d + 1] - q[3 * u + 1], vz = q[3 * d + 2] - q[3 * u + 2];
+    let nx = ey * vz - ez * vy, ny = ez * vx - ex * vz, nz = ex * vy - ey * vx;
+    const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    if (nOut) { nOut[0] = nx; nOut[1] = ny; nOut[2] = nz; }
+    return (q[3 * b] - (q[3 * a] + q[3 * c]) / 2) * nx + (q[3 * b + 1] - (q[3 * a + 1] + q[3 * c + 1]) / 2) * ny
+         + (q[3 * b + 2] - (q[3 * a + 2] + q[3 * c + 2]) / 2) * nz;
+  }
+  /* The normal is lagged (held fixed during the projection), so the
+   * gradient is n on b and -n/2 on a and c. A pleat's mirror image has the
+   * opposite sign, which is exactly what a distance link cannot see. */
+  projectPleats(h) {
+    const p = this.p, w = this.w, kin = this.kin, ih2 = 1 / (h * h), n = [0, 0, 0];
+    for (let k = 0; k < this.np; k++) {
+      const a = this.pa[k], b = this.pb[k], c = this.pc[k];
+      const C = this.pleatOffset(p, a, b, c, this.pu[k], this.pd[k], n) - this.prest[k];
+      const wa = kin[a] ? 0 : w[a], wb = kin[b] ? 0 : w[b], wc = kin[c] ? 0 : w[c];
+      const ws = wb + (wa + wc) / 4;
+      if (ws === 0) continue;
+      const dl = -C / (ws + (this.mode === "noH2" ? this.palpha[k] : this.palpha[k] * ih2));
+      for (let q = 0; q < 3; q++) {
+        p[3 * b + q] += wb * dl * n[q];
+        p[3 * a + q] -= wa * dl * n[q] / 2;
+        p[3 * c + q] -= wc * dl * n[q] / 2;
+      }
+    }
+  }
+  project(h) {
+    const p = this.p, w = this.w, kin = this.kin, mode = this.mode, ih2 = 1 / (h * h);
+    for (let k = 0; k < this.nc; k++) {
+      const i = this.ci[k], j = this.cj[k];
+      const wi = kin[i] ? 0 : w[i], wj = kin[j] ? 0 : w[j], ws = wi + wj;
+      if (ws === 0) continue;
+      const oi = 3 * i, oj = 3 * j;
+      const dx = p[oi] - p[oj], dy = p[oi + 1] - p[oj + 1], dz = p[oi + 2] - p[oj + 2];
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (len < 1e-12) continue;
+      const C = len - this.rest[k];
+      let dl;
+      if (mode === "pbd") dl = -this.pbdK * C / ws;
+      else {
+        const at = mode === "noH2" ? this.alpha[k] : this.alpha[k] * ih2;
+        dl = (-C - at * this.lambda[k]) / (ws + at);
+        this.lambda[k] += dl;
+      }
+      const s = dl / len;
+      p[oi] += wi * s * dx; p[oi + 1] += wi * s * dy; p[oi + 2] += wi * s * dz;
+      p[oj] -= wj * s * dx; p[oj + 1] -= wj * s * dy; p[oj + 2] -= wj * s * dz;
+    }
+  }
+}
+/* One mass on one constraint, for the checker. The answer it should
+ * settle at lives in the checker, not here. */
+function hangRig(o) {
+  const S = new System(2, 1);
+  S.mode = o.mode || "xpbd"; S.pbdK = o.k ?? 0.5; S.dampRate = o.damp ?? 2.0; S.dampBug = !!o.dampBug;
+  S.iters = o.iters || 1; S.gravity = -(o.g ?? 9.81);
+  S.addParticle(0, 0, 0, Infinity);
+  S.addParticle(0, -o.rest, 0, o.mass);
+  S.addCon(0, 1, o.rest, o.alpha, 0);
+  const frames = o.frames || 1800;
+  for (let f = 0; f < frames; f++) S.step(1 / 60, o.substeps);
+  return { stretch: -S.x[4] - o.rest, y: S.x[4], vy: S.v[4] };
+}
+
+/* ================================================================== *
+ * 4. The dye: Gray-Scott in the cloth's own (u, v) coordinates.
+ *
+ * Nine point stencil, orthogonal 0.2, diagonal 0.05, centre -1, with the
+ * constants that stencil was tuned for, Du = 1 and Dv = 0.5. The stencil
+ * and the constants are a matched pair (petri: a centre weight of -1
+ * against constants for -4 draws literal squares with every number
+ * passing). Its Fourier symbol bottoms out at -1.6, so explicit Euler is
+ * stable to dt = 2/1.6 = 1.25 and dt = 1 sits at 80% of that (reaction).
+ * Double buffered, so no cell reads this step's own output (grainsmith).
+ * Zero-flux edges: a cloth has a hem, not a torus.
+ * ================================================================== */
+const DYE_W = 88, DYE_H = 64;
+const DYE = { Du: 1.0, Dv: 0.5, dt: 1.0, F0: 0.029, k0: 0.057, F1: 0.0367, k1: 0.0649, perFrame: 2 };
+function dyeState(w, h) {
+  const n = w * h;
+  return { w, h, U: new Float64Array(n).fill(1), V: new Float64Array(n), U2: new Float64Array(n), V2: new Float64Array(n) };
+}
+/* F and k may be numbers or per-row arrays (the cloth runs from maze
+ * stripes at the rail to spots at the hem). */
+function dyeStep(S, P) {
+  const { w, h } = S, U = S.U, V = S.V, U2 = S.U2, V2 = S.V2;
+  const Du = P.Du, Dv = P.Dv, dt = P.dt;
+  for (let y = 0; y < h; y++) {
+    const ym = (y > 0 ? y - 1 : 1) * w, yp = (y < h - 1 ? y + 1 : h - 2) * w, yc = y * w;
+    const F = typeof P.F === "number" ? P.F : P.F[y], k = typeof P.k === "number" ? P.k : P.k[y];
+    for (let x = 0; x < w; x++) {
+      const xm = x > 0 ? x - 1 : 1, xp = x < w - 1 ? x + 1 : w - 2, i = yc + x;
+      const u = U[i], v = V[i];
+      const lu = -u + 0.2 * (U[yc + xm] + U[yc + xp] + U[ym + x] + U[yp + x])
+                    + 0.05 * (U[ym + xm] + U[ym + xp] + U[yp + xm] + U[yp + xp]);
+      const lv = -v + 0.2 * (V[yc + xm] + V[yc + xp] + V[ym + x] + V[yp + x])
+                    + 0.05 * (V[ym + xm] + V[ym + xp] + V[yp + xm] + V[yp + xp]);
+      const uvv = u * v * v;
+      U2[i] = u + dt * (Du * lu - uvv + F * (1 - u));
+      V2[i] = v + dt * (Dv * lv + uvv - (F + k) * v);
+    }
+  }
+  S.U = U2; S.U2 = U; S.V = V2; S.V2 = V;
+}
+function dyeRows(h) {
+  const F = new Float64Array(h), k = new Float64Array(h);
+  for (let y = 0; y < h; y++) {
+    const q = y / (h - 1), s = q * q * (3 - 2 * q);
+    F[y] = DYE.F0 + (DYE.F1 - DYE.F0) * s; k[y] = DYE.k0 + (DYE.k1 - DYE.k0) * s;
+  }
+  return { F, k };
+}
+function dyeSeed(S, seed) {
+  for (let s = 0; s < 16; s++) {
+    const cx = 5 + Math.floor(rand01(seed, 11, s, 0) * (S.w - 10));
+    const cy = 4 + Math.floor(rand01(seed, 12, s, 0) * (S.h - 8));
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const i = (cy + dy) * S.w + cx + dx;
+      S.U[i] = 0.5; S.V[i] = 0.25 + 0.1 * rand01(seed, 13, s, (dy + 2) * 5 + dx + 2);
+    }
+  }
+}
+function dyeDeposit(S, u, v, radius, amount) {
+  const gx = u * (S.w - 1), gy = v * (S.h - 1), r = Math.ceil(radius);
+  for (let y = Math.max(0, Math.floor(gy - r)); y <= Math.min(S.h - 1, Math.ceil(gy + r)); y++)
+    for (let x = Math.max(0, Math.floor(gx - r)); x <= Math.min(S.w - 1, Math.ceil(gx + r)); x++) {
+      const d2 = (x - gx) * (x - gx) + (y - gy) * (y - gy);
+      if (d2 > radius * radius) continue;
+      const f = amount * (1 - d2 / (radius * radius)), i = y * S.w + x;
+      S.V[i] = Math.min(0.45, S.V[i] + f); S.U[i] = Math.max(0.25, S.U[i] - f);
+    }
+}
+function dyeSample(S, u, v) {
+  const gx = clamp(u, 0, 1) * (S.w - 1), gy = clamp(v, 0, 1) * (S.h - 1);
+  const x0 = Math.min(S.w - 2, Math.floor(gx)), y0 = Math.min(S.h - 2, Math.floor(gy));
+  const fx = gx - x0, fy = gy - y0, i = y0 * S.w + x0, V = S.V;
+  return (V[i] * (1 - fx) + V[i + 1] * fx) * (1 - fy) + (V[i + S.w] * (1 - fx) + V[i + S.w + 1] * fx) * fy;
+}
+/* dye concentration -> "density", 0 undyed, 1 fully dyed; the same
+ * curve the renderer uses, so what looks dyed is what is stiff */
+const DYE_LO = 0.15, DYE_HI = 0.23;
+const dyeDensity = V => smooth(DYE_LO, DYE_HI, V);
+
+/* ================================================================== *
+ * 5. The world: cloth, threads, dye, wind, motes, plucks
+ * ================================================================== */
+const CW = 26, CH = 18, REST = 0.08;          // 2.0 m wide, 1.36 m drop, at rest
+const RAIL_Y = 0.70, GATHER = 0.72;
+const CLOTH_DENSITY = 0.30;                   // kg per square metre
+const SUB = 10, DT = 1 / 60;
+const T_STRUCT = 0, T_SHEAR = 1, T_BEND = 2, T_THREAD = 3, T_TBEND = 4, T_PLEAT = 5;
+/* compliance in metres per newton: [undyed, dyed floor] */
+const COMPLIANCE = {
+  [T_STRUCT]: [1.2e-4, 4e-5],
+  [T_SHEAR]:  [1.5e-3, 1.2e-4],
+  [T_BEND]:   [0.16, 0.0045],
+  [T_THREAD]: [3e-4, 3e-4],
+  [T_TBEND]:  [0.6, 0.6],
+  [T_PLEAT]:  [0.35, 0.02]
+};
+/* A minor pentatonic from A2. A thread's length is inversely
+ * proportional to its pitch, as a real string's is. */
+const THREAD_SEMIS = [0, 3, 5, 7, 10, 12, 15];
+const ROOT_HZ = 110;
+const THREAD_HZ = THREAD_SEMIS.map(s => ROOT_HZ * Math.pow(2, s / 12));
+const THREAD_L0 = 0.98, THREAD_LINKS = 14;
+const THREAD_LEN = THREAD_HZ.map(f => THREAD_L0 * ROOT_HZ / f);
+const THREAD_COLS = [1, 5, 9, 13, 16, 20, 24];
+const THREAD_T60 = THREAD_HZ.map((f, i) => 3.4 - 0.18 * i);
+/* the pluck trigger: bend is the largest distance of a thread from its
+ * own chord, as a FRACTION of the thread's length, so it means the same
+ * thing on a phone and on a projector (aeolian's 13 px bug). Hysteretic:
+ * fires going up through ON, re-arms only below OFF. The pair was chosen by
+ * running the world for 20 s at several settings against a target written
+ * down first (3 to 60 voices at the default wind, none at zero): a wide band
+ * (OFF = ON/2) left threads held in a steady curve unable to re-arm, and gave
+ * 5 voices where 0.030/0.024 gave 25. Self-collision and signed pleats then
+ * calmed the hem and the same pair gave 7; re-measured, 0.024/0.020 gives 12,
+ * about one note every two seconds, and none at zero wind. */
+const PLUCK_ON = 0.024, PLUCK_OFF = 0.020;   // set by measuring voice rate: see RESULTS.md
+const AIR = { normal: 0.9, tangent: 0.05, thread: 0.028 };
+
+function createWorld(opts) {
+  opts = opts || {};
+  const seed = (opts.seed ?? SEED) >>> 0;
+  const gather = opts.gather ?? GATHER;
+  const floorOn = opts.floor !== false;
+  const W = {
+    seed, t: 0, frame: 0, gather, floorOn,
+    field: { windScale: opts.wind ?? 1, salt: hash32(seed, 99, 0, 0) & 0xffff, eddy: null },
+    dyeFill: opts.dyeFill ?? null, dyeOn: opts.dyeFill == null,
+    events: [], fired: new Int32Array(THREAD_HZ.length), armed: new Uint8Array(THREAD_HZ.length).fill(1),
+    bend: new Float64Array(THREAD_HZ.length), glow: new Float64Array(THREAD_HZ.length),
+    listen: true, resets: 0, deposits: 0
+  };
+  const N = CW * CH + THREAD_HZ.length * THREAD_LINKS;
+  const S = new System(N, 8000);
+  W.sys = S;
+  S.dampRate = 0.6;
+  const pm = CLOTH_DENSITY * (CW - 1) * (CH - 1) * REST * REST / (CW * CH);
+  W.particleMass = pm;
+  W.area = (CW - 1) * (CH - 1) * REST * REST / (CW * CH);
+  /* Pleated, not merely gathered. The first version gathered the rail
+   * as a fine accordion and let the cloth find its own folds, and its
+   * skip-one bend links, compressed 28% by the gathering, pushed the
+   * sheet back toward its flat width: rail links sat at 15-19% strain
+   * whatever their compliance, and the sheet kept snapping through,
+   * plucking threads with no wind at all. A curtain's pleats are sewn,
+   * so here they are part of the rest shape: every row follows one
+   * sinusoid, nodes a chord of exactly REST apart, and the horizontal
+   * bend links take their rest length from it. Nothing starts violated. */
+  const pleat = pleatShape(gather);
+  W.pleat = pleat;
+  for (let j = 0; j < CH; j++) for (let i = 0; i < CW; i++) {
+    const z = pleat.z[i] + 0.0004 * (rand01(seed, 21, i, j) - 0.5);
+    S.addParticle(pleat.x[i], RAIL_Y - j * REST, z, j === 0 ? Infinity : pm);
+  }
+  const id = (i, j) => j * CW + i;
+  W.cloth = { id, n: CW * CH };
+  /* rail first, row by row, so a correction runs down the sheet */
+  const cons = [];
+  for (let j = 0; j < CH; j++) {
+    for (let i = 0; i < CW; i++) {
+      if (i < CW - 1) cons.push([id(i, j), id(i + 1, j), REST, T_STRUCT]);
+      if (j > 0) cons.push([id(i, j - 1), id(i, j), REST, T_STRUCT]);
+    }
+    if (j > 0) for (let i = 0; i < CW - 1; i++) {
+      cons.push([id(i, j - 1), id(i + 1, j), REST * Math.SQRT2, T_SHEAR]);
+      cons.push([id(i + 1, j - 1), id(i, j), REST * Math.SQRT2, T_SHEAR]);
+    }
+    for (let i = 0; i < CW - 2; i++) cons.push([id(i, j), id(i + 2, j), Math.hypot(pleat.x[i + 2] - pleat.x[i], pleat.z[i + 2] - pleat.z[i]), T_BEND]);
+    if (j > 1) for (let i = 0; i < CW; i++) cons.push([id(i, j - 2), id(i, j), 2 * REST, T_BEND]);
+  }
+  W.conUV = [];
+  for (const [a, b, r, t] of cons) {
+    S.addCon(a, b, r, COMPLIANCE[t][0], t);
+    const ia = a % CW, ja = Math.floor(a / CW), ib = b % CW, jb = Math.floor(b / CW);
+    W.conUV.push([(ia + ib) / 2 / (CW - 1), (ja + jb) / 2 / (CH - 1)]);
+  }
+  W.clothCons = S.nc;
+  /* Signed pleats. Found by looking at a screenshot with both suites green:
+   * after one vigorous drag the sheet stayed creased down the middle for
+   * 15 s and more, because a distance bend link is satisfied as well by a
+   * pleat's mirror image as by the pleat, so a flipped region is a second
+   * resting shape. This holds each pleat's SIGN. */
+  W.pleatUV = [];
+  for (let j = 1; j < CH; j++) for (let i = 1; i < CW - 1; i++) {
+    const u = id(i, j - 1), d = id(i, Math.min(CH - 1, j + 1));
+    S.addPleat(id(i - 1, j), id(i, j), id(i + 1, j), u, d, COMPLIANCE[T_PLEAT][0]);
+    W.pleatUV.push([i / (CW - 1), j / (CH - 1)]);
+  }
+  if (opts.collide !== false) {
+    const gi = new Int32Array(CW * (CH - 1)), gj = new Int32Array(CW * (CH - 1));
+    for (let k = 0; k < gi.length; k++) { gi[k] = k % CW; gj[k] = 1 + Math.floor(k / CW); }
+    S.enableCollision(CW, CW * (CH - 1), gi, gj, 0.046);
+  }
+  /* threads: a chain from the hem, a bead at the end */
+  W.threads = [];
+  for (let t = 0; t < THREAD_HZ.length; t++) {
+    const top = id(THREAD_COLS[t], CH - 1), len = THREAD_LEN[t], seg = len / THREAD_LINKS;
+    const idx = [top];
+    const tx = S.x[3 * top], ty = S.x[3 * top + 1], tz = S.x[3 * top + 2];
+    for (let k = 1; k <= THREAD_LINKS; k++)
+      idx.push(S.addParticle(tx, ty - k * seg, tz, k === THREAD_LINKS ? 0.006 : 0.0007));
+    for (let k = 0; k < THREAD_LINKS; k++) S.addCon(idx[k], idx[k + 1], seg, COMPLIANCE[T_THREAD][0], T_THREAD);
+    for (let k = 0; k + 2 <= THREAD_LINKS; k++) S.addCon(idx[k], idx[k + 2], 2 * seg, COMPLIANCE[T_TBEND][0], T_TBEND);
+    W.threads.push({ idx, len, hz: THREAD_HZ[t], col: THREAD_COLS[t] });
+  }
+  /* dye */
+  W.dye = dyeState(DYE_W, DYE_H);
+  W.dyeRows = dyeRows(DYE_H);
+  if (W.dyeFill != null) { W.dye.V.fill(W.dyeFill ? 0.45 : 0); W.dye.U.fill(W.dyeFill ? 0.3 : 1); }
+  else dyeSeed(W.dye, seed);
+  /* motes */
+  const NM = opts.motes === false ? 0 : 240;
+  W.motes = { n: NM, p: new Float64Array(NM * 3), prev: new Float64Array(NM * 3), age: new Float64Array(NM), life: new Float64Array(NM), spawns: 0 };
+  for (let m = 0; m < NM; m++) spawnMote(W, m, 0);
+  W.initial = Float64Array.from(S.x);
+  updateCompliance(W);
+  return W;
+}
+/* One sinusoid z = A sin(2 pi x / lambda), nodes placed a CHORD of REST
+ * apart, with A bisected so the 26 nodes span gather x the flat width. */
+const PLEAT_LAMBDA = 0.34;
+function pleatNodes(A) {
+  const xs = [0], zs = [0], k = 2 * Math.PI / PLEAT_LAMBDA;
+  for (let i = 1; i < CW; i++) {
+    const x0 = xs[i - 1], z0 = zs[i - 1];
+    let lo = x0, hi = x0 + REST;
+    for (let it = 0; it < 60; it++) {
+      const mid = (lo + hi) / 2;
+      if (Math.hypot(mid - x0, A * Math.sin(k * mid) - z0) < REST) lo = mid; else hi = mid;
+    }
+    xs.push(hi); zs.push(A * Math.sin(k * hi));
+  }
+  return { xs, zs };
+}
+function pleatShape(gather) {
+  const target = (CW - 1) * REST * gather;
+  let lo = 0, hi = 0.3;
+  if (gather < 1) for (let it = 0; it < 60; it++) {
+    const mid = (lo + hi) / 2, n = pleatNodes(mid);
+    if (n.xs[CW - 1] > target) lo = mid; else hi = mid;
+  }
+  const A = gather < 1 ? (lo + hi) / 2 : 0, n = pleatNodes(A), cx = n.xs[CW - 1] / 2;
+  return { A, x: n.xs.map(x => x - cx), z: n.zs };
+}
+const ROOM = { x: 2.6, yLo: -2.3, yHi: 1.6, z: 1.6 };
+function spawnMote(W, m, gen) {
+  const M = W.motes, o = 3 * m, s = W.seed;
+  M.p[o] = (rand01(s, 31, m, gen) * 2 - 1) * ROOM.x;
+  M.p[o + 1] = ROOM.yLo + rand01(s, 32, m, gen) * (ROOM.yHi - ROOM.yLo);
+  M.p[o + 2] = (rand01(s, 33, m, gen) * 2 - 1) * ROOM.z;
+  M.prev[o] = M.p[o]; M.prev[o + 1] = M.p[o + 1]; M.prev[o + 2] = M.p[o + 2];
+  M.age[m] = 0; M.life[m] = 5 + 9 * rand01(s, 34, m, gen);
+}
+/* The coupling: dye density sets compliance, with a floor so dense dye
+ * can make a constraint stiff but never rigid (drape-scenes: zero times
+ * a scale is still zero, and a rigid sheet is a plate). */
+function updateCompliance(W) {
+  const S = W.sys;
+  for (let k = 0; k < W.clothCons; k++) {
+    const t = S.type[k], [soft, fl] = COMPLIANCE[t];
+    const d = W.dyeFill != null ? (W.dyeFill ? 1 : 0) : dyeDensity(dyeSample(W.dye, W.conUV[k][0], W.conUV[k][1]));
+    const floor = (W.floorOn || t === T_STRUCT) ? fl : 0;
+    S.alpha[k] = floor + (soft - floor) * (1 - d);
+  }
+  const [ps, pf] = COMPLIANCE[T_PLEAT];
+  for (let k = 0; k < S.np; k++) {
+    const d = W.dyeFill != null ? (W.dyeFill ? 1 : 0) : dyeDensity(dyeSample(W.dye, W.pleatUV[k][0], W.pleatUV[k][1]));
+    const floor = W.floorOn ? pf : 0;
+    S.palpha[k] = floor + (ps - floor) * (1 - d);
+  }
+}
+const _w = [0, 0, 0];
+function clothNormal(S, i, j, out) {
+  const id = (a, b) => b * CW + a, x = S.x;
+  const i0 = Math.max(0, i - 1), i1 = Math.min(CW - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(CH - 1, j + 1);
+  const a = 3 * id(i1, j), b = 3 * id(i0, j), c = 3 * id(i, j1), d = 3 * id(i, j0);
+  const ux = x[a] - x[b], uy = x[a + 1] - x[b + 1], uz = x[a + 2] - x[b + 2];
+  const vx = x[c] - x[d], vy = x[c + 1] - x[d + 1], vz = x[c + 2] - x[d + 2];
+  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+  const l = Math.hypot(nx, ny, nz) || 1;
+  out[0] = nx / l; out[1] = ny / l; out[2] = nz / l;
+  return out;
+}
+function applyWind(W) {
+  const S = W.sys, x = S.x, v = S.v, a = S.a, F = W.field, t = W.t, nrm = [0, 0, 0];
+  a.fill(0);
+  if (F.windScale === 0 && !(F.eddy && F.eddy.s)) return;
+  const kn = AIR.normal * W.area / W.particleMass, kt = AIR.tangent * W.area / W.particleMass;
+  for (let j = 1; j < CH; j++) for (let i = 0; i < CW; i++) {
+    const p = j * CW + i, o = 3 * p;
+    windAt(F, x[o], x[o + 1], x[o + 2], t, _w);
+    clothNormal(S, i, j, nrm);
+    const rx = _w[0] - v[o], ry = _w[1] - v[o + 1], rz = _w[2] - v[o + 2];
+    const rn = rx * nrm[0] + ry * nrm[1] + rz * nrm[2];
+    a[o] = kn * rn * nrm[0] + kt * (rx - rn * nrm[0]);
+    a[o + 1] = kn * rn * nrm[1] + kt * (ry - rn * nrm[1]);
+    a[o + 2] = kn * rn * nrm[2] + kt * (rz - rn * nrm[2]);
+  }
+  /* threads: drag on the velocity component across each link */
+  for (const T of W.threads) {
+    const idx = T.idx, seg = T.len / THREAD_LINKS;
+    for (let k = 1; k < idx.length; k++) {
+      const pi = idx[k], o = 3 * pi, q = 3 * idx[k - 1];
+      windAt(F, x[o], x[o + 1], x[o + 2], t, _w);
+      let tx = x[o] - x[q], ty = x[o + 1] - x[q + 1], tz = x[o + 2] - x[q + 2];
+      const tl = Math.hypot(tx, ty, tz) || 1; tx /= tl; ty /= tl; tz /= tl;
+      const rx = _w[0] - v[o], ry = _w[1] - v[o + 1], rz = _w[2] - v[o + 2];
+      const ra = rx * tx + ry * ty + rz * tz;
+      const f = AIR.thread * seg * S.w[pi];
+      a[o] += f * (rx - ra * tx); a[o + 1] += f * (ry - ra * ty); a[o + 2] += f * (rz - ra * tz);
+    }
+  }
+}
+function threadBend(S, T) {
+  const idx = T.idx, x = S.x, a = 3 * idx[0], b = 3 * idx[idx.length - 1];
+  const cx = x[b] - x[a], cy = x[b + 1] - x[a + 1], cz = x[b + 2] - x[a + 2];
+  const cl2 = cx * cx + cy * cy + cz * cz || 1;
+  let worst = 0;
+  for (let k = 1; k < idx.length - 1; k++) {
+    const o = 3 * idx[k], px = x[o] - x[a], py = x[o + 1] - x[a + 1], pz = x[o + 2] - x[a + 2];
+    const f = (px * cx + py * cy + pz * cz) / cl2;
+    const dx = px - f * cx, dy = py - f * cy, dz = pz - f * cz;
+    const d = dx * dx + dy * dy + dz * dz;
+    if (d > worst) worst = d;
+  }
+  return Math.sqrt(worst) / T.len;
+}
+/* Coordinates, not finiteness: 1.9e8 px is finite (drape-scenes). */
+const BOUND = 25;
+function healthy(S) {
+  const x = S.x;
+  for (let i = 0; i < S.n * 3; i++) { const c = x[i]; if (!(c > -BOUND && c < BOUND)) return false; }
+  return true;
+}
+function resetWorld(W) {
+  const S = W.sys;
+  S.x.set(W.initial); S.v.fill(0); S.a.fill(0); S.kin.fill(0);
+  W.armed.fill(1); W.resets++;
+}
+function worldStep(W) {
+  const S = W.sys;
+  if (W.dyeOn) {
+    for (let k = 0; k < DYE.perFrame; k++) dyeStep(W.dye, { Du: DYE.Du, Dv: DYE.Dv, dt: DYE.dt, F: W.dyeRows.F, k: W.dyeRows.k });
+    updateCompliance(W);
+  }
+  applyWind(W);
+  S.step(DT, SUB);
+  W.t += DT; W.frame++;
+  if (!healthy(S)) {
+    console.error(`loom: solver left the room at frame ${W.frame}; world reset (${W.resets + 1})`);
+    resetWorld(W);
+  }
+  /* plucks */
+  for (let t = 0; t < W.threads.length; t++) {
+    const b = threadBend(S, W.threads[t]);
+    W.bend[t] = b;
+    W.glow[t] *= Math.exp(-DT / 0.9);
+    if (W.armed[t] && b > PLUCK_ON) {
+      W.armed[t] = 0;
+      if (W.listen) {
+        const amp = clamp(0.35 + (b - PLUCK_ON) * 9, 0.35, 1);
+        W.fired[t]++;
+        W.events.push({ thread: t, t: W.t, frame: W.frame, amp });
+        W.glow[t] = 1;
+      }
+    } else if (!W.armed[t] && b < PLUCK_OFF) W.armed[t] = 1;
+  }
+  /* motes, advected at the midpoint; one that leaves the room is
+   * respawned somewhere new, never wrapped to the opposite wall */
+  const M = W.motes;
+  const q = [0, 0, 0];
+  for (let m = 0; m < M.n; m++) {
+    const o = 3 * m;
+    M.prev[o] = M.p[o]; M.prev[o + 1] = M.p[o + 1]; M.prev[o + 2] = M.p[o + 2];
+    q[0] = M.p[o]; q[1] = M.p[o + 1]; q[2] = M.p[o + 2];
+    advect(W.field, q, W.t, DT, "midpoint");
+    M.p[o] = q[0]; M.p[o + 1] = q[1]; M.p[o + 2] = q[2];
+    M.age[m] += DT;
+    if (Math.abs(q[0]) > ROOM.x || q[1] < ROOM.yLo || q[1] > ROOM.yHi || Math.abs(q[2]) > ROOM.z || M.age[m] > M.life[m])
+      spawnMote(W, m, ++M.spawns);
+  }
+}
+/* settle without listening: the first seconds are the cloth finding
+ * its folds, and they are not music */
+function settle(W, seconds) {
+  const was = W.listen; W.listen = false;
+  const n = Math.round(seconds / DT);
+  for (let f = 0; f < n; f++) worldStep(W);
+  W.listen = was;
+}
+function worldMetrics(W) {
+  const S = W.sys, x = S.x;
+  let minY = Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let p = 0; p < CW * CH; p++) {
+    const y = x[3 * p + 1], z = x[3 * p + 2];
+    if (y < minY) minY = y; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+  const strain = [0, 0, 0], count = [0, 0, 0];
+  for (let k = 0; k < W.clothCons; k++) {
+    const i = 3 * S.ci[k], j = 3 * S.cj[k], t = S.type[k];
+    const d = Math.hypot(x[i] - x[j], x[i + 1] - x[j + 1], x[i + 2] - x[j + 2]);
+    strain[t] += Math.abs(d / S.rest[k] - 1); count[t]++;
+  }
+  return {
+    drop: RAIL_Y - minY, designedDrop: (CH - 1) * REST, depthSpread: maxZ - minZ, restWidth: (CW - 1) * REST,
+    strainStruct: strain[0] / count[0], strainShear: strain[1] / count[1], strainBend: strain[2] / count[2]
+  };
+}
+/* Headless run for the checker: same world, same step, no drawing. */
+function simulate(o) {
+  const W = createWorld({ seed: o.seed, wind: o.wind, gather: o.gather, floor: o.floor, dyeFill: o.dyeFill, motes: o.motes ?? false });
+  if (o.dyeSteps) {
+    for (let k = 0; k < o.dyeSteps; k++) dyeStep(W.dye, { Du: DYE.Du, Dv: DYE.Dv, dt: DYE.dt, F: W.dyeRows.F, k: W.dyeRows.k });
+    updateCompliance(W);
+  }
+  settle(W, o.settle ?? 4);
+  const n = Math.round((o.seconds ?? 0) / DT);
+  for (let f = 0; f < n; f++) worldStep(W);
+  return W;
+}
+
+/* ================================================================== *
+ * 6. Sound: Karplus-Strong, allpass tuned, rendered into buffers
+ *
+ * Rendered offline so every voice is measurable: the checker reads the
+ * very samples the ear hears and finds their pitch with a method this
+ * code does not contain. The loop filter is 0.5(x[n] + x[n-1]), whose
+ * phase delay is exactly half a sample at every frequency, so the
+ * fractional remainder handed to the allpass is exact. The loop gain
+ * lands once per trip round the buffer, f0 times a second (pluck).
+ * ================================================================== */
+function renderString(f0, sr, seconds, t60, brightness, seed) {
+  const w = 2 * Math.PI * f0 / sr;
+  const afterFilter = sr / f0 - 0.5;
+  let N = Math.floor(afterFilter - 0.5);
+  if (N < 2) N = 2;
+  const d = afterFilter - N;                           // in [0.5, 1.5)
+  const a = Math.sin((1 - d) * w / 2) / Math.sin((1 + d) * w / 2);
+  const g = Math.pow(10, -3 / (f0 * t60));
+  const buf = new Float32Array(N);
+  let lp = 0;
+  for (let i = 0; i < N; i++) { const n = rand01(seed, 41, i, 0) * 2 - 1; lp += (n - lp) * brightness; buf[i] = lp; }
+  let dc = 0; for (let i = 0; i < N; i++) dc += buf[i]; dc /= N;
+  for (let i = 0; i < N; i++) buf[i] -= dc;
+  const out = new Float32Array(Math.round(sr * seconds));
+  let idx = 0, last = 0, apIn = 0, apOut = 0, peak = 0;
+  for (let n = 0; n < out.length; n++) {
+    const x = buf[idx];
+    const filt = 0.5 * (x + last); last = x;
+    const y = a * filt + apIn - a * apOut; apIn = filt; apOut = y;
+    out[n] = y; buf[idx] = y * g;
+    idx = idx + 1 === N ? 0 : idx + 1;
+    const m = y < 0 ? -y : y; if (m > peak) peak = m;
+  }
+  if (peak > 0) for (let n = 0; n < out.length; n++) out[n] /= peak;
+  return { data: out, N, d, a, g };
+}
+/* The textbook loop with the allpass REMOVED (not zeroed: a zeroed
+ * allpass is one more sample of delay, pluck's second lesson). For the
+ * checker only. */
+function renderNaive(f0, sr, seconds, t60, brightness, seed) {
+  let N = Math.round(sr / f0); if (N < 2) N = 2;
+  const g = Math.pow(10, -3 / (f0 * t60));
+  const buf = new Float32Array(N);
+  let lp = 0;
+  for (let i = 0; i < N; i++) { const n = rand01(seed, 41, i, 0) * 2 - 1; lp += (n - lp) * brightness; buf[i] = lp; }
+  let dc = 0; for (let i = 0; i < N; i++) dc += buf[i]; dc /= N;
+  for (let i = 0; i < N; i++) buf[i] -= dc;
+  const out = new Float32Array(Math.round(sr * seconds));
+  let idx = 0, last = 0;
+  for (let n = 0; n < out.length; n++) {
+    const x = buf[idx]; const y = 0.5 * (x + last); last = x;
+    out[n] = y; buf[idx] = y * g; idx = idx + 1 === N ? 0 : idx + 1;
+  }
+  return { data: out, N };
+}
+const audio = { ctx: null, on: false, buffers: null, bus: null, master: null, started: 0, skipped: 0, active: 0, created: 0 };
+function startAudio() {
+  if (audio.ctx || PREVIEW) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  const ctx = new AC();
+  audio.ctx = ctx; audio.created++;
+  const sr = ctx.sampleRate;
+  audio.buffers = THREAD_HZ.map((f, t) => [0.28, 0.45, 0.7].map((br, v) => {
+    const r = renderString(f, sr, THREAD_T60[t] + 0.4, THREAD_T60[t], br, hash32(SEED, 51, t, v));
+    const b = ctx.createBuffer(1, r.data.length, sr); b.copyToChannel(r.data, 0); return b;
+  }));
+  /* a room: a decaying hashed-noise impulse, so the reverb is the same
+   * on every machine */
+  const irLen = Math.round(sr * 2.6), ir = ctx.createBuffer(2, irLen, sr);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch);
+    for (let n = 0; n < irLen; n++) d[n] = (rand01(SEED, 61, ch, n) * 2 - 1) * Math.pow(1 - n / irLen, 2.6) * Math.exp(-n / (sr * 0.55));
+  }
+  const conv = ctx.createConvolver(); conv.buffer = ir;
+  const wet = ctx.createGain(); wet.gain.value = 0.42;
+  const dry = ctx.createGain(); dry.gain.value = 0.8;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.ratio.value = 4;
+  const master = ctx.createGain(); master.gain.value = 0;
+  const bus = ctx.createGain();
+  bus.connect(dry); bus.connect(conv); conv.connect(wet);
+  dry.connect(comp); wet.connect(comp); comp.connect(master); master.connect(ctx.destination);
+  audio.bus = bus; audio.master = master;
+}
+function setSound(on) {
+  if (on) startAudio();
+  if (!audio.ctx) return;
+  audio.on = on;
+  if (on && audio.ctx.state !== "running") audio.ctx.resume();
+  const now = audio.ctx.currentTime;
+  audio.master.gain.cancelScheduledValues(now);
+  audio.master.gain.setTargetAtTime(on ? 0.7 : 0, now, 0.08);
+  const b = document.getElementById("sound");
+  b.textContent = on ? "sound on" : "sound off";
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+}
+function playVoice(ev) {
+  if (!audio.ctx || !audio.on || audio.active >= 18) { audio.skipped++; return; }
+  const ctx = audio.ctx, T = world.threads[ev.thread];
+  const src = ctx.createBufferSource();
+  src.buffer = audio.buffers[ev.thread][hash32(SEED, 71, ev.frame, ev.thread) % 3];
+  const g = ctx.createGain(); g.gain.value = 0.22 * ev.amp;
+  const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  if (pan) { pan.pan.value = clamp(world.sys.x[3 * T.idx[0]] / 1.1, -0.8, 0.8); src.connect(g); g.connect(pan); pan.connect(audio.bus); }
+  else { src.connect(g); g.connect(audio.bus); }
+  audio.active++; audio.started++;
+  src.onended = () => { audio.active--; };
+  src.start();
+}
+
+/* ================================================================== *
+ * 7. Camera. Perspective, pitched a little: a flat sheet seen edge-on
+ *    is a line (linen), so the view always looks slightly down.
+ * ================================================================== */
+const cam = { eye: [0, 0, 0], target: [0, 0, 0], vp: new Float32Array(16), w: 1, h: 1, dpr: 1, fov: 0.6 };
+function mat4Persp(fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0];
+}
+function mat4LookAt(e, c, up) {
+  let zx = e[0] - c[0], zy = e[1] - c[1], zz = e[2] - c[2];
+  let l = Math.hypot(zx, zy, zz); zx /= l; zy /= l; zz /= l;
+  let xx = up[1] * zz - up[2] * zy, xy = up[2] * zx - up[0] * zz, xz = up[0] * zy - up[1] * zx;
+  l = Math.hypot(xx, xy, xz); xx /= l; xy /= l; xz /= l;
+  const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+  return [xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0,
+          -(xx * e[0] + xy * e[1] + xz * e[2]), -(yx * e[0] + yy * e[1] + yz * e[2]), -(zx * e[0] + zy * e[1] + zz * e[2]), 1];
+}
+function mat4Mul(a, b) {
+  const o = new Float32Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s;
+  }
+  return o;
+}
+function setupCamera(w, h) {
+  cam.w = w; cam.h = h;
+  const aspect = w / h, cy = -0.41, halfH = 1.46, halfW = 1.28, D = 4.4;
+  const half = Math.max(halfH, halfW / aspect) * 1.04;
+  cam.fov = 2 * Math.atan(half / D);
+  cam.eye = [0, cy + 0.78, D]; cam.target = [0, cy, 0];
+  cam.view = mat4LookAt(cam.eye, cam.target, [0, 1, 0]);
+  cam.proj = mat4Persp(cam.fov, aspect, 0.1, 30);
+  cam.vp = mat4Mul(cam.proj, cam.view);
+  cam.inv = null;
+}
+/* world -> CSS pixels, plus depth; this is what picking uses, so a
+ * press grabs the particle under the cursor and not the one two rows
+ * off (linen) */
+function project(x, y, z, out) {
+  const m = cam.vp;
+  const X = m[0] * x + m[4] * y + m[8] * z + m[12], Y = m[1] * x + m[5] * y + m[9] * z + m[13];
+  const Wc = m[3] * x + m[7] * y + m[11] * z + m[15];
+  out[0] = (X / Wc * 0.5 + 0.5) * cam.w; out[1] = (1 - (Y / Wc * 0.5 + 0.5)) * cam.h; out[2] = Wc;
+  return out;
+}
+/* screen point -> world point on the plane z = zp */
+function unprojectToZ(sx, sy, zp) {
+  const nx = sx / cam.w * 2 - 1, ny = 1 - sy / cam.h * 2;
+  const f = Math.tan(cam.fov / 2), aspect = cam.w / cam.h;
+  const v = cam.view;
+  // camera basis from the view matrix rows
+  const right = [v[0], v[4], v[8]], up = [v[1], v[5], v[9]], back = [v[2], v[6], v[10]];
+  const dir = [right[0] * nx * f * aspect + up[0] * ny * f - back[0],
+               right[1] * nx * f * aspect + up[1] * ny * f - back[1],
+               right[2] * nx * f * aspect + up[2] * ny * f - back[2]];
+  const s = (zp - cam.eye[2]) / dir[2];
+  return [cam.eye[0] + dir[0] * s, cam.eye[1] + dir[1] * s, zp];
+}
+
+/* ================================================================== *
+ * 8. Drawing. Back canvas: sky, stars, far motes. GL: the cloth. Front
+ *    canvas: rail, threads, near motes, the hand. Every colour is a
+ *    ramp entry; lighting moves along the ramp.
+ * ================================================================== */
+const backC = document.getElementById("back"), glC = document.getElementById("gl"), frontC = document.getElementById("front");
+const bctx = backC.getContext("2d"), fctx = frontC.getContext("2d");
+let gl = null, GLR = null, skyCache = null;
+const STARS = [];
+for (let s = 0; s < 190; s++) STARS.push({
+  x: rand01(SEED, 81, s, 0), y: rand01(SEED, 82, s, 0) * 0.85, r: 0.35 + 1.1 * Math.pow(rand01(SEED, 83, s, 0), 3),
+  tw: 0.4 + 2.2 * rand01(SEED, 84, s, 0), ph: 6.28 * rand01(SEED, 85, s, 0), b: rand01(SEED, 86, s, 0)
+});
+
+const VS = `attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUV;
+uniform mat4 uVP; varying vec3 vN; varying vec2 vUV; varying vec3 vP;
+void main(){ vN = aNrm; vUV = aUV; vP = aPos; gl_Position = uVP * vec4(aPos, 1.0); }`;
+const FS = `precision highp float;
+uniform sampler2D uDye; uniform sampler2D uRamp;
+uniform vec3 uEye; uniform vec3 uLight; uniform vec4 uTone; uniform vec2 uGrid;
+varying vec3 vN; varying vec2 vUV; varying vec3 vP;
+void main(){
+  vec3 n = normalize(vN);
+  vec3 vd = normalize(uEye - vP);
+  float facing = dot(n, vd);
+  if (facing < 0.0) { n = -n; facing = -facing; }
+  float V = texture2D(uDye, vUV).r * 0.45;
+  float d = smoothstep(${DYE_LO.toFixed(3)}, ${DYE_HI.toFixed(3)}, V);
+  float edge = 1.0 - abs(2.0 * d - 1.0);
+  float wrap = 0.5 + 0.5 * dot(n, uLight);
+  float fres = pow(1.0 - facing, 3.0);
+  float occl = mix(0.58, 1.0, smoothstep(-0.16, 0.14, vP.z));
+  float tone = mix(uTone.x, uTone.y, d);
+  float lit = (0.24 + 0.76 * wrap * wrap) * occl;
+  float idx = tone * lit + edge * 0.05 * lit + fres * (uTone.z - tone) * 0.22 * wrap;
+  idx = clamp(idx, 0.0, 1.0);
+  gl_FragColor = vec4(texture2D(uRamp, vec2(idx * ${((RAMP_N - 1) / RAMP_N).toFixed(6)} + ${(0.5 / RAMP_N).toFixed(6)}, 0.5)).rgb, 1.0);
+}`;
+function initGL() {
+  try {
+    gl = glC.getContext("webgl", { antialias: true, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: true });
+  } catch (e) { gl = null; }
+  if (!gl) return false;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  try {
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    const n = CW * CH;
+    const uv = new Float32Array(n * 2);
+    for (let j = 0; j < CH; j++) for (let i = 0; i < CW; i++) { uv[2 * (j * CW + i)] = i / (CW - 1); uv[2 * (j * CW + i) + 1] = j / (CH - 1); }
+    const idx = [];
+    for (let j = 0; j < CH - 1; j++) for (let i = 0; i < CW - 1; i++) {
+      const a = j * CW + i, b = a + 1, c = a + CW, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+    const buf = (data, target, usage) => { const b = gl.createBuffer(); gl.bindBuffer(target, b); gl.bufferData(target, data, usage); return b; };
+    GLR = {
+      prog, count: idx.length,
+      pos: buf(new Float32Array(n * 3), gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW),
+      nrm: buf(new Float32Array(n * 3), gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW),
+      uv: buf(uv, gl.ARRAY_BUFFER, gl.STATIC_DRAW),
+      ib: buf(new Uint16Array(idx), gl.ELEMENT_ARRAY_BUFFER, gl.STATIC_DRAW),
+      posData: new Float32Array(n * 3), nrmData: new Float32Array(n * 3), dyeData: new Uint8Array(DYE_W * DYE_H),
+      aPos: gl.getAttribLocation(prog, "aPos"), aNrm: gl.getAttribLocation(prog, "aNrm"), aUV: gl.getAttribLocation(prog, "aUV"),
+      u: {}
+    };
+    for (const name of ["uVP", "uDye", "uRamp", "uEye", "uLight", "uTone", "uGrid"]) GLR.u[name] = gl.getUniformLocation(prog, name);
+    const tex = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+    GLR.dyeTex = tex();
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, DYE_W, DYE_H, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, GLR.dyeData);
+    GLR.rampTex = tex();
+    const rb = new Uint8Array(RAMP_N * 4);
+    ramp.forEach((c, i) => { rb[4 * i] = c.bytes[0]; rb[4 * i + 1] = c.bytes[1]; rb[4 * i + 2] = c.bytes[2]; rb[4 * i + 3] = 255; });
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, RAMP_N, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, rb);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    return true;
+  } catch (e) {
+    console.error("loom: WebGL setup failed, drawing the cloth in 2D instead:", e.message);
+    gl = null; GLR = null; return false;
+  }
+}
+const LIGHT = (() => { const l = [-0.78, 0.38, 0.55], n = Math.hypot(...l); return l.map(c => c / n); })();
+function fillClothBuffers() {
+  const S = world.sys, P = GLR.posData, Nn = GLR.nrmData, nrm = [0, 0, 0];
+  for (let j = 0; j < CH; j++) for (let i = 0; i < CW; i++) {
+    const p = j * CW + i;
+    P[3 * p] = S.x[3 * p]; P[3 * p + 1] = S.x[3 * p + 1]; P[3 * p + 2] = S.x[3 * p + 2];
+    clothNormal(S, i, j, nrm);
+    Nn[3 * p] = nrm[0]; Nn[3 * p + 1] = nrm[1]; Nn[3 * p + 2] = nrm[2];
+  }
+  const V = world.dye.V, D = GLR.dyeData;
+  for (let i = 0; i < V.length; i++) D[i] = Math.round(clamp(V[i] / 0.45, 0, 1) * 255);
+}
+function drawClothGL() {
+  gl.viewport(0, 0, glC.width, glC.height);
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  fillClothBuffers();
+  gl.useProgram(GLR.prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, GLR.pos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, GLR.posData);
+  gl.enableVertexAttribArray(GLR.aPos); gl.vertexAttribPointer(GLR.aPos, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, GLR.nrm); gl.bufferSubData(gl.ARRAY_BUFFER, 0, GLR.nrmData);
+  gl.enableVertexAttribArray(GLR.aNrm); gl.vertexAttribPointer(GLR.aNrm, 3, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, GLR.uv);
+  gl.enableVertexAttribArray(GLR.aUV); gl.vertexAttribPointer(GLR.aUV, 2, gl.FLOAT, false, 0, 0);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, GLR.dyeTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, DYE_W, DYE_H, gl.LUMINANCE, gl.UNSIGNED_BYTE, GLR.dyeData);
+  gl.uniform1i(GLR.u.uDye, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, GLR.rampTex); gl.uniform1i(GLR.u.uRamp, 1);
+  gl.uniformMatrix4fv(GLR.u.uVP, false, cam.vp);
+  gl.uniform3fv(GLR.u.uEye, cam.eye); gl.uniform3fv(GLR.u.uLight, LIGHT);
+  gl.uniform4f(GLR.u.uTone, tokens.cloth.tone, tokens.dye.tone, tokens.sheen.tone, 0);
+  gl.uniform2f(GLR.u.uGrid, CW - 1, CH - 1);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, GLR.ib);
+  gl.drawElements(gl.TRIANGLES, GLR.count, gl.UNSIGNED_SHORT, 0);
+}
+/* The same shading on the CPU for a machine with no WebGL. Each quad is
+ * cut 4 by 4 and every piece samples the dye and the interpolated normal
+ * at its own centre. The first version shaded one flat colour per quad,
+ * so the dye came out as literal squares; its content check passed and
+ * the screenshot did not (P27). Painter's order, far quads first. */
+const FB_SUB = 4;
+function drawCloth2D(ctx) {
+  const S = world.sys, pr = [], nr = [], q = [];
+  for (let j = 0; j < CH; j++) for (let i = 0; i < CW; i++) {
+    const p = j * CW + i;
+    pr.push(project(S.x[3 * p], S.x[3 * p + 1], S.x[3 * p + 2], [0, 0, 0]));
+    nr.push(clothNormal(S, i, j, [0, 0, 0]));
+  }
+  for (let j = 0; j < CH - 1; j++) for (let i = 0; i < CW - 1; i++) {
+    const a = j * CW + i;
+    q.push({ i, j, z: (pr[a][2] + pr[a + 1][2] + pr[a + CW][2] + pr[a + CW + 1][2]) / 4 });
+  }
+  q.sort((A, B) => B.z - A.z);
+  const lerp2 = (A, B, C, D, u, v, k) => (A[k] * (1 - u) + B[k] * u) * (1 - v) + (C[k] * (1 - u) + D[k] * u) * v;
+  const n = FB_SUB, pt = [0, 0];
+  for (const { i, j } of q) {
+    const a = j * CW + i, b = a + 1, c = a + CW, d = c + 1;
+    const cx = (S.x[3 * a] + S.x[3 * d]) / 2, cy = (S.x[3 * a + 1] + S.x[3 * d + 1]) / 2, cz = (S.x[3 * a + 2] + S.x[3 * d + 2]) / 2;
+    const ex = cam.eye[0] - cx, ey = cam.eye[1] - cy, ez = cam.eye[2] - cz;
+    for (let sv = 0; sv < n; sv++) for (let su = 0; su < n; su++) {
+      const u0 = su / n, u1 = (su + 1) / n, v0 = sv / n, v1 = (sv + 1) / n, um = (u0 + u1) / 2, vm = (v0 + v1) / 2;
+      let nx = lerp2(nr[a], nr[b], nr[c], nr[d], um, vm, 0), ny = lerp2(nr[a], nr[b], nr[c], nr[d], um, vm, 1), nz = lerp2(nr[a], nr[b], nr[c], nr[d], um, vm, 2);
+      const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+      if (nx * ex + ny * ey + nz * ez < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      const wrap = 0.5 + 0.5 * (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]);
+      const dd = dyeDensity(dyeSample(world.dye, (i + um) / (CW - 1), (j + vm) / (CH - 1)));
+      const tone = tokens.cloth.tone + (tokens.dye.tone - tokens.cloth.tone) * dd;
+      const col = rampAt(tone * (0.24 + 0.76 * wrap * wrap));
+      ctx.fillStyle = col.hex; ctx.strokeStyle = col.hex; ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      for (const [uu, vv] of [[u0, v0], [u1, v0], [u1, v1], [u0, v1]]) {
+        pt[0] = lerp2(pr[a], pr[b], pr[c], pr[d], uu, vv, 0); pt[1] = lerp2(pr[a], pr[b], pr[c], pr[d], uu, vv, 1);
+        if (uu === u0 && vv === v0) ctx.moveTo(pt[0], pt[1]); else ctx.lineTo(pt[0], pt[1]);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  }
+}
+function buildSky(w, h) {
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(w * cam.dpr)); c.height = Math.max(1, Math.round(h * cam.dpr));
+  const x = c.getContext("2d");
+  x.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
+  x.fillStyle = tokens.ground.hex; x.fillRect(0, 0, w, h);
+  /* a low glow behind the cloth, the haze token fading to ground */
+  const cx = project(0, -0.2, -0.6, [0, 0, 0]);
+  const gr = x.createRadialGradient(cx[0], cx[1], 0, cx[0], cx[1], Math.max(w, h) * 0.62);
+  gr.addColorStop(0, rgba(tokens.haze, 1)); gr.addColorStop(1, rgba(tokens.haze, 0));
+  x.fillStyle = gr; x.fillRect(0, 0, w, h);
+  /* A dark gradient this wide steps one 8-bit level at a time and bands.
+   * Dither it once: scale each pixel by less than one level up or down.
+   * A uniform scale keeps the channel ratios, so the hue barely moves. */
+  const img = x.getImageData(0, 0, c.width, c.height), d = img.data;
+  for (let i = 0, k = 0; i < d.length; i += 4, k++) {
+    const m = Math.max(d[i], d[i + 1], d[i + 2]) || 1;
+    const f = 1 + (rand01(SEED, 91, k, 0) - 0.5) * 1.3 / m;
+    d[i] = Math.round(d[i] * f); d[i + 1] = Math.round(d[i + 1] * f); d[i + 2] = Math.round(d[i + 2] * f);
+  }
+  x.putImageData(img, 0, 0);
+  return c;
+}
+const view = { threads: true, motes: true };
+function drawBack(now) {
+  const w = cam.w, h = cam.h, ctx = bctx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (skyCache) ctx.drawImage(skyCache, 0, 0);
+  ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
+  const tt = now / 1000;
+  for (const s of STARS) {
+    const a = (0.12 + 0.5 * s.b * s.b) * (0.6 + 0.4 * Math.sin(tt * s.tw + s.ph));
+    ctx.fillStyle = rgba(tokens.star, a.toFixed(3));
+    ctx.beginPath(); ctx.arc(s.x * w, s.y * h, s.r, 0, 6.2832); ctx.fill();
+  }
+  if (view.motes) drawMotes(ctx, false);
+  if (!gl) drawCloth2D(ctx);
+}
+const _pa = [0, 0, 0], _pb = [0, 0, 0];
+function drawMotes(ctx, near) {
+  const M = world.motes;
+  ctx.lineCap = "round";
+  for (let m = 0; m < M.n; m++) {
+    const o = 3 * m, z = M.p[o + 2];
+    if ((z >= 0) !== near) continue;
+    project(M.prev[o], M.prev[o + 1], M.prev[o + 2], _pa);
+    project(M.p[o], M.p[o + 1], M.p[o + 2], _pb);
+    const fade = Math.min(1, M.age[m] / 1.2, (M.life[m] - M.age[m]) / 1.2);
+    const sp = Math.hypot(_pb[0] - _pa[0], _pb[1] - _pa[1]);
+    const a = clamp(fade * (0.05 + sp * 0.022) * (near ? 1 : 0.6), 0, 0.3);
+    if (a <= 0.01) continue;
+    ctx.strokeStyle = rgba(tokens.mote, a.toFixed(3));
+    ctx.lineWidth = (near ? 1.6 : 1.1) * 4.4 / _pb[2];
+    ctx.beginPath(); ctx.moveTo(_pa[0] - (_pb[0] - _pa[0]) * 0.6, _pa[1] - (_pb[1] - _pa[1]) * 0.6); ctx.lineTo(_pb[0], _pb[1]); ctx.stroke();
+  }
+}
+function drawFront() {
+  const ctx = fctx, S = world.sys;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, frontC.width, frontC.height);
+  ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
+  /* the rail */
+  const r0 = project(-1.02, RAIL_Y + 0.025, 0, [0, 0, 0]), r1 = project(1.02, RAIL_Y + 0.025, 0, [0, 0, 0]);
+  ctx.lineCap = "round"; ctx.strokeStyle = tokens.rail.hex; ctx.lineWidth = 3.2 * 4.4 / r0[2];
+  ctx.beginPath(); ctx.moveTo(r0[0], r0[1]); ctx.lineTo(r1[0], r1[1]); ctx.stroke();
+  ctx.fillStyle = tokens.rail.hex;
+  for (let i = 0; i < CW; i += 1) {
+    project(S.x[3 * i], S.x[3 * i + 1], S.x[3 * i + 2], _pa);
+    ctx.beginPath(); ctx.arc(_pa[0], _pa[1], 1.7 * 4.4 / _pa[2], 0, 6.2832); ctx.fill();
+  }
+  /* threads */
+  for (let t = 0; t < (view.threads ? world.threads.length : 0); t++) {
+    const T = world.threads[t], g = world.glow[t];
+    const col = rampAt(tokens.thread.tone + (tokens.glow.tone - tokens.thread.tone) * g);
+    ctx.strokeStyle = col.hex; ctx.lineWidth = (1.3 + 1.4 * g) * 4.4 / 4.4;
+    ctx.shadowColor = rgba(tokens.glow, (0.9 * g).toFixed(3)); ctx.shadowBlur = 14 * g;
+    ctx.beginPath();
+    for (let k = 0; k < T.idx.length; k++) {
+      const o = 3 * T.idx[k]; project(S.x[o], S.x[o + 1], S.x[o + 2], _pa);
+      if (k === 0) ctx.moveTo(_pa[0], _pa[1]); else ctx.lineTo(_pa[0], _pa[1]);
+    }
+    ctx.stroke();
+    const o = 3 * T.idx[T.idx.length - 1]; project(S.x[o], S.x[o + 1], S.x[o + 2], _pa);
+    const bead = rampAt(tokens.bead.tone + (tokens.glow.tone - tokens.bead.tone) * g);
+    ctx.fillStyle = bead.hex; ctx.shadowBlur = 22 * g;
+    ctx.beginPath(); ctx.arc(_pa[0], _pa[1], (3.1 + 1.6 * g) * 4.4 / _pa[2], 0, 6.2832); ctx.fill();
+  }
+  ctx.shadowBlur = 0; ctx.shadowColor = "rgba(0,0,0,0)";
+  if (view.motes) drawMotes(ctx, true);
+  /* the hand */
+  if (ptr.active && !PREVIEW) {
+    ctx.strokeStyle = rgba(tokens.ink, ptr.grab >= 0 ? 0.55 : 0.28); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(ptr.x, ptr.y, ptr.grab >= 0 ? 9 : 14, 0, 6.2832); ctx.stroke();
+  }
+}
+function render(now) {
+  drawBack(now);
+  if (gl) drawClothGL();
+  drawFront();
+}
+
+/* ================================================================== *
+ * 9. The hand. Press on the cloth or a thread to hold it; press on air
+ *    to stir it. Either way the air moves with you, so a stroke past
+ *    the threads plucks them without touching them.
+ * ================================================================== */
+const ptr = { x: 0, y: 0, active: false, down: false, grab: -1, grabZ: 0, vx: 0, vy: 0, lastT: 0, id: null,
+              events: 0, grabs: 0, stirs: 0, eddyPeak: 0, lastWorld: null };
+function pick(sx, sy) {
+  const S = world.sys; let best = -1, bd = 34 * 34;
+  for (let i = CW; i < S.n; i++) {                       // skip the rail row
+    project(S.x[3 * i], S.x[3 * i + 1], S.x[3 * i + 2], _pa);
+    const d = (_pa[0] - sx) ** 2 + (_pa[1] - sy) ** 2;
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+function pointerWorld() { return unprojectToZ(ptr.x, ptr.y, 0.1); }
+function onDown(e) {
+  if (PREVIEW) return;
+  ptr.events++;
+  if (!audio.ctx) setSound(true);                         // the first touch is the gesture
+  else if (audio.ctx.state !== "running" && audio.on) audio.ctx.resume();
+  document.getElementById("hint").classList.add("gone");
+  frontC.setPointerCapture && frontC.setPointerCapture(e.pointerId);
+  ptr.id = e.pointerId; ptr.down = true; ptr.active = true;
+  ptr.x = e.clientX; ptr.y = e.clientY; ptr.lastT = e.timeStamp; ptr.vx = ptr.vy = 0;
+  const i = pick(ptr.x, ptr.y);
+  if (i >= 0) {
+    ptr.grab = i; ptr.grabs++; ptr.grabZ = world.sys.x[3 * i + 2];
+    world.sys.kin[i] = 1;
+    world.sys.kt[3 * i] = world.sys.x[3 * i]; world.sys.kt[3 * i + 1] = world.sys.x[3 * i + 1]; world.sys.kt[3 * i + 2] = world.sys.x[3 * i + 2];
+    frontC.classList.add("grabbing");
+  } else ptr.stirs++;
+}
+function onMove(e) {
+  if (PREVIEW) return;
+  ptr.events++;
+  const dt = Math.max(1, e.timeStamp - ptr.lastT) / 1000;
+  const vx = (e.clientX - ptr.x) / dt, vy = (e.clientY - ptr.y) / dt;
+  ptr.vx = ptr.vx * 0.6 + vx * 0.4; ptr.vy = ptr.vy * 0.6 + vy * 0.4;
+  ptr.x = e.clientX; ptr.y = e.clientY; ptr.lastT = e.timeStamp; ptr.active = true;
+}
+function onUp(e) {
+  if (PREVIEW) return;
+  ptr.events++;
+  if (ptr.grab >= 0) {
+    const S = world.sys, i = ptr.grab;
+    S.kin[i] = 0;
+    for (let c = 0; c < 3; c++) S.v[3 * i + c] = clamp(S.v[3 * i + c], -6, 6);
+  }
+  ptr.grab = -1; ptr.down = false; ptr.id = null;
+  if (e.pointerType !== "mouse") ptr.active = false;
+  frontC.classList.remove("grabbing");
+}
+/* once per simulation frame: move the held particle, lay dye under it,
+ * and set the eddy from the hand's speed */
+function applyPointer() {
+  const F = world.field, S = world.sys;
+  const speed = Math.hypot(ptr.vx, ptr.vy);
+  if (ptr.grab >= 0) {
+    const i = ptr.grab, target = unprojectToZ(ptr.x, ptr.y, ptr.grabZ);
+    S.kt[3 * i] = target[0]; S.kt[3 * i + 1] = target[1]; S.kt[3 * i + 2] = target[2];
+    if (i < CW * CH) {
+      const u = (i % CW) / (CW - 1), v = Math.floor(i / CW) / (CH - 1);
+      dyeDeposit(world.dye, u, v, 2.6, 0.05); world.deposits++;
+    }
+  }
+  if (ptr.active && speed > 1) {
+    const wp = pointerWorld(); ptr.lastWorld = wp;
+    const pxPerM = cam.h / (2 * Math.tan(cam.fov / 2) * (cam.eye[2] - 0.1));
+    const sp = Math.min(speed / pxPerM, 7);                 // metres per second
+    F.eddy = { x: wp[0], y: wp[1], z: 0.0, r: 0.32, dx: ptr.vx / speed, dy: -ptr.vy / speed, s: sp * 3.1 };
+    ptr.eddyPeak = Math.max(ptr.eddyPeak, F.eddy.s);
+  } else if (F.eddy) {
+    F.eddy.s *= 0.86; if (Math.abs(F.eddy.s) < 1e-3) F.eddy = null;
+  }
+  ptr.vx *= 0.9; ptr.vy *= 0.9;
+}
+
+/* ================================================================== *
+ * 10. The loop
+ * ================================================================== */
+let world = null, acc = 0, lastNow = 0, running = true, drawn = 0;
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+  cam.dpr = dpr;
+  for (const c of [backC, glC, frontC]) { c.width = Math.max(1, Math.round(w * dpr)); c.height = Math.max(1, Math.round(h * dpr)); }
+  setupCamera(w, h);
+  skyCache = buildSky(w, h);
+}
+function frame(now) {
+  if (!running) return;
+  const dt = Math.min(0.1, Math.max(0, (now - lastNow) / 1000)); lastNow = now;
+  acc += dt;
+  let n = 0;
+  while (acc >= DT && n < 3) {
+    if (!PREVIEW) applyPointer();
+    const before = world.events.length;
+    worldStep(world);
+    for (let e = before; e < world.events.length; e++) playVoice(world.events[e]);
+    acc -= DT; n++;
+  }
+  if (n === 3) acc = 0;
+  render(now); drawn++;
+  requestAnimationFrame(frame);
+}
+function boot() {
+  applyCssTokens();
+  resize();
+  initGL();
+  world = createWorld({ seed: SEED });
+  /* preroll: the cloth finds its folds and the dye is already growing
+   * on the first frame anyone sees */
+  for (let k = 0; k < 700; k++) dyeStep(world.dye, { Du: DYE.Du, Dv: DYE.Dv, dt: DYE.dt, F: world.dyeRows.F, k: world.dyeRows.k });
+  settle(world, 3);
+  render(performance.now()); drawn++;
+  window.addEventListener("resize", () => { resize(); render(performance.now()); });
+  frontC.addEventListener("pointerdown", onDown);
+  frontC.addEventListener("pointermove", onMove);
+  frontC.addEventListener("pointerup", onUp);
+  frontC.addEventListener("pointercancel", onUp);
+  frontC.addEventListener("pointerleave", e => { if (!ptr.down) ptr.active = false; });
+  document.getElementById("sound").addEventListener("click", e => { e.stopPropagation(); setSound(!audio.on); });
+  window.addEventListener("keydown", e => {
+    if (e.key === "m" || e.key === "M") setSound(!audio.on);
+  });
+  lastNow = performance.now();
+  requestAnimationFrame(frame);
+}
+if (PREVIEW) document.documentElement.classList.add("preview");
+
+/* ================================================================== *
+ * 11. The test surface. Pure functions and state; the closed forms
+ *     the checker holds them to live in the checker.
+ * ================================================================== */
+window.__loom = {
+  version: "2026-09-22", seed: SEED, preview: PREVIEW,
+  palette: { HUE, GROUND, C_MAX, ramp, tokens, requests: colourRequests, gamutMap, inGamut, oklchToLin, linToOklch,
+             linToBytes, bytesToHex, lumFromBytes, lumFromLin, contrastY, BISECT_ITERS, matrices: { M_LIN_LMS, M_LMS_LAB, M_LAB_LMS, M_LMS_LIN } },
+  wind: { WIND, windAt, gradientWindAt, potential, advect, gustOf, ROOM, field: s => ({ windScale: 1, salt: hash32(s ?? SEED, 99, 0, 0) & 0xffff, eddy: null }) },
+  dye: { DYE, DYE_W, DYE_H, dyeState, dyeStep, dyeRows, dyeSeed, dyeDensity, DYE_LO, DYE_HI },
+  solver: { System, hangRig, COMPLIANCE, SUB, DT, REST, CW, CH, RAIL_Y, GATHER },
+  synth: { renderString, renderNaive, THREAD_HZ, THREAD_T60, THREAD_LEN, PLUCK_ON, PLUCK_OFF },
+  createWorld, worldStep, settle, simulate, worldMetrics, healthy, threadBend, updateCompliance,
+  get world() { return world; }, audio, ptr, cam, project, unprojectToZ,
+  get gl() { return !!gl; }, get drawn() { return drawn; },
+  pause() { running = false; }, resume() { if (!running) { running = true; lastNow = performance.now(); requestAnimationFrame(frame); } },
+  renderNow(o) {
+    const keep = { ...view }; Object.assign(view, o || {});
+    render(performance.now()); drawn++; Object.assign(view, keep);
+  },
+  setWorld(W) { world = W; }
+};
+boot();
+</script>
+</body>
+</html>

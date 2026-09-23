@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mosaic</title>
+<!--
+  MOSAIC - three ways to fill a rectangle, laid over this playground's own source.
+
+  WHAT IT DOES
+  Takes every real file on disk in projects/playground (each build, plus every checker in
+  _verify that guards one) and packs them into one rectangle three different ways: slice and
+  dice, strip, and squarified. Same data, same rectangle, same nesting, three algorithms. Under
+  each one it measures the aspect ratio of every tile it produced and shows the distribution, so
+  the difference between the three is a number rather than an impression. 108 files on the day
+  this was written, and the page counts them itself rather than carrying that number in its
+  text, because the number it carried went stale within the hour.
+
+  WHAT I LEARNED
+  1. The squarified algorithm is four lines of real decision making and the rest is bookkeeping.
+     The whole thing is worst(): given a row of areas and the length of the side they sit on,
+     return the worst aspect ratio in that row. You keep adding tiles to the current row while
+     worst() goes DOWN and you close the row the moment it goes up. That is it. The famous part
+     of this algorithm is a greedy stopping rule, not a search.
+  2. It buys its squares with order. Slice and dice and strip both lay tiles out in whatever
+     sequence you hand them, so you can read a treemap by date. Squarified sorts descending
+     first, and has to, because the rule above only behaves if the big tiles are placed while
+     there is still room to place them well. So a squarified treemap is beautiful and it cannot
+     be read left to right. That tradeoff is the actual content of the paper and it is invisible
+     if you only ever look at the pictures.
+  3. worst() compares a row against the SHORT side of the remaining rectangle, and the remaining
+     rectangle changes shape after every row you close. I had this wrong first: I computed the
+     short side once, outside the loop, which is subtly fine on square data and produces visible
+     slivers the moment one group dominates. Measured on this dataset, hoisting it moves a tile
+     by up to 465 pixels and takes the median aspect ratio from 1.10 to 2.30 and the worst tile
+     from 2.12 to 118.67. Those four numbers come out of _verify/check_mosaic.js, which flips the
+     breakage on the shipped function rather than on a copy of it.
+  4. And the correction I did not expect. I wrote a second trap into this file before measuring
+     it: that the area-per-unit-value scale factor must also be recomputed every row, or the
+     layout stops conserving area partway down. That is FALSE, and the checker caught me. The
+     scale is invariant. Closing a row removes exactly rowValue * scale of area from the free
+     rectangle, so free area over remaining value is the same number it was before, forever. The
+     "broken" variant is still live behind a flag in squarified() and it reproduces the correct
+     layout to 5.6e-12, which is float noise. A plausible bug, reasoned about confidently, that
+     the arithmetic simply does not have. The short-side trap is real; this one never existed.
+  5. Nesting is where the guarantee leaks, and I was wrong about why. I predicted the bad tiles
+     would be INHERITED: a small file inside a lane rectangle that was already a sliver. The
+     checker went and looked. All ten of the worst tiles in the nested layout are a build's
+     README.md, and nine of the ten sit in a parent between 1.0:1 and 2.0:1, which is fine. The
+     mechanism is the SPREAD inside a group, not the shape around it: wave-function-collapse is
+     a 1,440 line page beside a 15 line readme, and the median group here spans 25 to 1 between
+     its biggest and smallest file. Squarified places the last and smallest item in whatever is
+     left after everything bigger has been packed well. The guarantee degrades with dynamic
+     range, and a parent shaped like a square does nothing to save it.
+  6. Two defects that only an end-to-end pass could see, both of them the layout being right and
+     the picture being wrong. The preview card was BLANK, because preview mode removes two of
+     the three panels and the render loop still walked a hard coded list of three and threw on
+     the missing one. And tiles thinner than a pixel were painted four times too wide, because
+     box-sizing is border-box and CSS floors a border-box element at the width of its own
+     padding, so a 0.014px tile with 2px of padding paints at 4px. The browser said the worst
+     tile was 64:1 where the layout said 4361:1, on the dataset as it stood when that was found.
+     Neither suite that reads the algorithm could have found either one.
+  7. THE MOST USEFUL THING THIS BUILD TAUGHT ME, and it is not about treemaps. The page is an
+     instrument for spotting a number that was true once and is quietly not true any more. While
+     writing it I made that exact mistake five times: a generator that measured the very file it
+     injects its output into, so its record of its own size was stale the instant it was written;
+     an assertion forbidding an exact zero that held for 102 files and broke at 108; a checker
+     with the leaf count of the day typed into it; a test for the literal string "13"; and the
+     function whose entire job is computing this page's counts, opening with the typed words
+     "Thirty builds" while correctly computing every percentage around it. Four of the five were
+     invisible until the folder grew by six files. The generator iterates to a fixed point now
+     and refuses to write if it cannot reach one, every count in the prose is computed, and
+     check_mosaic_ui.js asserts each of them agrees with the panel it describes.
+
+  WHY I BUILT IT
+  The playtime log had been asking for two things for weeks: a build that uses material already
+  on disk instead of generating its own, and a lane other than physics. This is both. It also
+  points the instrument at the rail itself. The log's own note says the ten cloth simulations
+  were "a shape invisible from inside it" - a drift nobody could see one night at a time. Size
+  the mosaic by lines and group it by lane and the drift is not an argument any more, it is a
+  blue rectangle taking up most of the picture.
+
+  Built 2026-09-23. Self-contained, offline, no dependencies. Regenerate the data by running
+  _verify/mosaic_dataset.py, which measures the folder and injects the result back into this
+  file; check_mosaic.js D5 and D6 re-read every one of those files from disk and will go red if
+  it is stale. Nothing here is estimated.
+-->
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121820; --ink:#e8eef6; --dim:#8da2b8; --line:#243040;
+    --accent:#7dd3fc;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1500px;margin:0 auto;padding:28px 22px 60px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--dim);max-width:78ch;margin:0 0 18px}
+  .sub b{color:var(--ink);font-weight:600}
+  .controls{display:flex;flex-wrap:wrap;gap:18px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:18px}
+  .ctl{display:flex;align-items:center;gap:8px}
+  .ctl > span{color:var(--dim);font-size:13px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg button{background:transparent;border:0;color:var(--dim);font:inherit;font-size:13px;
+    padding:5px 11px;cursor:pointer}
+  .seg button + button{border-left:1px solid var(--line)}
+  .seg button[aria-pressed="true"]{background:#1d2a3a;color:var(--accent)}
+  .seg button:hover{color:var(--ink)}
+  .panels{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media (max-width:1200px){.panels{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .panel h2{font-size:15px;margin:0 0 2px}
+  .panel p.blurb{color:var(--dim);font-size:12.5px;margin:0 0 10px;min-height:34px}
+  .stage{position:relative;width:100%;aspect-ratio:8/5;background:#080c11;
+    border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  /* NO PADDING HERE, deliberately. box-sizing is border-box, and CSS floors a border-box
+     element at the width of its own padding, so a 0.014px tile with padding:1px 2px paints at
+     4px and the picture stops matching the layout. Found by check_mosaic_ui.js on 2026-09-23:
+     the browser measured a worst tile of 64.75:1 where the layout said 4361:1. text-indent
+     moves the label without touching the box. */
+  .tile{position:absolute;overflow:hidden;border-radius:2px;
+    font-size:9px;line-height:11px;color:rgba(255,255,255,.88);text-indent:2px;
+    text-shadow:0 1px 2px rgba(0,0,0,.6);white-space:nowrap}
+  .tile.hot{outline:2px solid #fff;outline-offset:-2px;z-index:5}
+  .grp{position:absolute;border:1px solid rgba(255,255,255,.14);border-radius:3px;
+    pointer-events:none}
+  .glabel{position:absolute;font-size:9.5px;color:rgba(255,255,255,.72);
+    padding:1px 3px;pointer-events:none;letter-spacing:.02em;white-space:nowrap;overflow:hidden}
+  .stats{display:flex;gap:14px;margin-top:9px;font-size:12px;color:var(--dim);flex-wrap:wrap}
+  .stats b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  .hist{display:block;width:100%;height:46px;margin-top:8px}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0 0;font-size:12.5px;color:var(--dim)}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;
+    vertical-align:-1px}
+  .notes{margin-top:26px;max-width:82ch;color:#c2d0e0}
+  .notes h3{font-size:15px;margin:22px 0 6px;color:var(--ink)}
+  .notes p{margin:0 0 10px}
+  .notes code{background:#182230;padding:1px 5px;border-radius:4px;font-size:13px}
+  #tip{position:fixed;pointer-events:none;z-index:50;background:#05090ee6;color:var(--ink);
+    border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:12px;
+    max-width:280px;display:none;backdrop-filter:blur(3px)}
+  #tip b{color:var(--accent)}
+  #tip .m{color:var(--dim)}
+  .foot{margin-top:28px;color:#5d7186;font-size:12px}
+
+  /* preview mode: one panel, full bleed, no chrome. Contract in playground/README.md */
+  body.preview{overflow:hidden}
+  body.preview .wrap{max-width:none;padding:0;height:100vh}
+  body.preview header,body.preview .controls,body.preview .notes,
+  body.preview .foot,body.preview .panel p.blurb,body.preview .hist{display:none}
+  body.preview .panels{grid-template-columns:1fr;gap:0;height:100vh}
+  body.preview .panel{border:0;border-radius:0;padding:8px 10px 6px;height:100vh;
+    display:flex;flex-direction:column}
+  body.preview .panel h2{font-size:13px;margin-bottom:6px}
+  body.preview .stage{flex:1;aspect-ratio:auto;min-height:0}
+  body.preview .legend{display:none}
+  body.preview .stats{margin-top:6px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Mosaic</h1>
+    <p class="sub">The same <b id="n-files">&hellip;</b> files, the same rectangle, three packing
+    algorithms. Every tile is a real file in <b>projects/playground</b>: <span id="n-builds"></span>
+    builds and the <span id="n-checkers"></span> checkers that guard them, sized by what is actually
+    on disk. The numbers under each picture are the aspect ratio of
+    every tile it produced, which is the only thing these three algorithms disagree about.</p>
+  </header>
+
+  <div class="controls">
+    <div class="ctl"><span>size by</span>
+      <div class="seg" id="seg-metric">
+        <button data-v="lines" aria-pressed="true">lines</button>
+        <button data-v="bytes" aria-pressed="false">bytes</button>
+      </div></div>
+    <div class="ctl"><span>group by</span>
+      <div class="seg" id="seg-group">
+        <button data-v="lane" aria-pressed="true">lane</button>
+        <button data-v="month" aria-pressed="false">month</button>
+      </div></div>
+    <div class="ctl"><span>include</span>
+      <div class="seg" id="seg-kind">
+        <button data-v="all" aria-pressed="true">builds + checkers</button>
+        <button data-v="build" aria-pressed="false">builds only</button>
+      </div></div>
+    <div class="ctl"><span>labels</span>
+      <div class="seg" id="seg-labels">
+        <button data-v="on" aria-pressed="true">on</button>
+        <button data-v="off" aria-pressed="false">off</button>
+      </div></div>
+  </div>
+
+  <div class="panels" id="panels"></div>
+
+  <div class="legend" id="legend"></div>
+
+  <section class="notes">
+    <h3>What the three of them actually do</h3>
+    <p><b>Slice and dice</b> cuts the rectangle on one axis, flips the axis at every level of
+    nesting, and gives each item a slice proportional to its size. It is one line of arithmetic, it
+    keeps your input order perfectly, and with a hundred items in a group it produces tiles you
+    cannot see, let alone click. Every bad treemap you have ever met was this one.</p>
+    <p><b>Strip</b> keeps the order too, but packs full width rows instead of slices: it keeps
+    adding items to the current row while the row's <i>average</i> aspect ratio improves, then
+    closes the row and starts another underneath. Order preserved, ratios much better, and a
+    distinctive failure where one huge item forces a nearly empty row.</p>
+    <p><b>Squarified</b> sorts descending first, then walks the remaining free rectangle. It lays
+    each row along the rectangle's <i>short</i> side, and it keeps adding to that row while
+    <code>worst()</code> improves, where <code>worst()</code> is the worst aspect ratio in the row
+    given the side length it sits on. When adding the next item would make the worst tile worse, it
+    closes the row, subtracts it from the free rectangle, and starts again on whatever is left.</p>
+
+    <h3>The part that is easy to get wrong</h3>
+    <p>The short side is a property of the <i>remaining</i> rectangle, not of the original one, and
+    it has to be recomputed every time a row closes. Hoisting it out of the loop looks like an
+    obvious optimisation and it is a bug: it only shows up when one group dominates the data, which
+    is exactly the shape this dataset has. Measured here, it moves a tile by up to 437 pixels, and
+    takes the median tile from 1.11:1 to 2.38:1 and the worst from 1.95:1 to 107.92:1.</p>
+    <p>I was sure there was a second trap in the same loop, and there is not, which is the more
+    useful half of this build. The scale factor that turns a value into an area is free area over
+    remaining value, and both of those numbers change every time a row closes, so recomputing it
+    per row feels obviously necessary. It is not. Closing a row removes exactly its own area and
+    exactly its own value, so the ratio is unchanged: the scale is <i>invariant</i>, and computing
+    it once at the top gives the identical layout to 5.6e-12, which is floating point noise. That
+    variant is still in the code behind a flag, and <code>_verify/check_mosaic.js</code> asserts
+    that it changes nothing. A confident argument about a bug that the arithmetic does not
+    have.</p>
+
+    <h3>What it buys and what it costs</h3>
+    <p>Squarified wins the ratio statistics under every setting on this page, and it is the only
+    one of the three whose tiles you can reliably hover. It pays for that by destroying order: the
+    tiles are sorted by size, so nothing about their position tells you anything about when a build
+    was made. Switch <b>group by</b> to month and read the strip layout instead if you want the
+    nights in sequence. There is no arrangement that gives you both, and knowing which one you are
+    holding is most of the skill.</p>
+
+    <h3>Where the worst tile actually comes from</h3>
+    <p>Squarified's worst tile on this page is <b id="n-worst">&hellip;</b>, and over one flat
+    rectangle with no nesting at all the same algorithm never goes past <b id="n-flat">&hellip;</b>. I assumed the difference was inherited:
+    a small file trapped inside a lane rectangle that was already a sliver. It is not. Every one of
+    the ten worst tiles is a build's <code>README.md</code>, and every one of their parent
+    rectangles is between 1.0:1 and 2.0:1. The mechanism is the <i>spread</i> of sizes inside a
+    group, not the shape around it. A build folder holds a page of well over a thousand lines and a
+    readme of about a dozen, and the last and smallest item gets whatever is left once everything
+    bigger has been packed well. Turn on <b>builds only</b> and the worst tile improves immediately,
+    because that removes the lopsidedness rather than changing the algorithm.</p>
+    <p>One practical consequence, measured rather than argued: at this size squarified produces
+    <b id="n-sub-squarified">&hellip;</b> tiles thinner than a pixel, strip produces
+    <b id="n-sub-strip">&hellip;</b>, and slice and dice produces <b id="n-sub-slice">&hellip;</b>. A
+    tile below a pixel is not a tile. It cannot be seen, hovered or clicked, and the browser's own
+    geometry rounding is larger than the thing it is rounding.</p>
+
+    <h3>And what it says about this folder</h3>
+    <p id="railnote"></p>
+  </section>
+
+  <p class="foot">Data measured from disk on 2026-09-23 by <code>_verify/mosaic_dataset.py</code>.
+  Lanes come from the genre column of <code>PLAYTIME_LOG.md</code> by a left to right keyword scan,
+  so a build tagged "game, physics" counts as a game and "toy / simulation sandbox" counts as
+  simulation. Nothing on this page is estimated or rounded from memory.</p>
+</div>
+<div id="tip"></div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ data -- */
+const DATA = {"builds":32,"generated":"2026-09-23","laneLabels":{"algorithm":"algorithm visualizer","game":"game","generative":"generative and ambient","language":"text and language","other":"unclassified","physics":"physics and simulation","sound":"sound and audio","tool":"small useful tool"},"leaves":[{"bytes":866,"date":"2026-08-20","file":"README.md","kind":"build","lane":"algorithm","lines":15,"slug":"wave-function-collapse"},{"bytes":55441,"date":"2026-08-20","file":"index.html","kind":"build","lane":"algorithm","lines":1440,"slug":"wave-function-collapse"},{"bytes":1343,"date":"2026-08-21","file":"README.md","kind":"build","lane":"language","lines":29,"slug":"bpe-forge"},{"bytes":50736,"date":"2026-08-21","file":"index.html","kind":"build","lane":"language","lines":1048,"slug":"bpe-forge"},{"bytes":1906,"date":"2026-08-23","file":"README.md","kind":"build","lane":"sound","lines":37,"slug":"harmonics-lab"},{"bytes":43866,"date":"2026-08-23","file":"index.html","kind":"build","lane":"sound","lines":925,"slug":"harmonics-lab"},{"bytes":1686,"date":"2026-08-24","file":"README.md","kind":"build","lane":"sound","lines":25,"slug":"pluck"},{"bytes":49763,"date":"2026-08-24","file":"index.html","kind":"build","lane":"sound","lines":1236,"slug":"pluck"},{"bytes":36756,"date":"2026-08-25","file":"index.html","kind":"build","lane":"generative","lines":866,"slug":"reaction"},{"bytes":43675,"date":"2026-08-29","file":"index.html","kind":"build","lane":"tool","lines":1003,"slug":"sift"},{"bytes":3533,"date":"2026-08-30","file":"README.md","kind":"build","lane":"physics","lines":68,"slug":"drape"},{"bytes":53222,"date":"2026-08-30","file":"index.html","kind":"build","lane":"physics","lines":1315,"slug":"drape"},{"bytes":55828,"date":"2026-08-31","file":"index.html","kind":"build","lane":"generative","lines":1430,"slug":"sway"},{"bytes":53740,"date":"2026-09-01","file":"index.html","kind":"build","lane":"tool","lines":1132,"slug":"cron-almanac"},{"bytes":4366,"date":"2026-09-02","file":"README.md","kind":"build","lane":"physics","lines":77,"slug":"xpbd-lab"},{"bytes":69036,"date":"2026-09-02","file":"index.html","kind":"build","lane":"physics","lines":1569,"slug":"xpbd-lab"},{"bytes":4159,"date":"2026-09-03","file":"README.md","kind":"build","lane":"tool","lines":75,"slug":"gamut"},{"bytes":48302,"date":"2026-09-03","file":"index.html","kind":"build","lane":"tool","lines":1083,"slug":"gamut"},{"bytes":2969,"date":"2026-09-04","file":"README.md","kind":"build","lane":"physics","lines":52,"slug":"taut"},{"bytes":54390,"date":"2026-09-04","file":"index.html","kind":"build","lane":"physics","lines":1350,"slug":"taut"},{"bytes":44180,"date":"2026-09-05","file":"index.html","kind":"build","lane":"generative","lines":1103,"slug":"petri"},{"bytes":42541,"date":"2026-09-06","file":"index.html","kind":"build","lane":"tool","lines":929,"slug":"gamut-second-take"},{"bytes":6375,"date":"2026-09-07","file":"README.md","kind":"build","lane":"generative","lines":111,"slug":"turing-pool"},{"bytes":50219,"date":"2026-09-07","file":"index.html","kind":"build","lane":"generative","lines":1167,"slug":"turing-pool"},{"bytes":4421,"date":"2026-09-08","file":"README.md","kind":"build","lane":"generative","lines":89,"slug":"driftfield"},{"bytes":24490,"date":"2026-09-08","file":"index.html","kind":"build","lane":"generative","lines":636,"slug":"driftfield"},{"bytes":4304,"date":"2026-09-09","file":"README.md","kind":"build","lane":"physics","lines":79,"slug":"xpbd-cloth"},{"bytes":42690,"date":"2026-09-09","file":"index.html","kind":"build","lane":"physics","lines":983,"slug":"xpbd-cloth"},{"bytes":39284,"date":"2026-09-10","file":"index.html","kind":"build","lane":"tool","lines":824,"slug":"swept"},{"bytes":47000,"date":"2026-09-11","file":"index.html","kind":"build","lane":"physics","lines":1077,"slug":"drape-rope"},{"bytes":49352,"date":"2026-09-12","file":"index.html","kind":"build","lane":"physics","lines":1144,"slug":"spring-bench"},{"bytes":52253,"date":"2026-09-13","file":"index.html","kind":"build","lane":"physics","lines":1255,"slug":"sway-net"},{"bytes":46220,"date":"2026-09-13","file":"index.html","kind":"build","lane":"game","lines":1142,"slug":"lamplighter"},{"bytes":32562,"date":"2026-09-14","file":"index.html","kind":"build","lane":"game","lines":718,"slug":"slingshot"},{"bytes":33442,"date":"2026-09-15","file":"index.html","kind":"build","lane":"sound","lines":767,"slug":"aeolian"},{"bytes":45367,"date":"2026-09-15","file":"index.html","kind":"build","lane":"physics","lines":1046,"slug":"verlet"},{"bytes":55713,"date":"2026-09-16","file":"index.html","kind":"build","lane":"physics","lines":1339,"slug":"linen"},{"bytes":3850,"date":"2026-09-17","file":"README.md","kind":"build","lane":"physics","lines":72,"slug":"drape-scenes"},{"bytes":49824,"date":"2026-09-17","file":"index.html","kind":"build","lane":"physics","lines":1184,"slug":"drape-scenes"},{"bytes":3202,"date":"2026-09-18","file":"README.md","kind":"build","lane":"physics","lines":55,"slug":"grainsmith"},{"bytes":40209,"date":"2026-09-18","file":"index.html","kind":"build","lane":"physics","lines":1036,"slug":"grainsmith"},{"bytes":35842,"date":"2026-09-19","file":"index.html","kind":"build","lane":"physics","lines":943,"slug":"cloth"},{"bytes":37950,"date":"2026-09-20","file":"index.html","kind":"build","lane":"physics","lines":924,"slug":"ink-tank"},{"bytes":55020,"date":"2026-09-22","file":"index.html","kind":"build","lane":"tool","lines":1297,"slug":"seam"},{"bytes":53281,"date":"2026-09-23","file":"index.html","kind":"build","lane":"algorithm","lines":801,"slug":"mosaic"},{"bytes":15264,"date":"2026-09-15","file":"check_aeolian.js","kind":"checker","lane":"sound","lines":304,"slug":"aeolian"},{"bytes":19863,"date":"2026-08-21","file":"check_bpe.js","kind":"checker","lane":"language","lines":402,"slug":"bpe-forge"},{"bytes":17241,"date":"2026-08-21","file":"check_bpe_ui.js","kind":"checker","lane":"language","lines":317,"slug":"bpe-forge"},{"bytes":22244,"date":"2026-09-19","file":"check_cloth.js","kind":"checker","lane":"physics","lines":455,"slug":"cloth"},{"bytes":21549,"date":"2026-09-19","file":"check_cloth_ui.js","kind":"checker","lane":"physics","lines":462,"slug":"cloth"},{"bytes":31237,"date":"2026-09-01","file":"check_cron.js","kind":"checker","lane":"tool","lines":593,"slug":"cron-almanac"},{"bytes":24099,"date":"2026-09-01","file":"check_cron_ui.js","kind":"checker","lane":"tool","lines":445,"slug":"cron-almanac"},{"bytes":34711,"date":"2026-08-30","file":"check_drape.js","kind":"checker","lane":"physics","lines":662,"slug":"drape"},{"bytes":22463,"date":"2026-09-11","file":"check_drape_rope.js","kind":"checker","lane":"physics","lines":429,"slug":"drape-rope"},{"bytes":18938,"date":"2026-09-11","file":"check_drape_rope_ui.js","kind":"checker","lane":"physics","lines":344,"slug":"drape-rope"},{"bytes":29916,"date":"2026-09-17","file":"check_drape_scenes.js","kind":"checker","lane":"physics","lines":661,"slug":"drape-scenes"},{"bytes":17015,"date":"2026-09-17","file":"check_drape_scenes_ui.js","kind":"checker","lane":"physics","lines":361,"slug":"drape-scenes"},{"bytes":18508,"date":"2026-08-30","file":"check_drape_ui.js","kind":"checker","lane":"physics","lines":363,"slug":"drape"},{"bytes":24947,"date":"2026-09-08","file":"check_driftfield.js","kind":"checker","lane":"generative","lines":483,"slug":"driftfield"},{"bytes":11782,"date":"2026-09-08","file":"check_driftfield_ui.js","kind":"checker","lane":"generative","lines":243,"slug":"driftfield"},{"bytes":26202,"date":"2026-09-03","file":"check_gamut.js","kind":"checker","lane":"tool","lines":459,"slug":"gamut"},{"bytes":20878,"date":"2026-09-06","file":"check_gamut_second_take.js","kind":"checker","lane":"tool","lines":426,"slug":"gamut-second-take"},{"bytes":14352,"date":"2026-09-06","file":"check_gamut_second_take_ui.js","kind":"checker","lane":"tool","lines":261,"slug":"gamut-second-take"},{"bytes":17556,"date":"2026-09-03","file":"check_gamut_ui.js","kind":"checker","lane":"tool","lines":338,"slug":"gamut"},{"bytes":12074,"date":"2026-08-23","file":"check_harmonics.js","kind":"checker","lane":"sound","lines":249,"slug":"harmonics-lab"},{"bytes":22678,"date":"2026-08-23","file":"check_harmonics_ui.js","kind":"checker","lane":"sound","lines":443,"slug":"harmonics-lab"},{"bytes":22311,"date":"2026-09-20","file":"check_ink.js","kind":"checker","lane":"physics","lines":536,"slug":"ink-tank"},{"bytes":14422,"date":"2026-09-20","file":"check_ink_ui.js","kind":"checker","lane":"physics","lines":310,"slug":"ink-tank"},{"bytes":36332,"date":"2026-09-13","file":"check_lamplighter.js","kind":"checker","lane":"game","lines":747,"slug":"lamplighter"},{"bytes":20844,"date":"2026-09-13","file":"check_lamplighter_ui.js","kind":"checker","lane":"game","lines":418,"slug":"lamplighter"},{"bytes":13164,"date":"2026-09-16","file":"check_linen.js","kind":"checker","lane":"physics","lines":288,"slug":"linen"},{"bytes":17456,"date":"2026-09-16","file":"check_linen_ui.js","kind":"checker","lane":"physics","lines":381,"slug":"linen"},{"bytes":20248,"date":"2026-09-23","file":"check_mosaic.js","kind":"checker","lane":"algorithm","lines":371,"slug":"mosaic"},{"bytes":19378,"date":"2026-09-23","file":"check_mosaic_ui.js","kind":"checker","lane":"algorithm","lines":352,"slug":"mosaic"},{"bytes":26315,"date":"2026-09-05","file":"check_petri.js","kind":"checker","lane":"generative","lines":519,"slug":"petri"},{"bytes":26612,"date":"2026-09-05","file":"check_petri_ui.js","kind":"checker","lane":"generative","lines":525,"slug":"petri"},{"bytes":27386,"date":"2026-08-24","file":"check_pluck.js","kind":"checker","lane":"sound","lines":587,"slug":"pluck"},{"bytes":14166,"date":"2026-08-24","file":"check_pluck_ui.js","kind":"checker","lane":"sound","lines":300,"slug":"pluck"},{"bytes":41133,"date":"2026-08-25","file":"check_reaction.js","kind":"checker","lane":"generative","lines":816,"slug":"reaction"},{"bytes":18688,"date":"2026-08-25","file":"check_reaction_ui.js","kind":"checker","lane":"generative","lines":376,"slug":"reaction"},{"bytes":30274,"date":"2026-09-18","file":"check_sand.js","kind":"checker","lane":"physics","lines":614,"slug":"grainsmith"},{"bytes":19631,"date":"2026-09-18","file":"check_sand_ui.js","kind":"checker","lane":"physics","lines":414,"slug":"grainsmith"},{"bytes":22385,"date":"2026-09-22","file":"check_seam.js","kind":"checker","lane":"tool","lines":416,"slug":"seam"},{"bytes":16338,"date":"2026-09-22","file":"check_seam_ui.js","kind":"checker","lane":"tool","lines":318,"slug":"seam"},{"bytes":23527,"date":"2026-08-29","file":"check_sift.js","kind":"checker","lane":"tool","lines":483,"slug":"sift"},{"bytes":17100,"date":"2026-08-29","file":"check_sift_ui.js","kind":"checker","lane":"tool","lines":351,"slug":"sift"},{"bytes":19367,"date":"2026-09-14","file":"check_slingshot.js","kind":"checker","lane":"game","lines":386,"slug":"slingshot"},{"bytes":16908,"date":"2026-09-14","file":"check_slingshot_ui.js","kind":"checker","lane":"game","lines":322,"slug":"slingshot"},{"bytes":24711,"date":"2026-09-12","file":"check_spring.js","kind":"checker","lane":"physics","lines":475,"slug":"spring-bench"},{"bytes":15937,"date":"2026-09-12","file":"check_spring_ui.js","kind":"checker","lane":"physics","lines":323,"slug":"spring-bench"},{"bytes":19464,"date":"2026-08-31","file":"check_sway.js","kind":"checker","lane":"generative","lines":368,"slug":"sway"},{"bytes":18117,"date":"2026-09-13","file":"check_sway_net.js","kind":"checker","lane":"physics","lines":342,"slug":"sway-net"},{"bytes":20694,"date":"2026-09-13","file":"check_sway_net_ui.js","kind":"checker","lane":"physics","lines":404,"slug":"sway-net"},{"bytes":15614,"date":"2026-08-31","file":"check_sway_ui.js","kind":"checker","lane":"generative","lines":314,"slug":"sway"},{"bytes":13253,"date":"2026-09-10","file":"check_swept.js","kind":"checker","lane":"tool","lines":275,"slug":"swept"},{"bytes":16439,"date":"2026-09-10","file":"check_swept_ui.js","kind":"checker","lane":"tool","lines":305,"slug":"swept"},{"bytes":27002,"date":"2026-09-04","file":"check_taut.js","kind":"checker","lane":"physics","lines":520,"slug":"taut"},{"bytes":25836,"date":"2026-09-04","file":"check_taut_ui.js","kind":"checker","lane":"physics","lines":529,"slug":"taut"},{"bytes":16802,"date":"2026-09-07","file":"check_turing.js","kind":"checker","lane":"generative","lines":352,"slug":"turing-pool"},{"bytes":14360,"date":"2026-09-07","file":"check_turing_ui.js","kind":"checker","lane":"generative","lines":290,"slug":"turing-pool"},{"bytes":14270,"date":"2026-08-20","file":"check_ui.js","kind":"checker","lane":"algorithm","lines":287,"slug":"wave-function-collapse"},{"bytes":28884,"date":"2026-09-15","file":"check_verlet.js","kind":"checker","lane":"physics","lines":521,"slug":"verlet"},{"bytes":22748,"date":"2026-09-15","file":"check_verlet_ui.js","kind":"checker","lane":"physics","lines":426,"slug":"verlet"},{"bytes":17458,"date":"2026-08-20","file":"check_wfc.js","kind":"checker","lane":"algorithm","lines":404,"slug":"wave-function-collapse"},{"bytes":17106,"date":"2026-09-02","file":"check_xpbd.js","kind":"checker","lane":"physics","lines":332,"slug":"xpbd-lab"},{"bytes":22530,"date":"2026-09-09","file":"check_xpbd_cloth.js","kind":"checker","lane":"physics","lines":386,"slug":"xpbd-cloth"},{"bytes":22668,"date":"2026-09-09","file":"check_xpbd_cloth_ui.js","kind":"checker","lane":"physics","lines":452,"slug":"xpbd-cloth"},{"bytes":19917,"date":"2026-09-02","file":"check_xpbd_ui.js","kind":"checker","lane":"physics","lines":373,"slug":"xpbd-lab"}],"source":"projects/playground","warnings":[]};
+
+/* ------------------------------------------------------- layout algorithms --
+ * All three take (items, rect) where each item has a positive .value, and
+ * return one rect per item. They differ only in how they decide where a row
+ * stops. Nothing here is library code; the point of the build was writing them.
+ */
+
+const sum = a => a.reduce((s, x) => s + x, 0);
+const FLAGS = { breakShortSide: false, breakScale: false };
+
+/* The whole of the squarified algorithm lives in this function. Given the areas
+ * already in a row and the length of the side they are laid along, what is the
+ * worst aspect ratio in that row? Rows grow while this number falls. */
+function worst(areas, side) {
+  const s = sum(areas);
+  if (s <= 0) return Infinity;
+  const mx = Math.max.apply(null, areas), mn = Math.min.apply(null, areas);
+  if (mn <= 0) return Infinity;
+  return Math.max((side * side * mx) / (s * s), (s * s) / (side * side * mn));
+}
+
+function sliceAndDice(items, rect, horizontal) {
+  const total = sum(items.map(i => i.value));
+  const out = [];
+  let at = horizontal ? rect.x : rect.y;
+  for (const it of items) {
+    const frac = total > 0 ? it.value / total : 0;
+    if (horizontal) {
+      const w = rect.w * frac;
+      out.push({ item: it, x: at, y: rect.y, w, h: rect.h });
+      at += w;
+    } else {
+      const h = rect.h * frac;
+      out.push({ item: it, x: rect.x, y: at, w: rect.w, h });
+      at += h;
+    }
+  }
+  return out;
+}
+
+/* Strip: order preserving rows of full width. A row grows while its MEAN aspect
+ * ratio improves, which is the published rule and is measurably weaker than
+ * squarified's worst-case one. */
+function stripLayout(items, rect) {
+  const total = sum(items.map(i => i.value));
+  if (total <= 0) return items.map(it => ({ item: it, x: rect.x, y: rect.y, w: 0, h: 0 }));
+  const scale = (rect.w * rect.h) / total;
+  const meanAspect = row => {
+    const area = sum(row.map(i => i.value)) * scale;
+    const h = area / rect.w;
+    if (h <= 0) return Infinity;
+    return sum(row.map(i => {
+      const w = (i.value * scale) / h;
+      return w > 0 ? Math.max(w / h, h / w) : Infinity;
+    })) / row.length;
+  };
+  const out = [];
+  let y = rect.y, i = 0;
+  while (i < items.length) {
+    const row = [items[i]];
+    let j = i + 1;
+    while (j < items.length && meanAspect(row.concat([items[j]])) <= meanAspect(row)) {
+      row.push(items[j]); j++;
+    }
+    const h = (sum(row.map(r => r.value)) * scale) / rect.w;
+    let x = rect.x;
+    for (const it of row) {
+      const w = (it.value * scale) / h;
+      out.push({ item: it, x, y, w, h });
+      x += w;
+    }
+    y += h; i = j;
+  }
+  return out;
+}
+
+/* Squarified (Bruls, Huizing and van Wijk). Sorts descending, then eats the
+ * free rectangle one row at a time along whichever side is currently shorter.
+ *
+ * The two lines that matter are marked. Both were wrong in the first draft and
+ * both are only visibly wrong on lopsided data. */
+function squarified(items, rect) {
+  const sorted = items.slice().sort((a, b) =>
+    b.value - a.value || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  // Deliberate breakages, off by default, flipped only by the negative controls
+  // in _verify/check_mosaic.js. Both are the first-draft bugs described at the
+  // top of this file, kept live so the checker can prove it can see them.
+  const brokenSide = FLAGS.breakShortSide ? Math.min(rect.w, rect.h) : null;
+  const brokenScale = FLAGS.breakScale
+    ? (rect.w * rect.h) / sum(sorted.map(i => i.value)) : null;
+  const out = [];
+  let free = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+  let remaining = sum(sorted.map(i => i.value));
+  let i = 0;
+  let guard = 0;
+  while (i < sorted.length && guard++ < 10000) {
+    if (remaining <= 0 || free.w <= 0 || free.h <= 0) {
+      for (; i < sorted.length; i++) out.push({ item: sorted[i], x: free.x, y: free.y, w: 0, h: 0 });
+      break;
+    }
+    const scale = brokenScale !== null ? brokenScale
+      : (free.w * free.h) / remaining;             // (1) recomputed per row
+    const side = brokenSide !== null ? brokenSide
+      : Math.min(free.w, free.h);                  // (2) the SHORT side of what is LEFT
+    const row = [sorted[i]];
+    let j = i + 1;
+    while (j < sorted.length) {
+      const cur = worst(row.map(r => r.value * scale), side);
+      const nxt = worst(row.concat([sorted[j]]).map(r => r.value * scale), side);
+      if (nxt > cur) break;
+      row.push(sorted[j]); j++;
+    }
+    const rowValue = sum(row.map(r => r.value));
+    const rowArea = rowValue * scale;
+    if (free.w >= free.h) {
+      const stripW = rowArea / free.h;
+      let y = free.y;
+      for (const it of row) {
+        const h = (it.value * scale) / stripW;
+        out.push({ item: it, x: free.x, y, w: stripW, h });
+        y += h;
+      }
+      free = { x: free.x + stripW, y: free.y, w: free.w - stripW, h: free.h };
+    } else {
+      const stripH = rowArea / free.w;
+      let x = free.x;
+      for (const it of row) {
+        const w = (it.value * scale) / stripH;
+        out.push({ item: it, x, y: free.y, w, h: stripH });
+        x += w;
+      }
+      free = { x: free.x, y: free.y + stripH, w: free.w, h: free.h - stripH };
+    }
+    remaining -= rowValue;
+    i = j;
+  }
+  return out;
+}
+
+const ALGOS = {
+  slice: { name: "Slice and dice", order: "input order kept",
+    blurb: "Proportional cuts, axis flipped at each level. Perfect order, unreadable tiles.",
+    run: (items, rect, depth) => sliceAndDice(items, rect, depth % 2 === 0) },
+  strip: { name: "Strip", order: "input order kept",
+    blurb: "Full width rows that grow while the row's mean aspect ratio improves.",
+    run: (items, rect) => stripLayout(items, rect) },
+  squarified: { name: "Squarified", order: "sorted by size",
+    blurb: "Rows along the short side of what is left, closed the moment worst() gets worse.",
+    run: (items, rect) => squarified(items, rect) },
+};
+
+/* --------------------------------------------------------------- the tree -- */
+
+const LANE_HUE = { physics: 205, generative: 282, tool: 40, sound: 162, game: 348,
+                   algorithm: 96, language: 22, other: 0 };
+const MONTHS = { "08": "August 2026", "09": "September 2026" };
+
+function buildTree(state) {
+  const leaves = DATA.leaves.filter(l => state.kind === "all" || l.kind === "build");
+  const groups = new Map();
+  for (const l of leaves) {
+    const gkey = state.group === "lane" ? l.lane : l.date.slice(0, 7);
+    if (!groups.has(gkey)) groups.set(gkey, new Map());
+    const byBuild = groups.get(gkey);
+    if (!byBuild.has(l.slug)) byBuild.set(l.slug, []);
+    byBuild.get(l.slug).push(l);
+  }
+  const val = l => Math.max(1, l[state.metric]);
+  const nodes = [];
+  for (const [gkey, byBuild] of groups) {
+    const children = [];
+    for (const [slug, files] of byBuild) {
+      children.push({
+        key: slug, label: slug, date: files[0].date, lane: files[0].lane,
+        children: files
+          .slice()
+          .sort((a, b) => (a.kind === b.kind ? (a.file < b.file ? -1 : 1) : a.kind === "build" ? -1 : 1))
+          .map(f => ({ key: slug + "/" + f.file, leaf: f, value: val(f) })),
+        value: sum(files.map(val)),
+      });
+    }
+    children.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.key < b.key ? -1 : 1));
+    nodes.push({
+      key: gkey,
+      label: state.group === "lane" ? (DATA.laneLabels[gkey] || gkey) : (MONTHS[gkey.slice(5)] || gkey),
+      lane: state.group === "lane" ? gkey : null,
+      children, value: sum(children.map(c => c.value)),
+    });
+  }
+  // groups in a stable, meaningful order: chronological for months, first-build
+  // date for lanes, so the order-preserving layouts read as time.
+  const firstDate = n => n.children.map(c => c.date).sort()[0];
+  nodes.sort((a, b) => (firstDate(a) < firstDate(b) ? -1 : firstDate(a) > firstDate(b) ? 1 : 0));
+  return { key: "root", children: nodes, value: sum(nodes.map(n => n.value)) };
+}
+
+/* Recursive layout: every level uses the same algorithm inside the rectangle
+ * its parent gave it. PAD is the nesting inset; LABEL is the band a group
+ * label sits in when there is room for one. */
+const PAD = 2, LABEL = 11;
+
+function layoutTree(algoKey, root, rect) {
+  const algo = ALGOS[algoKey];
+  const tiles = [], frames = [];
+  const walk = (node, r, depth) => {
+    if (!node.children) { tiles.push({ node, rect: r }); return; }
+    const placed = algo.run(node.children.map(c => ({ value: c.value, key: c.key, ref: c })), r, depth);
+    for (const p of placed) {
+      const child = p.item.ref;
+      let inner = { x: p.x, y: p.y, w: p.w, h: p.h };
+      if (child.children) {
+        frames.push({ node: child, rect: { x: p.x, y: p.y, w: p.w, h: p.h }, depth });
+        const band = depth === 0 && p.h > LABEL + 8 ? LABEL : 0;
+        inner = {
+          x: p.x + PAD, y: p.y + PAD + band,
+          w: Math.max(0, p.w - PAD * 2), h: Math.max(0, p.h - PAD * 2 - band),
+        };
+      }
+      walk(child, inner, depth + 1);
+    }
+  };
+  walk(root, rect, 0);
+  return { tiles, frames };
+}
+
+/* ----------------------------------------------------------- measurements -- */
+
+function aspect(r) {
+  if (r.w <= 0 || r.h <= 0) return Infinity;
+  return Math.max(r.w / r.h, r.h / r.w);
+}
+
+function quantile(sortedArr, q) {
+  if (!sortedArr.length) return NaN;
+  const pos = (sortedArr.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sortedArr[lo] + (sortedArr[hi] - sortedArr[lo]) * (pos - lo);
+}
+
+function statsFor(tiles) {
+  const finite = tiles.map(t => aspect(t.rect)).filter(a => isFinite(a));
+  const degenerate = tiles.length - finite.length;
+  const s = finite.slice().sort((a, b) => a - b);
+  return {
+    n: tiles.length, measured: finite.length, degenerate,
+    median: quantile(s, 0.5), p90: quantile(s, 0.9),
+    max: s.length ? s[s.length - 1] : NaN,
+    worseThan4: finite.filter(a => a > 4).length,
+    values: s,
+  };
+}
+
+/* Area conservation, the thing that must be exact rather than good. Returns the
+ * worst relative error between a tile's share of the drawn area and its share
+ * of the data. Measured on a FLAT layout with no nesting inset, because the
+ * inset deliberately throws area away and would mask a real bug. */
+function areaError(algoKey, items, rect) {
+  const placed = ALGOS[algoKey].run(items.map(i => ({ value: i.value, key: i.key })), rect, 0);
+  const totalValue = sum(items.map(i => i.value));
+  const totalArea = rect.w * rect.h;
+  let worstErr = 0;
+  for (const p of placed) {
+    const want = (p.item.value / totalValue) * totalArea;
+    const got = p.w * p.h;
+    worstErr = Math.max(worstErr, Math.abs(got - want) / Math.max(want, 1e-12));
+  }
+  return worstErr;
+}
+
+/* -------------------------------------------------------------- rendering -- */
+
+const state = { metric: "lines", group: "lane", kind: "all", labels: "on" };
+const panelsEl = document.getElementById("panels");
+const tipEl = document.getElementById("tip");
+const rendered = {};
+
+function colourFor(node, leaf, buildIndex) {
+  const lane = leaf ? leaf.lane : node.lane || "other";
+  const hue = LANE_HUE[lane] === undefined ? 0 : LANE_HUE[lane];
+  const l = 34 + ((buildIndex * 7) % 22);
+  if (leaf && leaf.kind === "checker") return `hsl(${hue} 22% ${l - 8}%)`;
+  return `hsl(${hue} 58% ${l}%)`;
+}
+
+function makePanels() {
+  panelsEl.innerHTML = "";
+  for (const key of ["slice", "strip", "squarified"]) {
+    const a = ALGOS[key];
+    const sec = document.createElement("section");
+    sec.className = "panel";
+    sec.dataset.algo = key;
+    sec.innerHTML =
+      `<h2>${a.name}</h2><p class="blurb">${a.blurb}</p>` +
+      `<div class="stage" id="stage-${key}"></div>` +
+      `<div class="stats" id="stats-${key}"></div>` +
+      `<canvas class="hist" id="hist-${key}"></canvas>`;
+    panelsEl.appendChild(sec);
+  }
+}
+
+function drawHistogram(cv, values) {
+  const edges = [1, 1.5, 2, 3, 4, 6, 10, Infinity];
+  const labels = ["1", "1.5", "2", "3", "4", "6", "10+"];
+  const bins = new Array(edges.length - 1).fill(0);
+  for (const v of values) {
+    for (let i = 0; i < bins.length; i++) {
+      if (v >= edges[i] && v < edges[i + 1]) { bins[i]++; break; }
+    }
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 300, h = 46;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const mx = Math.max.apply(null, bins) || 1;
+  const bw = w / bins.length;
+  for (let i = 0; i < bins.length; i++) {
+    const bh = (bins[i] / mx) * (h - 13);
+    g.fillStyle = i < 3 ? "#38bdf8" : i < 5 ? "#fbbf24" : "#fb7185";
+    g.fillRect(i * bw + 1, h - 12 - bh, bw - 2, bh);
+    g.fillStyle = "#6b8199";
+    g.font = "9px ui-sans-serif,system-ui,sans-serif";
+    g.fillText(labels[i], i * bw + 2, h - 2);
+  }
+  return bins;
+}
+
+/* Whichever panels are actually in the document. Preview mode removes two of them, and looping
+ * over a hard coded list of three threw on the missing stage and killed the page before anything
+ * rendered, so every preview card was blank. Found by check_mosaic_ui.js, 2026-09-23. */
+function activeAlgos() {
+  return [...panelsEl.querySelectorAll(".panel")].map(p => p.dataset.algo);
+}
+
+function render() {
+  const tree = buildTree(state);
+  const buildIndex = new Map();
+  let bi = 0;
+  for (const g of tree.children) for (const b of g.children) buildIndex.set(b.key, bi++);
+
+  for (const key of activeAlgos()) {
+    const stage = document.getElementById("stage-" + key);
+    const rect = { x: 0, y: 0, w: stage.clientWidth, h: stage.clientHeight };
+    const { tiles, frames } = layoutTree(key, tree, rect);
+    const st = statsFor(tiles);
+    rendered[key] = { tiles, frames, stats: st, rect };
+
+    const html = [];
+    for (const f of frames) {
+      if (f.depth !== 0) continue;
+      html.push(`<div class="grp" style="left:${f.rect.x}px;top:${f.rect.y}px;` +
+        `width:${Math.max(0, f.rect.w)}px;height:${Math.max(0, f.rect.h)}px"></div>`);
+    }
+    for (const t of tiles) {
+      const r = t.rect, leaf = t.node.leaf;
+      if (r.w <= 0 || r.h <= 0) continue;
+      const bg = colourFor(t.node, leaf, buildIndex.get(leaf.slug + "") || 0);
+      const showLabel = state.labels === "on" && r.w > 34 && r.h > 11;
+      const label = showLabel ? (leaf.kind === "build" ? leaf.slug : leaf.file.replace(/^check_|\.js$/g, "")) : "";
+      html.push(`<div class="tile" data-i="${leaf.slug}/${leaf.file}" ` +
+        `style="left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:${bg}">${label}</div>`);
+    }
+    if (state.labels === "on") {
+      for (const f of frames) {
+        if (f.depth !== 0 || f.rect.h < LABEL + 8 || f.rect.w < 40) continue;
+        html.push(`<div class="glabel" style="left:${f.rect.x + 3}px;top:${f.rect.y + 1}px;` +
+          `max-width:${f.rect.w - 6}px">${f.node.label}</div>`);
+      }
+    }
+    stage.innerHTML = html.join("");
+
+    const statsEl = document.getElementById("stats-" + key);
+    const fmt = v => (isFinite(v) ? v.toFixed(2) : "n/a");
+    statsEl.innerHTML =
+      `<span>median <b>${fmt(st.median)}</b></span>` +
+      `<span>90th <b>${fmt(st.p90)}</b></span>` +
+      `<span>worst <b>${fmt(st.max)}</b></span>` +
+      `<span>over 4:1 <b>${st.worseThan4}</b> of ${st.measured}</span>` +
+      `<span style="color:#5d7186">${ALGOS[key].order}</span>`;
+    drawHistogram(document.getElementById("hist-" + key), st.values);
+  }
+
+  renderLegend(tree);
+  renderRailNote();
+  renderProseNumbers();
+}
+
+/* Every count that appears in the page's prose, computed from what was just drawn. Typing these
+ * by hand is how a page ends up confidently describing a folder it no longer matches: the first
+ * draft said "102 files" and was wrong within the hour. */
+function renderProseNumbers() {
+  const put = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  const leaves = DATA.leaves;
+  const builds = new Set(leaves.map(l => l.slug));
+  put("n-files", String(leaves.length));
+  put("n-builds", String(builds.size));
+  put("n-checkers", String(leaves.filter(l => l.kind === "checker").length));
+
+  const sq = rendered.squarified;
+  if (sq) put("n-worst", sq.stats.max.toFixed(1) + ":1");
+  for (const key of Object.keys(rendered)) {
+    const sub = rendered[key].tiles.filter(t => t.rect.w < 1 || t.rect.h < 1).length;
+    put("n-sub-" + key, sub === 0 ? "no" : String(sub));
+  }
+  // the same algorithm over one flat rectangle, no nesting, for the contrast the prose draws
+  if (sq) {
+    const flat = leaves.map(l => ({ value: Math.max(1, l[state.metric]), key: l.slug + "/" + l.file }));
+    const placed = squarified(flat, sq.rect);
+    const worst = Math.max.apply(null, placed.map(p => aspect({ w: p.w, h: p.h })).filter(isFinite));
+    put("n-flat", worst.toFixed(1) + ":1");
+  }
+}
+
+function renderLegend(tree) {
+  const el = document.getElementById("legend");
+  if (state.group === "lane") {
+    const rows = tree.children.map(g => {
+      const builds = g.children.length;
+      const pct = ((g.value / tree.value) * 100).toFixed(0);
+      return `<span><i style="background:hsl(${LANE_HUE[g.lane]} 58% 44%)"></i>` +
+        `${g.label} &mdash; ${builds} build${builds === 1 ? "" : "s"}, ${pct}% of the ${state.metric}</span>`;
+    });
+    el.innerHTML = rows.join("");
+  } else {
+    el.innerHTML = tree.children.map(g =>
+      `<span>${g.label} &mdash; ${g.children.length} builds, ` +
+      `${((g.value / tree.value) * 100).toFixed(0)}% of the ${state.metric}</span>`).join("");
+  }
+}
+
+function renderRailNote() {
+  const builds = new Map();
+  for (const l of DATA.leaves) if (l.kind === "build") builds.set(l.slug, l.lane);
+  const counts = {};
+  for (const lane of builds.values()) counts[lane] = (counts[lane] || 0) + 1;
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const [topLane, topN] = ranked[0];
+  const total = builds.size;
+  const lineTotal = sum(DATA.leaves.filter(l => l.kind === "build").map(l => l.lines));
+  const topLines = sum(DATA.leaves.filter(l => l.kind === "build" && l.lane === topLane).map(l => l.lines));
+  document.getElementById("railnote").innerHTML =
+    `${total} builds, and <b>${topN}</b> of them are ${DATA.laneLabels[topLane]}: ` +
+    `${((topN / total) * 100).toFixed(0)}% of the nights and ` +
+    `${((topLines / lineTotal) * 100).toFixed(0)}% of the lines written. ` +
+    `The next lane down has ${ranked[1][1]}. Grouped by month the picture is worse than the ` +
+    `count suggests, because that lane is not spread evenly: it is almost all of September. ` +
+    `Nobody chose that. Each night picked something interesting and the drift was invisible ` +
+    `from inside any single one of them, which is the whole argument for looking at the shape ` +
+    `of a body of work rather than at its most recent member.`;
+}
+
+/* ------------------------------------------------------------ interaction -- */
+
+const byId = {};
+for (const l of DATA.leaves) byId[l.slug + "/" + l.file] = l;
+
+function showTip(ev, tileEl) {
+  const leaf = byId[tileEl.dataset.i];
+  if (!leaf) return;
+  const r = tileEl.getBoundingClientRect();
+  const a = Math.max(r.width / r.height, r.height / r.width);
+  tipEl.innerHTML =
+    `<b>${leaf.file}</b><br><span class="m">${leaf.slug} &middot; ${leaf.date} &middot; ` +
+    `${DATA.laneLabels[leaf.lane] || leaf.lane}</span><br>` +
+    `${leaf.lines.toLocaleString()} lines &middot; ${(leaf.bytes / 1024).toFixed(1)} KB ` +
+    `&middot; ${leaf.kind}<br><span class="m">this tile is ${a.toFixed(2)}:1</span>`;
+  tipEl.style.display = "block";
+  const x = Math.min(ev.clientX + 14, window.innerWidth - 292);
+  const y = Math.min(ev.clientY + 14, window.innerHeight - 90);
+  tipEl.style.left = x + "px";
+  tipEl.style.top = y + "px";
+}
+
+document.addEventListener("mousemove", ev => {
+  const t = ev.target.closest && ev.target.closest(".tile");
+  document.querySelectorAll(".tile.hot").forEach(e => e.classList.remove("hot"));
+  if (!t) { tipEl.style.display = "none"; return; }
+  const id = t.dataset.i;
+  document.querySelectorAll('.tile[data-i="' + CSS.escape(id) + '"]').forEach(e => e.classList.add("hot"));
+  showTip(ev, t);
+});
+
+function wireSeg(id, prop) {
+  const el = document.getElementById(id);
+  el.addEventListener("click", ev => {
+    const b = ev.target.closest("button");
+    if (!b) return;
+    state[prop] = b.dataset.v;
+    for (const btn of el.querySelectorAll("button")) btn.setAttribute("aria-pressed", String(btn === b));
+    render();
+  });
+}
+
+/* ------------------------------------------------------------------ boot -- */
+
+const params = new URLSearchParams(location.search);
+if (params.has("preview")) {
+  document.body.classList.add("preview");
+  if (params.get("group")) state.group = params.get("group");
+}
+
+makePanels();
+if (document.body.classList.contains("preview")) {
+  for (const sec of panelsEl.querySelectorAll(".panel")) {
+    if (sec.dataset.algo !== "squarified") sec.remove();
+  }
+}
+wireSeg("seg-metric", "metric");
+wireSeg("seg-group", "group");
+wireSeg("seg-kind", "kind");
+wireSeg("seg-labels", "labels");
+render();
+
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(render, 120);
+});
+
+/* Everything a checker needs, reached through the shipped code rather than a
+ * copy of it. `flags` exists so negative controls can break the real thing and
+ * confirm the assertions go red. */
+window.__mosaic = {
+  DATA, ALGOS, worst, sliceAndDice, stripLayout, squarified,
+  buildTree, layoutTree, statsFor, aspect, areaError, quantile, sum,
+  state, rendered, render,
+  flags: FLAGS,
+};
+</script>
+</body>
+</html>
