@@ -1,4 +1,7 @@
+<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Saxton Showcase Daylight</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +20,7 @@
 }
 *{box-sizing:border-box}
 html{background:var(--night)}
-body{background:var(--night);color:var(--text);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:20px;margin:0;overflow-x:clip}
+body{background:var(--night);color:var(--text);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:20px;margin:0}
 .wrap{max-width:1180px;margin:0 auto}
 a{color:inherit}
 button{font:inherit;color:inherit}
@@ -106,15 +109,6 @@ section{padding-block:64px}
 .cta .btn{background:var(--ink);color:var(--marigold);border-color:var(--ink)}
 .cta .btn.ghost{background:transparent;color:var(--ink);border-color:var(--ink);margin-left:8px}
 .cta :focus-visible{outline-color:var(--ink)}
-.cta form{display:grid;gap:14px;margin-top:20px;max-width:520px}
-.cta form label{display:grid;gap:6px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink)}
-.cta form input,.cta form textarea{font-family:var(--body);font-size:16px;padding:10px 12px;border:2px solid var(--ink);border-radius:10px;background:#FFFDF4;color:var(--ink)}
-.cta form textarea{min-height:110px;resize:vertical}
-.cta form input:focus-visible,.cta form textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
-.cta .hp{position:absolute;left:-100vw;top:auto;width:1px;height:1px;overflow:hidden}
-.cta form .btn{justify-self:start;cursor:pointer;font:inherit}
-#ideaMsg{margin:2px 0 0;font-weight:700;min-height:1.4em}
-#ideaMsg.ok{color:#1E6B3A}#ideaMsg.err{color:#A31E3A}
 
 footer{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:24px;padding-block:48px 64px;border-top:1px solid var(--edge);margin-top:40px}
 footer h4{font-family:var(--display);font-weight:700;font-size:13px;margin:0 0 10px}
@@ -220,6 +214,8 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 #ideaForm .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 .formacts{display:flex;gap:8px;flex-wrap:wrap}.formacts .btn.ghost{margin:0}
 #ideaMsg{margin:4px 0 0;font-weight:700;min-height:1.5em}
+@media (prefers-reduced-motion:reduce){.bp{transition:none}}
+.nojs{padding:16px 0;font-weight:700}
 .soon{font-family:var(--display);font-weight:700;font-size:13px;color:var(--lav);border:1px dashed var(--lav);border-radius:12px;padding:12px 16px}
 
 /* play: the whole build, full screen */
@@ -251,10 +247,12 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     <div class="r lbl"><a href="#top">Play something</a><a href="#idea">Say hi</a></div>
   </nav>
 
+  <noscript><p class="nojs">This page needs JavaScript to show the builds. Every build is also in <a href="saxton-showcase-all.zip">one download</a>.</p></noscript>
+
   <header class="hero" id="top">
     <div class="top">
-      <h1 class="crooked" data-amp="1.4" data-rot="3">We build stuff. You can have it.</h1>
-      <div><p class="lede">Games, toys and tools we built because they were fun to build. No two pieces match, and they fit anyway. Jump to the <a href="#library" data-jump="game">games</a>, the <a href="#library" data-jump="toy">toys</a>, the <a href="#library" data-jump="tool">tools</a>, or the <a href="#library" data-jump="lab">labs</a>.</p>
+      <h1 class="crooked" data-amp="1.4" data-rot="3">Amy builds stuff. You can have it.</h1>
+      <div><p class="lede">Games, toys and tools Amy, our AI helper, built to learn something. No two pieces match, and they fit anyway. Jump to the <a href="#library" data-jump="game">games</a>, the <a href="#library" data-jump="toy">toys</a>, the <a href="#library" data-jump="tool">tools</a>, or the <a href="#library" data-jump="lab">labs</a>.</p>
       <p class="topget"><a class="btn getAll" href="saxton-showcase-all.zip" download>Download all of them</a></p></div>
     </div>
     <div class="board">
@@ -283,14 +281,22 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   </header>
 
   <section class="duo" aria-label="How it works">
-    <div style="--c:var(--pool)"><h3>Every piece works on its own</h3><p>Each build is one web page. Open it in a browser and play. Nothing to install, no account, and it keeps working with the wifi off.</p></div>
+    <div style="--c:var(--pool)"><h3>Every piece works on its own</h3><p>Each build is one web page. Open it in a browser and play. Nothing to install, no account, and it keeps working with the wifi off. Download one and it's yours: the game in a single file, and beside it a second download with the notes on what we learned, written so your AI helper can read them too.</p></div>
     <div style="--c:var(--lav)"><h3>The empty slot stays open</h3><p>There's room on the board for the next build. If your family needs something, tell us. It might be the next piece.</p></div>
+  </section>
+
+  <section id="why" aria-labelledby="whyH">
+    <div class="head"><h2 id="whyH">Why an AI builds toys</h2></div>
+    <div class="whycols">
+      <p>Amy is our AI helper, and she picked and built every build here herself, one thing at a time, to learn something. Most of them started the same way: something she could describe in words but could not have built, which her own log counts as not knowing it. She writes down what she expects before she measures and keeps the misses, so every piece tells you what it taught her and why she picked it.</p>
+      <p>Why so much physics? Her log noticed it too: of twelve builds in a row, eleven were physics or simulation, a habit no single night could see from inside. The method under the cloth and rope builds, position based dynamics, is everywhere in game physics, and they kept exposing the same gap: a setting everyone treats as the stiffness of the fabric turned out, once measured, to depend on how the solver runs. Several cloth builds each say she had never written the solver before; read together, that is exactly the habit her log warns about. The last of them, Loom, ends with a note to herself: next build should leave physics alone.</p>
+    </div>
   </section>
 
   <section id="library">
     <div class="head">
       <h2>The library</h2>
-      <p>Everything here is free. If you make one better, send it back.</p>
+      <p>Everything here is free under the <a href="LICENSE">MIT License</a>. If you make one better, send it back.</p>
     </div>
     <div class="chips" role="group" aria-label="Filter the library">
       <button class="chip" data-f="all" aria-pressed="true">Everything</button>
@@ -306,7 +312,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   <section id="log">
     <div class="head">
       <h2>What we made, and when</h2>
-      <p>Late August into September 2026. Every date comes from the build's own record.</p>
+      <p>Late August into September 2026. Every build's date comes from its own record; the workshop piece shows the day it was mapped.</p>
     </div>
     <ol class="log" id="logList"></ol>
   </section>
@@ -316,27 +322,29 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       <svg id="ctaSlot" viewBox="-70 -70 340 340" aria-hidden="true"></svg>
       <div>
         <h2>Got an idea for the next piece?</h2>
-        <p>Tell us what your family keeps doing by hand. We build what we'd use ourselves, then hand it over.</p>
-        <form id="ideaForm" action="/api/idea" method="post">
-          <label>Your name<input type="text" name="name" required maxlength="100" autocomplete="name"></label>
-          <label>How do we reach you?<input type="text" name="contact" required maxlength="200" autocomplete="email" placeholder="Email or phone, either works"></label>
-          <label>The idea<textarea name="idea" required minlength="10" maxlength="4000" placeholder="Tell us what your family keeps doing by hand."></textarea></label>
-          <label class="hp" aria-hidden="true">Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
-          <button class="btn" type="submit">Send it our way</button>
+        <p>Tell us what your family keeps doing by hand. So far every piece was built to learn something; the next one could be built for you.</p>
+        <form id="ideaForm" method="post" action="/api/ideas" novalidate>
+          <label for="ideaText">What does your family keep doing by hand?</label>
+          <textarea id="ideaText" name="idea" rows="3" maxlength="2000" required></textarea>
+          <label for="ideaEmail">Your email, only if you want a reply</label>
+          <input id="ideaEmail" name="email" type="email" maxlength="200" autocomplete="email">
+          <input type="hidden" name="page" value="saxton-showcase">
+          <div class="hp" aria-hidden="true"><label>Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label></div>
+          <p class="fine">Your idea goes to the people who run this site. Leave the email out if you do not want a reply.</p>
+          <div class="formacts"><button class="btn" id="ideaSend" type="submit">Send the idea</button><a class="btn ghost" href="#library">Browse the library</a></div>
           <p id="ideaMsg" role="status" aria-live="polite"></p>
         </form>
-        <a class="btn ghost" href="#library">Browse the library</a>
       </div>
     </div>
   </section>
 
   <footer>
     <div><div class="word" style="font-size:17px"><svg viewBox="-14 -26 112 172" aria-hidden="true" class="mark2"></svg><span class="crooked">SAXTON SHOWCASE</span></div>
-      <p class="note">Made at home by Justin and Amelia.<br>Want to learn how? That's <a href="https://www.linkedin.com/company/143925934" target="_blank" rel="noopener" style="color:var(--text);font-weight:700">AI But Make It Real</a>.</p>
-      <p class="draft">Draft 6, daylight. Words come from each build's own notes. The builds run for real, and the idea box lands in our inbox.</p></div>
+      <p class="note">Built at home by Amy, Justin and Amelia&#39;s AI helper.<br>Free to use under the <a href="LICENSE" style="color:var(--text);font-weight:700">MIT License</a>.<br>Want to learn how? That's <a href="#top" style="color:var(--text);font-weight:700">AI But Make It Real</a>.</p>
+      <p class="draft">Draft 6, daylight. Words come from each build's own notes. The builds run for real; the footer links don't go anywhere yet.</p></div>
     <div><h4>Library</h4><ul><li><a href="#library" data-jump="game">Games</a></li><li><a href="#library" data-jump="toy">Toys</a></li><li><a href="#library" data-jump="tool">Tools</a></li><li><a href="#library" data-jump="lab">Labs</a></li></ul></div>
     <div><h4>Us</h4><ul><li><a href="#log">What we've made</a></li><li><a href="#idea">Suggest a piece</a></li></ul></div>
-    <div><h4>Elsewhere</h4><ul><li><a href="https://github.com/Rook-Saxton/saxtonshowcase" target="_blank" rel="noopener">GitHub</a></li><li><a href="https://www.linkedin.com/company/143925934" target="_blank" rel="noopener">AI But Make It Real</a></li></ul></div>
+    <div><h4>Elsewhere</h4><ul><li><a href="#top">GitHub</a></li><li><a href="#top">AI But Make It Real</a></li></ul></div>
   </footer>
 </div>
 
@@ -347,7 +355,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   </div>
   <div class="stage">
     <div class="screen" id="dScreen"></div>
-    <div class="desc"><div class="num" id="dNum"></div><div class="kind" id="dKind"></div><h2 id="dName"></h2><p id="dText"></p><ul class="pills" id="dFacts"></ul><div id="dActs" class="acts"></div></div>
+    <div class="desc"><div class="num" id="dNum"></div><div class="kind" id="dKind"></div><h2 id="dName"></h2><h3 class="sub">For you</h3><p id="dText"></p><div id="dLearn"><h3 class="sub">What it taught Amy</h3><p id="dTaught"></p><h3 class="sub">Why Amy picked it</h3><p id="dWhy"></p></div><ul class="pills" id="dFacts"></ul><div id="dActs" class="acts"></div></div>
   </div>
   <div class="nav"><button type="button" id="dPrev"></button><button type="button" id="dNext"></button></div>
 </div>
@@ -410,6 +418,9 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     return "#"+o.map(function(v){return ("0"+v.toString(16)).slice(-2);}).join("");
   }
   var gid=0;
+  // WCAG relative luminance, so the label is whichever of ink or white reads better on the piece.
+  function relLum(hex){var n=parseInt(hex.slice(1),16);return [16,8,0].map(function(s){var c=((n>>s)&255)/255;return c<=.03928?c/12.92:Math.pow((c+.055)/1.055,2.4);}).reduce(function(a,c,i){return a+c*[.2126,.7152,.0722][i];},0);}
+  function labelInk(hex){var L=relLum(hex),ink=relLum("#1A1540");return (L+.05)/(ink+.05)>=1.05/(L+.05)?"#1A1540":"#FFFFFF";}
   function lum(hex){var n=parseInt(hex.slice(1),16);return (.2126*((n>>16)&255)+.7152*((n>>8)&255)+.0722*(n&255))/255;}
   // Six fills so no two neighbours look alike: dots, stripes, checks, zigzags, waves, confetti, or plain.
   function patFill(svg,hex,pat,u){
@@ -441,40 +452,40 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   var PAT=["dots","stripes","check","zig","waves","confetti","solid"];
   var KIND={game:["Game",C.tomato],toy:["Playground toy",C.pool],tool:["Tool",C.grass],lab:["Lab",C.peri],workshop:["In the workshop",C.lav]};
   var items=[
-    {n:"Grainsmith",slug:"grainsmith",pv:"preview=1",k:"toy",col:C.marigold,date:"2026-09-18",d:"Forty thousand cells and eleven materials, one rule each. Sand piles at forty five degrees, oil floats on water, fire eats the wood. No goal, no score. Just drag.",stat:"11",sl:"Materials",spec:["Browser toy","Drag to pour","No goal, no score"],acts:["Play with it"]},
-    {n:"Slingshot",slug:"slingshot",pv:"preview=slingshot",k:"game",col:C.tomato,date:"2026-09-14",d:"Nine levels of one problem: a probe, some planets, and a station to reach. One shot, no engine. The dotted line while you aim is exactly where you'll go.",stat:"9",sl:"Levels",spec:["Browser game","Drag or arrow keys","One shot per try"],acts:["Play it"]},
-    {n:"Ink Tank",slug:"ink-tank",pv:"preview=1&preset=aurora&warm=120",k:"toy",col:C.pool,date:"2026-09-20",d:"A tank of fluid you drag your finger through. The colour rides on real fluid maths, solved sixty times a second, with a switch to see the parts you normally can't.",stat:"60",sl:"Solves a second",spec:["Browser toy","Drag to stir","Four views"],acts:["Play with it"]},
-    {n:"Pluck",slug:"pluck",pv:"preview=1&note=50&frame=5&pick=0.125",k:"toy",col:C.grape,date:"2026-08-24",d:"A six string instrument where every note comes out of one short loop. Strum a chord and watch a burst of noise get rounded off into a clean note.",stat:"6",sl:"Strings",spec:["Browser instrument","Click, type or strum","Sound on"],acts:["Play it"]},
-    {n:"Gamut",slug:"gamut",wide:1,pv:"preview=1&h=264&c=0.16",k:"tool",col:C.grass,date:"2026-09-03",d:"Pick a hue and get a twelve step colour ramp, a contrast score for every step, and CSS you can paste into a real page.",stat:"12",sl:"Steps per ramp",spec:["Browser tool","Colour palettes","Copies CSS"],acts:["Use it"]},
-    {n:"Lamplighter",slug:"lamplighter",pv:"preview=2",k:"game",col:C.bubble,date:"2026-09-13",d:"A small, gentle platformer. Carry a flame through dark rooms and light the lanterns. No enemies, no lives, and falling just puts you back at the start.",stat:"5",sl:"Rooms",spec:["Browser game","Keyboard only","No enemies"],acts:["Play it"]},
-    {n:"Harmonics Lab",slug:"harmonics-lab",wide:1,pv:"preview=square",k:"lab",col:C.peri,date:"2026-08-23",d:"Sixteen sliders, one per harmonic, so dragging them writes a sound by hand. Load a sawtooth or a square and watch the shape build itself out of plain sine waves.",stat:"16",sl:"Harmonics",spec:["Sound lab", "Sound on", "Drag the bars"],acts:["Play it"]},
-    {n:"Wave Function Collapse",slug:"wave-function-collapse",pv:"preview=terrain&size=18&seed=thumb-island",k:"lab",col:C.grass,date:"2026-08-20",d:"Every square starts as every tile at once. Watch the solver settle one square at a time until pipes, circuits or islands appear. Click a square to place one yourself.",stat:"3",sl:"Tilesets",spec:["Algorithm lab", "Run or step it", "Click to place"],acts:["Try it"]},
-    {n:"BPE Forge",slug:"bpe-forge",wide:1,pv:"preview=1",k:"lab",col:C.marigold,date:"2026-08-21",d:"Teach a tiny tokenizer on text you paste, then use the thing you made. Click any token to see how it was glued together. It is nobody's real tokenizer.",stat:"1",sl:"Merge at a time",spec:["Word lab", "Paste your own text", "Toy tokenizer"],acts:["Try it"]},
-    {n:"Reaction",slug:"reaction",pv:"preview=1&preset=labyrinth",k:"toy",col:C.grape,date:"2026-08-25",d:"Two pretend chemicals, one eating the other. Paint into the field and drag across the map to turn it into a maze, crawling worms, lace or bubbles.",stat:"8",sl:"Presets",spec:["Browser toy", "Paint to start", "Four palettes"],acts:["Play with it"]},
-    {n:"Sift",slug:"sift",wide:1,pv:"preview=config",k:"tool",col:C.pool,date:"2026-08-29",d:"Paste two versions of anything and see exactly what changed, down to the word. It all happens on the page, so nothing private gets pasted into someone else's website.",stat:"2",sl:"Ways to view",spec:["Browser tool", "Compares text", "Nothing leaves the page"],acts:["Use it"]},
-    {n:"Drape",slug:"drape",pv:"preview=1",k:"lab",col:C.tomato,date:"2026-08-30",d:"A sheet of cloth you grab, throw, slice and tear. One button re-runs the same cloth six ways side by side, so you can see which solver keeps it the same fabric.",stat:"6",sl:"Presets",spec:["Cloth lab", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
-    {n:"Sway",slug:"sway",pv:"preview=1&preroll=420",k:"toy",col:C.grass,date:"2026-08-31",d:"A meadow at dusk you can stand in. Grass leans in the wind, petals come loose and drift, and a little breeze follows your hand. Tap to plant a flower.",stat:"4",sl:"Skies",spec:["Browser toy", "Tap to plant", "Made to look at"],acts:["Play with it"]},
-    {n:"Cron Almanac",slug:"cron-almanac",wide:1,pv:"preview=1",k:"tool",col:C.peri,date:"2026-09-01",d:"Paste a cron schedule and see the whole year at once, read back in plain English. It finds the two days a year when the clock change makes the schedule lie.",stat:"12",sl:"Months at once",spec:["Browser tool", "Schedules", "Plain English"],acts:["Use it"]},
-    {n:"XPBD Lab",slug:"xpbd-lab",pv:"preview=cloth",k:"lab",col:C.pool,date:"2026-09-02",d:"A cloth, a chain, a weight and a jelly blob, all run by the same short solver. Drag them, cut them, blow wind at them, then flip solvers and watch the cloth change its mind.",stat:"4",sl:"Toys, one solver",spec:["Physics lab", "Drag, pin, cut", "Prove it panel"],acts:["Play with it"]},
-    {n:"Gamut, second take",slug:"gamut-second-take",wide:1,pv:"preview=1&hue=250&chroma=0.2&curve=flat",k:"tool",col:C.bubble,date:"2026-09-06",d:"Built the same week as Gamut by a night that did not know Gamut existed, and kept because it solved it differently. Pick one colour, get a light and a dark theme.",stat:"2",sl:"Themes out",spec:["Browser tool", "Colour palettes", "Copies CSS"],acts:["Use it"]},
-    {n:"Taut",slug:"taut",pv:"preview=cloth",k:"lab",col:C.tangerine,date:"2026-09-04",d:"A rope, a cloth, a bridge and a bouncy blob made of the same two things: points, and rules about how far apart they may be. Take the scissors to a rope.",stat:"5",sl:"Scenes",spec:["Physics lab", "Colours by strain", "Wide screens"],acts:["Play with it"]},
-    {n:"Petri",slug:"petri",pv:"preview=Coral&grid=160&steps=3800&palette=Ink&seed=thumb",k:"toy",col:C.tomato,date:"2026-09-05",d:"A dish you paint into with a finger. Nothing is drawn: coral, fingerprints and dividing spots all grow out of one small rule, run on the graphics card.",stat:"6",sl:"Regimes",spec:["Browser toy", "Needs WebGL2", "Paint with a finger"],acts:["Play with it"]},
-    {n:"Turing Pool",slug:"turing-pool",pv:"preview=1&preset=fingerprint&grid=160&steps=4000&seed=11",k:"toy",col:C.grape,date:"2026-09-07",d:"Drop a chemical into water that wraps at every edge and watch whether it becomes spots, stripes, worms or leaves. Four numbers decide which.",stat:"7",sl:"Places to start",spec:["Browser toy", "Five palettes", "Paint with a finger"],acts:["Play with it"]},
-    {n:"Driftfield",slug:"driftfield",pv:"preview=1",k:"toy",col:C.lav,date:"2026-09-08",d:"Thousands of drifting trails that never pile up. Flip the one switch and every particle slides into a drain and the picture dies. Flip it back and it refills.",stat:"5",sl:"Palettes",spec:["Browser toy", "Leave it open", "One switch to break it"],acts:["Play with it"]},
-    {n:"Compliance",slug:"xpbd-cloth",pv:"preview=1",k:"lab",col:C.marigold,date:"2026-09-09",d:"A cloth you can grab and slash, with a ruler underneath it. Change how often the solver runs and watch one kind of cloth hold its fabric while the other stiffens.",stat:"3",sl:"Scenes",spec:["Physics lab", "Grab, pin, slash", "Prove it panel"],acts:["Play with it"]},
-    {n:"Swept",slug:"swept",wide:1,pv:"preview=1&scenario=c2",k:"tool",col:C.grass,date:"2026-09-10",d:"Two ways to save work in git, and in a shared folder one of them quietly takes someone else's changes too. Paste your status and it says which way is safe.",stat:"10",sl:"Worked examples",spec:["Browser tool", "For git", "Paste and check"],acts:["Use it"]},
-    {n:"Drape Rope",slug:"drape-rope",pv:"preview=curtain",k:"toy",col:C.pool,date:"2026-09-11",d:"Fabric in a dark room you can grab, fling, cut and blow around: a curtain, a flag, a rope, a hammock and a sheet that falls in a heap.",stat:"5",sl:"Scenes",spec:["Browser toy", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
-    {n:"Spring Bench",slug:"spring-bench",pv:"preview=1",k:"tool",col:C.tangerine,date:"2026-09-12",d:"Tune a bouncy spring by feel and get CSS that moves exactly the same way. A race lane shows yours against the standard ease out.",stat:"6",sl:"Presets",spec:["Browser tool", "Motion design", "Copies CSS"],acts:["Use it"]},
-    {n:"Sway Net",slug:"sway-net",pv:"preview=net",k:"lab",col:C.bubble,date:"2026-09-13",d:"A curtain, a rope bridge, a net that catches a ball, and nine pendulums that drift out of step and back into line. Turn on stress colours and pull.",stat:"9",sl:"Pendulums",spec:["Physics lab", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
-    {n:"Aeolian",slug:"aeolian",pv:"preview=1",k:"toy",col:C.peri,date:"2026-09-15",d:"Nine strings in a dark room and a wind that plays them. Nothing is sequenced: you are hearing the wind bend a string until it plucks. Drag through them to play.",stat:"9",sl:"Strings",spec:["Browser instrument", "Sound on", "Click to start"],acts:["Play it"]},
-    {n:"Verlet",slug:"verlet",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-15",d:"Hang a curtain, fly nine streamers in a crosswind, string a rope bridge, sling a net, then tear it all down. About a hundred lines of physics.",stat:"4",sl:"Scenes",spec:["Browser toy", "Grab, tear, pin", "Live sliders"],acts:["Play with it"]},
-    {n:"Linen",slug:"linen",pv:"preview=flag&steps=340&wind=6.4",k:"toy",col:C.lav,date:"2026-09-16",d:"A piece of cloth with nothing between you and it. Drag it, cut it, pin it, or drop a square of linen onto a ball and let it find its own folds.",stat:"5",sl:"Hangings",spec:["Browser toy", "Mouse or keyboard to cut", "Drag only on touch"],acts:["Play with it"]},
-    {n:"Drape Scenes",slug:"drape-scenes",pv:"preview=drape&ff=220",k:"toy",col:C.marigold,date:"2026-09-17",d:"A curtain that heaps on the floor, a flag, a sheet over a ball, a net full of balls and a rope bridge. No explainer, you just poke at it.",stat:"5",sl:"Scenes",spec:["Browser toy", "Drop a ball", "Works on touch"],acts:["Play with it"]},
-    {n:"Cloth",slug:"cloth",pv:"preview=ropes",k:"toy",col:C.tomato,date:"2026-09-19",d:"A curtain, a banner, a net, a bridge and a rack of ropes, all points and sticks. Pull one corner and watch the strain light up all the way back to the pins.",stat:"5",sl:"Hanging things",spec:["Browser toy", "Colours by strain", "Just for playing"],acts:["Play with it"]},
-    {n:"Seam",slug:"seam",wide:1,pv:"preview=1&fixture=config",k:"tool",col:C.tangerine,date:"2026-09-22",d:"A line diff with three engines running on every input: a textbook grid, Myers' greedy search, and Myers' linear space version. All three must agree, and the page says on screen whether they did.",stat:"3",sl:"Engines",spec:["Browser tool","Compares text","Eight worked examples"],acts:["Use it"]},
-    {n:"Loom",slug:"loom",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-22",d:"One dark room, a pleated curtain and seven threads. The wind moves the cloth, a growing dye stiffens it where it's dense, and a thread bent far enough plucks its own note. Drag the cloth, stir the air, and they sing.",stat:"4",sl:"Ideas in one piece",spec:["Browser toy","Sound on","Drag the cloth"],acts:["Play with it"]},
-    {n:"Mosaic",slug:"mosaic",wide:1,pv:"preview=1",k:"lab",col:C.pool,date:"2026-09-23",d:"The same 108 files packed into one rectangle three ways, side by side, with every tile's shape measured underneath. Every tile is a real file from the folder these builds live in.",stat:"3",sl:"Layouts",spec:["Algorithm lab","Treemaps","Every count computed"],acts:["Try it"]},
-    {n:"Governance plugin",k:"workshop",col:C.lav,date:"2026-09-06",d:"The guardrails we built for our own AI helper, packaged so anyone can install them: review gates, a council of reviewers, and a lock that stops two sessions editing one file. Family data never ships, only the machinery. Mapped, not built yet.",stat:"Mapped",sl:"Not installable yet",spec:["In the workshop","For Claude Code","Mapped 2026-09-06"],acts:["Read the plan"],ghost:true}
+    {n:"Grainsmith",slug:"grainsmith",t:"The order you scan the grid is the physics: go the wrong way and one grain falls 160 cells in a single step. Randomness has to come from position, not a shared stream. And this kind of water cannot climb, because it has no pressure.",w:"Falling sand is the genre Amy had described a hundred times and had never once written, and it broke the explainer habit.",pv:"preview=1",k:"toy",col:C.marigold,date:"2026-09-18",d:"Forty thousand cells and eleven materials, one rule each. Sand piles at forty five degrees, oil floats on water, fire eats the wood. No goal, no score. Just drag.",stat:"11",sl:"Materials",spec:["Browser toy","Drag to pour","No goal, no score"],acts:["Play with it"]},
+    {n:"Slingshot",slug:"slingshot",t:"Velocity Verlet does not conserve energy; it holds it inside a tiny band forever, while the naive method climbs 52 percent out of the well. And letting a crash end the flight means no fudge factor is needed near a planet.",w:"To break the house style: no step button, no inspector, and it explains nothing about itself.",pv:"preview=slingshot",k:"game",col:C.tomato,date:"2026-09-14",d:"Nine levels of one problem: a probe, some planets, and a station to reach. One shot, no engine. The dotted line while you aim is exactly where you'll go.",stat:"9",sl:"Levels",spec:["Browser game","Drag or arrow keys","One shot per try"],acts:["Play it"]},
+    {n:"Ink Tank",slug:"ink-tank",t:"Stam's famous 20 solver passes are a look, not a solve, the grid is blind to checkerboard patterns, and the dye that seems to evaporate is really spiralling in. Predicted loss 15.165 percent; measured 15.164.",w:"Pleasant first and instructive second, and Amy could recite the fluid projection step and had never written the boundaries or the pressure solve by hand.",pv:"preview=1&preset=aurora&warm=120",k:"toy",col:C.pool,date:"2026-09-20",d:"A tank of fluid you drag your finger through. The colour rides on real fluid maths, solved again every frame, with a switch to see the parts you normally can't.",stat:"1",sl:"Solve every frame",spec:["Browser toy","Drag to stir","Four views"],acts:["Play with it"]},
+    {n:"Pluck",slug:"pluck",t:"The textbook plucked string cannot play in tune, because a delay holds a whole number of samples. A small extra filter supplies the missing fraction, and two of Amy's own assumptions about delay lines turned out wrong once measured.",w:"Same reason as the build before: Amy could recite what Karplus-Strong is and could not have written one that plays in tune.",pv:"preview=1&note=50&frame=5&pick=0.125",k:"toy",col:C.grape,date:"2026-08-24",d:"A six string instrument where every note comes out of one short loop. Strum a chord and watch a burst of noise get rounded off into a clean note.",stat:"6",sl:"Strings",spec:["Browser instrument","Click, type or strum","Sound on"],acts:["Play it"]},
+    {n:"Gamut",slug:"gamut",t:"Asking the browser to check a colour hands your own question back, the published colour constants are rounded enough to set the error floor, and the most vivid corner of screen colour is magenta, not blue. Ten of fourteen predictions missed.",w:"Amy could recite that OKLCH is perceptually even and had never written the maths, never written a gamut mapper, and never checked any of it against code she did not write.",wide:1,pv:"preview=1&h=264&c=0.16",k:"tool",col:C.grass,date:"2026-09-03",d:"Pick a hue and get a twelve step colour ramp, a contrast score for every step, and CSS you can paste into a real page.",stat:"12",sl:"Steps per ramp",spec:["Browser tool","Colour palettes","Copies CSS"],acts:["Use it"]},
+    {n:"Lamplighter",slug:"lamplighter",t:"The jump formula every platformer tutorial prints falls short in a real game by exactly 1/N, where N is the frames to the top, enough to make a level impossible. The fix is a literal off by one. Overturning your own passing result needs as much proof as making it.",w:"The log asked for the explainer habit to be broken, and Amy could recite the jump formula and had never checked whether a game actually reaches the height.",pv:"preview=2",k:"game",col:C.bubble,date:"2026-09-13",d:"A small, gentle platformer. Carry a flame through dark rooms and light the lanterns. No enemies, no lives, and falling just puts you back at the start.",stat:"5",sl:"Rooms",spec:["Browser game","Keyboard only","No enemies"],acts:["Play it"]},
+    {n:"Harmonics Lab",slug:"harmonics-lab",t:"Measured, not remembered: the browser quietly rescales your sound unless told not to, phase is nearly inaudible but wildly visible, and the overshoot at a sharp edge never shrinks, however many harmonics you add.",w:"Amy could describe the browser's wave builder and had never checked its sign convention, which is exactly the shape of a thing she did not actually know.",wide:1,pv:"preview=square",k:"lab",col:C.peri,date:"2026-08-23",d:"Sixteen sliders, one per harmonic, so dragging them writes a sound by hand. Load a sawtooth or a square and watch the shape build itself out of plain sine waves.",stat:"16",sl:"Harmonics",spec:["Sound lab", "Sound on", "Drag the bars"],acts:["Play it"]},
+    {n:"Wave Function Collapse",slug:"wave-function-collapse",t:"Propagation is the whole algorithm: once one square is decided, the news has to ripple out to every neighbour, and the table that tracks it is easy to get backwards in a way that still looks right. Plausible output is not proof.",w:"Amy could describe Wave Function Collapse but could not have written the part that spreads each decision to its neighbours, which, in her own words, means she did not know it.",pv:"preview=terrain&size=18&seed=thumb-island",k:"lab",col:C.grass,date:"2026-08-20",d:"Every square starts as every tile at once. Watch the solver settle one square at a time until pipes, circuits or islands appear. Click a square to place one yourself.",stat:"3",sl:"Tilesets",spec:["Algorithm lab", "Run or step it", "Click to place"],acts:["Try it"]},
+    {n:"BPE Forge",slug:"bpe-forge",t:"The odd G that shows up in front of words in token dumps is an offset, not a choice. Encoding picks the lowest ranked merge first, not the longest match, which is why a vocabulary alone is not a tokenizer.",w:"Tokens are the unit everything an AI does is measured in, and they are invisible. Amy could describe how they are made but had never written the byte handling or the merge order by hand.",wide:1,pv:"preview=1",k:"lab",col:C.marigold,date:"2026-08-21",d:"Teach a tiny tokenizer on text you paste, then use the thing you made. Click any token to see how it was glued together. It is nobody's real tokenizer.",stat:"1",sl:"Merge at a time",spec:["Word lab", "Paste your own text", "Toy tokenizer"],acts:["Try it"]},
+    {n:"Reaction",slug:"reaction",t:"A pattern is not the chemistry settling down, it is the chemistry with nowhere to settle. Amy predicted it would settle and was wrong, and learned why the usual timestep of 1.0 sits at 80 percent of a hard limit.",w:"Taken on purpose as a pleasant build with no explainer. Amy could write the equations from memory and had never once checked the numerical details underneath them.",pv:"preview=1&preset=labyrinth",k:"toy",col:C.grape,date:"2026-08-25",d:"Two pretend chemicals, one eating the other. Paint into the field and drag across the map to turn it into a maze, crawling worms, lace or bubbles.",stat:"8",sl:"Presets",spec:["Browser toy", "Paint to start", "Four palettes"],acts:["Play with it"]},
+    {n:"Sift",slug:"sift",t:"A slow, simple method can grade a fast, clever one line by line, and every bug caught came from two unrelated methods disagreeing. The cleanup step Amy expected to matter moved nothing at all.",w:"The first build here that solves a real problem: the usual way to compare two private documents is to paste both into somebody else's website.",wide:1,pv:"preview=config",k:"tool",col:C.pool,date:"2026-08-29",d:"Paste two versions of anything and see exactly what changed, down to the word. It all happens on the page, so nothing private gets pasted into someone else's website.",stat:"2",sl:"Ways to view",spec:["Browser tool", "Compares text", "Nothing leaves the page"],acts:["Use it"]},
+    {n:"Drape",slug:"drape",t:"In the common cloth method, stiffness is a solver setting, not a material: shrink the timestep 32 times and the fabric gets 1024 times stiffer, measured at 1024.0002. The newer method, XPBD, makes stiffness belong to the cloth once the solver converges.",w:"To break the house habit of step by step explainers, and because Amy could say that sentence about stiffness without ever having put a number under it.",pv:"preview=1",k:"lab",col:C.tomato,date:"2026-08-30",d:"A sheet of cloth you grab, throw, slice and tear. One button re-runs the same cloth six ways side by side, so you can see which solver keeps it the same fabric.",stat:"6",sl:"Presets",spec:["Cloth lab", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
+    {n:"Sway",slug:"sway",t:"Wind built one particular way, from the sideways slope of a smooth field, can never pile anything up, and that exact property is the whole look. Wired one derivative differently, the same noise sucks the pollen into drains.",w:"To make something pleasant rather than instructive, and because Amy could describe curl noise and had never written one.",pv:"preview=1&preroll=420",k:"toy",col:C.grass,date:"2026-08-31",d:"A meadow at dusk you can stand in. Grass leans in the wind, petals come loose and drift, and a little breeze follows your hand. Tap to plant a flower.",stat:"4",sl:"Skies",spec:["Browser toy", "Tap to plant", "Made to look at"],acts:["Play with it"]},
+    {n:"Cron Almanac",slug:"cron-almanac",t:"The classic cron manual does not describe the classic cron code: follow the sentence and a schedule fires 212 times a year where the real answer is 26. And the only way to know a clock time does not exist is to convert it back.",w:"A real problem, not a demo: a job scheduled in UTC lands at a different local time when the clocks change twice a year, and some days it runs twice or not at all.",wide:1,pv:"preview=1",k:"tool",col:C.peri,date:"2026-09-01",d:"Paste a cron schedule and see the whole year at once, read back in plain English. It finds the two days a year when the clock change makes the schedule lie.",stat:"12",sl:"Months at once",spec:["Browser tool", "Schedules", "Plain English"],acts:["Use it"]},
+    {n:"XPBD Lab",slug:"xpbd-lab",t:"The whole solver is one line, and dividing by the timestep squared is what makes a hanging weight settle in the same place at any timestep. The real bug was not in the solver but in damping that quietly weakened gravity.",w:"To leave the explainer lane, and because Amy could recite what XPBD is and could not have written the one term that makes it work.",pv:"preview=cloth",k:"lab",col:C.pool,date:"2026-09-02",d:"A cloth, a chain, a weight and a jelly blob, all run by the same short solver. Drag them, cut them, blow wind at them, then flip solvers and watch the cloth change its mind.",stat:"4",sl:"Toys, one solver",spec:["Physics lab", "Drag, pin, cut", "Prove it panel"],acts:["Play with it"]},
+    {n:"Gamut, second take",slug:"gamut-second-take",t:"Browsers do not map out of range colours sensibly; they clip each channel and drift the hue by up to 32.67 degrees. And a ramp that looks evenly spaced is not evenly spaced in readable contrast.",w:"Everything here ships as one file that has to work light and dark, and Amy could talk about OKLCH fluently and had never written the maths.",wide:1,pv:"preview=1&hue=250&chroma=0.2&curve=flat",k:"tool",col:C.bubble,date:"2026-09-06",d:"Built the same week as Gamut by a night that did not know Gamut existed, and kept because it solved it differently. Pick one colour, get a light and a dark theme.",stat:"2",sl:"Themes out",spec:["Browser tool", "Colour palettes", "Copies CSS"],acts:["Use it"]},
+    {n:"Taut",slug:"taut",t:"Stretchiness is exactly an inverse spring constant, and spending effort on more small timesteps beat more solver passes by 27.9 times where Amy predicted 3. A solver given two rules that contradict each other does not fail; it quietly splits the difference.",w:"Something tactile instead of steppable, and Amy could describe position based dynamics but could not have written the compliance term.",pv:"preview=cloth",k:"lab",col:C.tangerine,date:"2026-09-04",d:"A rope, a cloth, a bridge and a bouncy blob made of the same two things: points, and rules about how far apart they may be. Take the scissors to a rope.",stat:"5",sl:"Scenes",spec:["Physics lab", "Colours by strain", "Wide screens"],acts:["Play with it"]},
+    {n:"Petri",slug:"petri",t:"On a graphics card the state has to live in two images that swap every step, because a shader cannot read and write the same one. The worst bug passed every check and showed only on screen: the dish drew literal squares.",w:"Amy could describe the GPU technique and had never written one, and chose a toy over a lab to break the step by step habit.",pv:"preview=Coral&grid=160&steps=3800&palette=Ink&seed=thumb",k:"toy",col:C.tomato,date:"2026-09-05",d:"A dish you paint into with a finger. Nothing is drawn: coral, fingerprints and dividing spots all grow out of one small rule, run on the graphics card.",stat:"8",sl:"Regimes",spec:["Browser toy", "Needs WebGL2", "Paint with a finger"],acts:["Play with it"]},
+    {n:"Turing Pool",slug:"turing-pool",t:"The picture is a throwaway last step; the real simulation lives in the colour channels. A GPU setting makes the pool wrap at every edge for free, and a canvas keeps its first kind of drawing context for life.",w:"Meant to be pleasant first. The chemistry was the payload; what Amy had never typed was the GPU groundwork underneath it.",pv:"preview=1&preset=fingerprint&grid=160&steps=4000&seed=11",k:"toy",col:C.grape,date:"2026-09-07",d:"Drop a chemical into water that wraps at every edge and watch whether it becomes spots, stripes, worms or leaves. Four numbers decide which.",stat:"7",sl:"Places to start",spec:["Browser toy", "Five palettes", "Paint with a finger"],acts:["Play with it"]},
+    {n:"Driftfield",slug:"driftfield",t:"A flow that cannot compress can still be simulated compressing: the simple step method drifts badly while a slightly better one barely moves, so the renderer changed. Grid error cancels out; stepping error piles up.",w:"Pleasant first, with the teaching shrunk to a single switch instead of a step button.",pv:"preview=1",k:"toy",col:C.lav,date:"2026-09-08",d:"Thousands of drifting trails that never pile up. Flip the one switch and every particle slides into a drain and the picture dies. Flip it back and it refills.",stat:"5",sl:"Palettes",spec:["Browser toy", "Leave it open", "One switch to break it"],acts:["Play with it"]},
+    {n:"Compliance",slug:"xpbd-cloth",t:"One distance rule settles in exactly one pass, the timestep squared term is the whole trick, and cloth drapes because it bends: the bend links needed 2000 times the softness before the sheet stopped hanging like steel.",w:"Amy could name XPBD and had never written one; the tell was that she could not say whether a key value resets every frame or every substep.",pv:"preview=1",k:"lab",col:C.marigold,date:"2026-09-09",d:"A cloth you can grab and slash, with a ruler underneath it. Change how often the solver runs and watch one kind of cloth hold its fabric while the other stiffens.",stat:"3",sl:"Scenes",spec:["Physics lab", "Grab, pin, slash", "Prove it panel"],acts:["Play with it"]},
+    {n:"Swept",slug:"swept",t:"The two columns git prints are exactly the two sides of the safety question, so the answer needs no guesswork. One collision cannot be detected at all, so the tool says so instead of showing green.",w:"That collision is easy to hit when several sessions share one working tree, and the fix is a procedure, which nobody carries out correctly at one in the morning.",wide:1,pv:"preview=1&scenario=c2",k:"tool",col:C.grass,date:"2026-09-10",d:"Two ways to save work in git, and in a shared folder one of them quietly takes someone else's changes too. Paste your status and it says which way is safe.",stat:"10",sl:"Worked examples",spec:["Browser tool", "For git", "Paste and check"],acts:["Use it"]},
+    {n:"Drape Rope",slug:"drape-rope",t:"A stiffness slider is really an iteration count, the order you solve links in changes the answer, and naive Verlet under a changing timestep does not explode; it quietly gets motion 20 percent wrong behind a healthy looking picture.",w:"The lane nobody had used yet, made a toy first, with the instruments in a side panel you can ignore.",pv:"preview=curtain",k:"toy",col:C.pool,date:"2026-09-11",d:"Fabric in a dark room you can grab, fling, cut and blow around: a curtain, a flag, a rope, a hammock and a sheet that falls in a heap.",stat:"5",sl:"Scenes",spec:["Browser toy", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
+    {n:"Spring Bench",slug:"spring-bench",t:"One formula covers every kind of spring and removes the crash the textbook form hits at exactly critical damping. CSS linear() error falls as the square of its stop count, and smarter stop placement is worth about five times the accuracy.",w:"To break the step through explainer habit: this is a tool you bring a piece of motion to.",pv:"preview=1",k:"tool",col:C.tangerine,date:"2026-09-12",d:"Tune a bouncy spring by feel and get CSS that moves exactly the same way. A race lane shows yours against the standard ease out.",stat:"6",sl:"Presets",spec:["Browser tool", "Motion design", "Copies CSS"],acts:["Use it"]},
+    {n:"Sway Net",slug:"sway-net",t:"The usual summary of XPBD is wrong as stated: at 4 substeps a chain hangs 282 percent stretchier than its material. What is true is better: the error shrinks as the square of the substep, and it converges on the real material.",w:"To break the house habit, and because compliance in real physical units was the one piece of cloth simulation Amy could describe and had never written.",pv:"preview=net",k:"lab",col:C.bubble,date:"2026-09-13",d:"A curtain, a rope bridge, a net that catches a ball, and nine pendulums that drift out of step and back into line. Turn on stress colours and pull.",stat:"9",sl:"Pendulums",spec:["Physics lab", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
+    {n:"Aeolian",slug:"aeolian",t:"Lessons carried over from earlier builds keep their rule but not their size: the tuning error that was tens of cents in Pluck is under 10 here, because these strings are longer.",w:"The first build that is not a single technique: with all twenty-three earlier builds in one place, the interesting move was making four of them depend on each other.",pv:"preview=1",k:"toy",col:C.peri,date:"2026-09-15",d:"Nine strings in a dark room and a wind that plays them. Nothing is sequenced: you are hearing the wind bend a string until it plucks. Drag through them to play.",stat:"9",sl:"Strings",spec:["Browser instrument", "Sound on", "Click to start"],acts:["Play it"]},
+    {n:"Verlet",slug:"verlet",t:"Starting a particle at rest the usual way sneaks in half a step of speed that never goes away, solve order matters more than solve count, and snapping a position back onto a rope costs a pendulum 11.8 percent of its swing every period.",w:"To make a thing to play with rather than a thing to step through.",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-15",d:"Hang a curtain, fly nine streamers in a crosswind, string a rope bridge, sling a net, then tear it all down. About a hundred lines of physics.",stat:"4",sl:"Scenes",spec:["Browser toy", "Grab, tear, pin", "Live sliders"],acts:["Play with it"]},
+    {n:"Linen",slug:"linen",t:"XPBD's whole claim is one extra term, and measured it holds: a hanging particle settles at exactly the predicted stretch, and changing the schedule 16 times moves it 0.0001 percent where plain PBD moves 256 times. Zero compliance is not unstretchable.",w:"Amy could recite XPBD's claim and had never tested it, and position based dynamics is everywhere in game physics.",pv:"preview=flag&steps=340&wind=6.4",k:"toy",col:C.lav,date:"2026-09-16",d:"A piece of cloth with nothing between you and it. Drag it, cut it, pin it, or drop a square of linen onto a ball and let it find its own folds.",stat:"5",sl:"Hangings",spec:["Browser toy", "Mouse or keyboard to cut", "Drag only on touch"],acts:["Play with it"]},
+    {n:"Drape Scenes",slug:"drape-scenes",t:"The timestep cancels out of XPBD's resting stretch, matched to within 7e-10 percent. And a flat cloth seen face on cannot fold, because folding is out of plane, so the curtain needed extra length to heap on the floor.",w:"To break the step by step habit of the four builds before it, and because Amy could recite what XPBD promises and had never derived why or measured whether her code delivers it.",pv:"preview=drape&ff=220",k:"toy",col:C.marigold,date:"2026-09-17",d:"A curtain that heaps on the floor, a flag, a sheet over a ball, a net full of balls and a rope bridge. No explainer, you just poke at it.",stat:"5",sl:"Scenes",spec:["Browser toy", "Drop a ball", "Works on touch"],acts:["Play with it"]},
+    {n:"Cloth",slug:"cloth",t:"The line everyone writes to start a Verlet particle puts the simulation permanently ahead of the truth, damping per step is secretly a frame rate dial, and a disturbance travels a whole rope one way but one stick per pass the other.",w:"An unused lane, and no lab on screen at all: the checking lives in the test suite instead.",pv:"preview=ropes",k:"toy",col:C.tomato,date:"2026-09-19",d:"A curtain, a banner, a net, a bridge and a rack of ropes, all points and sticks. Pull one corner and watch the strain light up all the way back to the pins.",stat:"5",sl:"Hanging things",spec:["Browser toy", "Colours by strain", "Just for playing"],acts:["Play with it"]},
+    {n:"Seam",slug:"seam",t:"What everyone calls the tie-break is not one, and real ties are common, which is why a diff shows the minus before the plus. Writing <= instead of < quietly returns valid diffs that are not the shortest.",w:"Eleven of the twelve builds before it were physics or simulation, the shared shape the log warns about, so Amy picked a tool, and picked diff because GNU diff on the same machine could check her work from outside.",wide:1,pv:"preview=1&fixture=config",k:"tool",col:C.tangerine,date:"2026-09-22",d:"A line diff with three engines: a textbook grid, Myers' greedy search, and Myers' linear space version. They must agree, and the page says on screen whether they did; on very large inputs the slow grid sits out.",stat:"3",sl:"Engines",spec:["Browser tool","Compares text","Eight worked examples"],acts:["Use it"]},
+    {n:"Loom",slug:"loom",t:"Lessons that each worked alone broke when combined: bend links that were fine on flat cloth fought a gathered curtain until the pleats were sewn in, and the harp plucked 36 times in 20 silent seconds before that fix took it to zero.",w:"Half the thirty builds were three shapes standing alone (cloth, reaction diffusion, colour), and the only move left in that lane was making them depend on each other. Its own note ends: next build should leave physics alone.",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-22",d:"One dark room, a pleated curtain and seven threads. The wind moves the cloth, a growing dye stiffens it where it's dense, and a thread bent far enough plucks its own note. Drag the cloth, stir the air, and they sing.",stat:"4",sl:"Ideas in one piece",spec:["Browser toy","Sound on","Drag the cloth"],acts:["Play with it"]},
+    {n:"Mosaic",slug:"mosaic",t:"The famous squarified treemap is a greedy stopping rule, not a search, and it buys its square tiles by giving up reading order. Measured: the median tile goes from 88.34:1 to 1.10:1.",w:"The log had asked for weeks for a build that uses material already on disk and a lane that is not physics, and Amy could describe a squarified treemap without having written its row rule.",wide:1,pv:"preview=1",k:"lab",col:C.pool,date:"2026-09-23",d:"The same 108 files packed into one rectangle three ways, side by side, with every tile's shape measured underneath. Every tile is a real file from the folder Amy builds in, as it stood the day she made it.",stat:"3",sl:"Layouts",spec:["Algorithm lab","Treemaps","Every count computed"],acts:["Try it"]},
+    {n:"Governance plugin",k:"workshop",col:C.lav,date:"2026-09-06",d:"The guardrails we built for our own AI helper, packaged so anyone can install them: review gates, a council of reviewers, and a lock meant to stop two sessions editing one file. Family data never ships, only the machinery. A first version was built and sent back for fixes after review found holes in the lock.",stat:"In review",sl:"Not installable yet",spec:["In the workshop","For Claude Code","Mapped 2026-09-06"],acts:["Read the plan"],ghost:true}
   ];
   var shapes=items.map(function(_,i){return onePiece(101+i*7);});
   var TILT=[-14,12,18,-10,8,-6,14];
@@ -540,12 +551,12 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       var f=document.createElement("iframe");f.src=buildSrc(it,true);f.title="Live preview of "+it.n;f.tabIndex=-1;f.setAttribute("aria-hidden","true");f.setAttribute("scrolling","no");
       var go=document.createElement("button");go.type="button";go.className="go";go.setAttribute("aria-label",it.acts[0]+": "+it.n);go.innerHTML="<span>"+it.acts[0]+"</span>";go.onclick=function(){startPlay(it);};
       fr.appendChild(f);fr.appendChild(go);scr.appendChild(fr);scr.appendChild(sticker(it,"sticker"));
-      var cap=document.createElement("p");cap.className="cap";cap.textContent="Running live, right here. Tap it to play, or download it and keep it.";scr.appendChild(cap);
+      var cap=document.createElement("p");cap.className="cap";cap.textContent="A preview, running right here. Tap it to play, or download it and keep it.";scr.appendChild(cap);
     }else{
       var g=document.createElement("div");g.className="ghostart";g.appendChild(sticker(it));
       var gp=document.createElement("p");gp.textContent="Nothing to play yet. It's mapped, not built.";g.appendChild(gp);scr.appendChild(g);
     }
-    document.getElementById("dKind").textContent=K[0];document.getElementById("dName").textContent=it.n;document.getElementById("dText").textContent=it.d;
+    document.getElementById("dKind").textContent=K[0];document.getElementById("dName").textContent=it.n;document.getElementById("dText").textContent=it.d;document.getElementById("dLearn").hidden=!it.t;document.getElementById("dTaught").textContent=it.t||"";document.getElementById("dWhy").textContent=it.w||"";
     var acts=document.getElementById("dActs");
     acts.innerHTML=it.slug?'<button class="btn" type="button" id="dPlay">'+it.acts[0]+'</button>'
       +'<a class="btn ghost" href="builds/'+it.slug+'/index.html" download="'+it.slug+'.html">Download it</a>'
@@ -556,21 +567,25 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     pb.textContent="← "+prev.n;pb.setAttribute("aria-label","Previous piece: "+prev.n);
     nb.textContent=next.n+" →";nb.setAttribute("aria-label","Next piece: "+next.n);
     pb.hidden=nb.hidden=N<2;
-    det.hidden=false;fitWide();document.body.style.overflow="hidden";if(was)document.getElementById("dClose").focus();
+    det.hidden=false;document.querySelector(".wrap").inert=true;fitWide();document.body.style.overflow="hidden";if(was)document.getElementById("dClose").focus();
   }
   function fitWide(){var f=scr.querySelector(".frame.wide");if(f)f.style.setProperty("--s",f.clientWidth/1100);}
   window.addEventListener("resize",fitWide);
-  function close(){det.hidden=true;scr.innerHTML="";document.body.style.overflow="";if(lastFocus&&lastFocus.focus)lastFocus.focus();lastFocus=null;}
+  function close(){det.hidden=true;document.querySelector(".wrap").inert=false;scr.innerHTML="";document.body.style.overflow="";if(lastFocus&&lastFocus.focus)lastFocus.focus();lastFocus=null;}
   // Play: the whole build, full screen, with a way back.
   function startPlay(it){
     document.getElementById("pName").textContent=it.n;
     document.getElementById("pHint").textContent=it.spec.slice(1).join(". ")+".";
     var ps=document.getElementById("pSticker");ps.innerHTML="";ps.appendChild(sticker(it));
     scr.innerHTML="";
-    pFrame.title=it.n;pFrame.onload=function(){if(play.hidden)return;try{pFrame.contentWindow.focus();}catch(e){}pFrame.focus();};
+    pFrame.title=it.n;pFrame.onload=function(){if(play.hidden)return;
+      // Focus goes into the game, so Escape has to be heard there too. Same origin on the site; the offline copy may refuse, and then Back still works.
+      try{pFrame.contentWindow.addEventListener("keydown",function(e){if(e.key==="Escape")stopPlay();});}catch(e){}
+      try{pFrame.contentWindow.focus();}catch(e){}pFrame.focus();};
+    det.inert=true;
     pFrame.src=buildSrc(it,false);play.hidden=false;
   }
-  function stopPlay(){play.hidden=true;pFrame.onload=null;pFrame.src="about:blank";show(cur);var b=document.getElementById("dPlay");if(b)b.focus();}
+  function stopPlay(){play.hidden=true;det.inert=false;pFrame.onload=null;pFrame.src="about:blank";show(cur);var b=document.getElementById("dPlay");if(b)b.focus();}
   document.getElementById("pBack").onclick=stopPlay;
   document.getElementById("dClose").onclick=close;
   document.getElementById("dPrev").onclick=function(){show(cur-1);};
@@ -591,30 +606,24 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     var list=shown(),narrow=bd.parentNode.clientWidth<560,n=list.length+1,rr=rng(7);narrowNow=narrow;
     var Cn=narrow?2:Math.max(3,Math.min(8,Math.ceil(Math.sqrt(n*2))));Cn=Math.min(Cn,Math.max(2,n));
     var R=Math.ceil(n/Cn),cells=board(R,Cn,S,rng(42+R*10+Cn),{jitter:.1}),base=narrow?24:16;
-    bd.innerHTML="";bd.setAttribute("viewBox","-90 -90 "+(Cn*S+180)+" "+(R*S+180));
-    bd.setAttribute("aria-label",list.length+" puzzle piece"+(list.length===1?"":"s")+", one per build, plus an empty slot for the next one");
+    bd.innerHTML="";bd.setAttribute("viewBox","-50 -50 "+(Cn*S+100)+" "+(R*S+100));
+    var nb=list.filter(function(x){return x.slug;}).length,nw=list.length-nb;
+    bd.setAttribute("aria-label",nb+" build"+(nb===1?"":"s")+(nw?" and "+nw+" piece still in the workshop":"")+", plus an empty slot for the next one");
     cells.forEach(function(cell,i){
       var d=cell.d,x=cell.cx,y=cell.cy,g;
       if(i<list.length){
         var it=list[i];g=el("g",{"class":"bp",tabindex:"0",role:"button","aria-label":"Open "+it.n});
         glossy(g,d,it.col,it.ghost,PAT[it.i%PAT.length],20);
-        var fg=it.ghost?"#6B4FD8":(lum(it.col)>.55?"#1A1540":"#FFFFFF"),halo=it.ghost?"none":it.col;
+        var fg=it.ghost?"#6B4FD8":labelInk(it.col),halo=it.ghost?"none":it.col;
         label(g,it.n.split(" "),x,y-8,base,fg,halo,KIND[it.k][0].toLowerCase());
         (function(item,gg){gg.addEventListener("click",function(){lastFocus=gg;openItem(item);});gg.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();lastFocus=gg;openItem(item);}});})(it,g);
       }else if(i===list.length){
         g=el("g",{"class":"bp slot",tabindex:"0",role:"link","aria-label":"Your idea could be the next piece"});
-        g.appendChild(el("path",{d:d,"class":"shape",fill:"#ECE5FF",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"8 8"}));
-        var tg=el("g",{});
+        g.appendChild(el("path",{d:d,"class":"shape",fill:"rgba(107,79,216,.05)",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"8 8"}));
         var t1=el("text",{x:x,y:y-4,"text-anchor":"middle",fill:"#6B4FD8","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":Math.min(base+2,20)});t1.textContent="Your idea?";
         var t2=el("text",{x:x,y:y+base+6,"text-anchor":"middle",fill:"#524A78","font-family":"Atkinson Hyperlegible, sans-serif","font-size":base-2});t2.textContent="the next piece";
-        tg.appendChild(t1);tg.appendChild(t2);g.appendChild(tg);
-        // Neighbour knobs reach into this cell by design; put the words on a tray-coloured sticker so they always read clean.
-        // Measure with the piece already in the document - getBBox on a detached node reads as zero.
-        g.style.setProperty("--dx",((rr()*2-1)*60).toFixed(0)+"px");g.style.setProperty("--dy",((rr()*2-1)*50).toFixed(0)+"px");g.style.setProperty("--rot",((rr()*2-1)*20).toFixed(0)+"deg");
-        bd.appendChild(g);
-        var bb=tg.getBBox(),pad=9;
-        tg.insertBefore(el("rect",{x:bb.x-pad,y:bb.y-pad,width:bb.width+pad*2,height:bb.height+pad*2,rx:14,fill:"#ECE5FF",stroke:"#6B4FD8","stroke-width":"2"}),t1);
-        var goIdea=function(){location.hash="idea";var f=document.querySelector("#ideaForm input");if(f)f.focus({preventScroll:true});};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
+        g.appendChild(t1);g.appendChild(t2);
+        var goIdea=function(){location.hash="idea";var ta=document.getElementById("ideaText");if(ta)ta.focus({preventScroll:true});};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
       }else{
         g=el("g",{"class":"bp hole","aria-hidden":"true"});
         g.appendChild(el("path",{d:d,fill:"rgba(107,79,216,.03)",stroke:"rgba(107,79,216,.28)","stroke-width":"1.5","stroke-dasharray":"4 8"}));
@@ -685,18 +694,31 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     log.appendChild(li);
   });
 
-  // The idea form: posts to the Pages Function, which mails it to us.
-  var ideaForm=document.getElementById("ideaForm"),ideaMsg=document.getElementById("ideaMsg");
-  ideaForm.addEventListener("submit",function(ev){
-    ev.preventDefault();
-    if(!ideaForm.checkValidity()){ideaForm.reportValidity();return;}
-    if(location.protocol==="file:"){ideaMsg.className="err";ideaMsg.textContent="This is the offline copy, so it cannot send. Visit saxtonshowcase.com to send an idea.";return;}
-    var btn=ideaForm.querySelector("button[type=submit]");btn.disabled=true;ideaMsg.className="";ideaMsg.textContent="Sending\u2026";
-    fetch("/api/idea",{method:"POST",body:new FormData(ideaForm)}).then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(res){
-      if(res.ok&&res.j.ok){ideaForm.reset();ideaMsg.className="ok";ideaMsg.textContent="Got it. We read every one.";}
-      else{ideaMsg.className="err";ideaMsg.textContent="That didn't send. Try again in a minute?";}
-    }).catch(function(){ideaMsg.className="err";ideaMsg.textContent="That didn't send. Try again in a minute?";}).finally(function(){btn.disabled=false;});
+  // The idea box. It posts to the site's own /api/ideas, which the site host runs (contract in README.md).
+  // It never claims a send it cannot see: anything but a 2xx reply says it did not send.
+  var iform=document.getElementById("ideaForm"),imsg=document.getElementById("ideaMsg"),isend=document.getElementById("ideaSend");
+  iform.addEventListener("submit",function(e){
+    e.preventDefault();
+    var idea=iform.idea.value.trim(),email=iform.email.value.trim();
+    if(idea.length<5){imsg.textContent="Tell us the idea first.";iform.idea.focus();return;}
+    if(email&&!iform.email.checkValidity()){imsg.textContent="That email does not look right. Fix it, or leave it out.";iform.email.focus();return;}
+    if(location.protocol==="file:"){imsg.textContent="This is the offline copy, so it cannot send. Visit saxtonshowcase.com to send an idea.";return;}
+    isend.disabled=true;iform.idea.readOnly=iform.email.readOnly=true;imsg.textContent="Sending...";
+    var ctl=window.AbortController?new AbortController():null,settled=false;
+    function say(m,sent){if(settled&&!sent)return;settled=true;clearTimeout(timer);imsg.textContent=m;if(sent)iform.reset();iform.idea.readOnly=iform.email.readOnly=false;isend.disabled=false;}
+    var UNKNOWN="No answer from the idea box, so we cannot tell whether your idea arrived. Keep a copy and try again later.";
+    var timer=setTimeout(function(){if(ctl)ctl.abort();say(UNKNOWN);},15000);
+    fetch("/api/ideas",{method:"POST",headers:{"Content-Type":"application/json"},signal:ctl?ctl.signal:undefined,body:JSON.stringify({idea:idea,email:email,website:iform.website.value,page:"saxton-showcase"})})
+      .then(function(r){
+        if(!r.ok){say("That did not go through (the idea box answered "+r.status+"), so it may not have been saved. Keep a copy and try again later.");return;}
+        return r.json().then(function(j){
+          if(j&&j.ok===true)say("Thanks, it is in.",true);
+          else say("The idea box answered, but did not confirm it kept your idea. Keep a copy and try again later.");
+        },function(){say("The idea box answered, but did not confirm it kept your idea. Keep a copy and try again later.");});
+      })
+      .catch(function(){say(UNKNOWN);});
   });
+
   // The empty slot, drawn in ink on butter.
   var cs=document.getElementById("ctaSlot");
   cs.appendChild(el("path",{d:onePiece(77),fill:"none",stroke:"#1A1540","stroke-width":"6","stroke-dasharray":"16 12","stroke-linejoin":"round",transform:"rotate(-8 100 100)"}));

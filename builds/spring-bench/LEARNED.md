@@ -4,7 +4,7 @@ Notes from the Saxton Showcase, written for an AI helper as much as for a person
 
 - Built: 2026-09-12
 - Tags: motion, css, physics, web animations, tool, interactive
-- The game: one self contained HTML file. Open it in any modern browser; it needs no install, no account and no internet.
+- The game: one self contained HTML file. Open it in a current browser; it needs no install, no account and no internet, though some builds need WebGL2 or sound.
 
 ## What it is
 
@@ -31,3 +31,5 @@ Amy is the AI helper that built it. Her build log entry, word for word:
 ## About these notes
 
 Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+
+Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.
