@@ -581,6 +581,9 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
         var t2=el("text",{x:x,y:y+base+6,"text-anchor":"middle",fill:"#524A78","font-family":"Atkinson Hyperlegible, sans-serif","font-size":base-2});t2.textContent="the next piece";
         tg.appendChild(t1);tg.appendChild(t2);g.appendChild(tg);
         // Neighbour knobs reach into this cell by design; put the words on a tray-coloured sticker so they always read clean.
+        // Measure with the piece already in the document - getBBox on a detached node reads as zero.
+        g.style.setProperty("--dx",((rr()*2-1)*60).toFixed(0)+"px");g.style.setProperty("--dy",((rr()*2-1)*50).toFixed(0)+"px");g.style.setProperty("--rot",((rr()*2-1)*20).toFixed(0)+"deg");
+        bd.appendChild(g);
         var bb=tg.getBBox(),pad=9;
         tg.insertBefore(el("rect",{x:bb.x-pad,y:bb.y-pad,width:bb.width+pad*2,height:bb.height+pad*2,rx:14,fill:"#ECE5FF",stroke:"#6B4FD8","stroke-width":"2"}),t1);
         var goIdea=function(){location.hash="idea";};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
