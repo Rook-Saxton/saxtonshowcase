@@ -17,7 +17,7 @@
 }
 *{box-sizing:border-box}
 html{background:var(--night)}
-body{background:var(--night);color:var(--text);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:20px;margin:0}
+body{background:var(--night);color:var(--text);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:20px;margin:0;overflow-x:clip}
 .wrap{max-width:1180px;margin:0 auto}
 a{color:inherit}
 button{font:inherit;color:inherit}
@@ -576,9 +576,13 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       }else if(i===list.length){
         g=el("g",{"class":"bp slot",tabindex:"0",role:"link","aria-label":"Your idea could be the next piece"});
         g.appendChild(el("path",{d:d,"class":"shape",fill:"#ECE5FF",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"8 8"}));
+        var tg=el("g",{});
         var t1=el("text",{x:x,y:y-4,"text-anchor":"middle",fill:"#6B4FD8","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":Math.min(base+2,20)});t1.textContent="Your idea?";
         var t2=el("text",{x:x,y:y+base+6,"text-anchor":"middle",fill:"#524A78","font-family":"Atkinson Hyperlegible, sans-serif","font-size":base-2});t2.textContent="the next piece";
-        g.appendChild(t1);g.appendChild(t2);
+        tg.appendChild(t1);tg.appendChild(t2);g.appendChild(tg);
+        // Neighbour knobs reach into this cell by design; put the words on a tray-coloured sticker so they always read clean.
+        var bb=tg.getBBox(),pad=9;
+        tg.insertBefore(el("rect",{x:bb.x-pad,y:bb.y-pad,width:bb.width+pad*2,height:bb.height+pad*2,rx:14,fill:"#ECE5FF",stroke:"#6B4FD8","stroke-width":"2"}),t1);
         var goIdea=function(){location.hash="idea";};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
       }else{
         g=el("g",{"class":"bp hole","aria-hidden":"true"});
