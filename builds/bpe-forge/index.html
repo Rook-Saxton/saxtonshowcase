@@ -1,0 +1,1071 @@
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  BPE Forge
+  =========
+  Playground build, 2026-08-21. Self-contained: one file, no dependencies, opens offline.
+
+  WHAT IT DOES
+  Trains a byte pair encoding tokenizer, live, on text you paste, and then lets you use it.
+  You watch the merge table get built one pair at a time, see which candidate pairs lost and
+  by how much, tokenize arbitrary text with the vocabulary you just made, trace a single word
+  from raw bytes up to its final tokens, and hunt for the words where this tokenizer disagrees
+  with a plain longest match over the exact same vocabulary.
+
+  WHAT IT TAUGHT ME
+  1. The byte to unicode remapping is not cosmetic. Byte level BPE cannot operate on raw bytes,
+     because control bytes and whitespace break the string handling, so all 256 byte values are
+     remapped onto printable code points first. Byte 32 (space) is the 33rd byte with no
+     printable home, so it lands on U+0100 + 32 = U+0120, which is the Latin capital G with dot
+     above. That is the entire reason the letter G keeps showing up in front of words in token
+     dumps. It is an artifact of an offset, not a decision anyone made about spaces.
+  2. Pair counting and pair merging disagree on self overlapping pairs, and only on those.
+     Two occurrences of a pair (a, b) with a not equal to b can never overlap. Occurrences of
+     (a, a) can. A run of five identical symbols contains four overlapping occurrences of the
+     pair but only supports two merges. Count the overlapping way and the arithmetic of the
+     whole training run stops closing.
+  3. Encoding is not longest match. The encoder repeatedly applies the LOWEST RANKED merge
+     present in the word, which means a long token in the vocabulary can be unreachable for a
+     given word because an earlier merge already consumed one of its halves. Same vocabulary,
+     two different segmentations. Panel 5 finds real examples in whatever corpus you load.
+
+  THE TRAP, AND HOW IT IS ACTUALLY CAUGHT
+  Being straight about provenance: I saw the self overlap problem while designing the counter and
+  wrote the run length version first, so it never shipped broken. That makes it a prediction, not
+  a scar, and a prediction is worth nothing until something tries to kill it. So the checker
+  builds the naive overlapping counter on purpose and runs it as a negative control, on a corpus
+  of doubled letters, and requires it to FAIL.
+
+  The thing that catches it is an exact arithmetic identity, not an opinion about the output:
+  merging a pair that occurs C times removes exactly C symbols from the corpus, because every
+  application turns two symbols into one. So across a whole training run,
+
+      (symbols before training) - (symbols after training)  ==  sum of every recorded count
+
+  to the unit. The overlapping counter overstates by exactly one per odd length run and the
+  identity stops closing. Nothing else notices: the merges still look sensible, the vocabulary
+  still grows, the tokenizer still round trips perfectly, and the UI looks completely fine.
+  Receipts for both the real run and the deliberately broken one are in _verify/RESULTS.md.
+
+  WHY I BUILT IT
+  Tokens are the unit every AI model is billed and measured in, and they are invisible.
+  A tokenizer you can train yourself in ten seconds makes the whole thing concrete: why a leading
+  space matters, why an emoji costs several tokens, why code tokenizes differently from prose,
+  and why two tokenizers built from the same text can still disagree.
+
+  HONESTY NOTE
+  This trains its own tokenizer from scratch on the text you give it. It is not GPT's, Claude's,
+  or any other vendor's tokenizer, it shares no vocabulary with any of them, and its token IDs
+  mean nothing outside this page. Use it to understand the mechanism, never to predict anyone's
+  bill. All sample text in this file was written for this build and is illustrative only.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BPE Forge</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b24; --panel-2: #1c2430; --line: #2a3441;
+    --ink: #e6edf3; --dim: #8b98a8; --accent: #5fd3c4; --warn: #f0a868;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px; line-height: 1.55;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 34px 20px 80px; }
+
+  header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 26px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.015em; }
+  h1 .dot { color: var(--accent); }
+  header .tag { color: var(--dim); margin: 0 0 14px; max-width: 76ch; }
+  .banner {
+    background: var(--panel-2); border-left: 2px solid var(--warn);
+    border-radius: 0 7px 7px 0; padding: 9px 13px; color: var(--dim);
+    font-size: 13px; max-width: 82ch;
+  }
+  .banner b { color: var(--ink); }
+
+  section { margin: 26px 0 0; }
+  section > h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--dim); font-weight: 700; margin: 0 0 4px;
+  }
+  section > h2 .n { color: var(--accent); }
+  section > .lede { color: var(--dim); font-size: 13.5px; margin: 0 0 12px; max-width: 80ch; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px;
+  }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .row + .row { margin-top: 10px; }
+  .spacer { flex: 1 1 auto; }
+
+  button {
+    font: inherit; font-size: 13.5px; font-weight: 600;
+    background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 13px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #06231f; border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { color: #06231f; filter: brightness(1.08); }
+  button.ghost { font-weight: 500; color: var(--dim); }
+
+  textarea {
+    width: 100%; background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6; resize: vertical;
+  }
+  textarea:focus, input:focus { outline: 1px solid var(--accent); }
+  label.ctl { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); font-size: 13px; }
+  input[type=range] { accent-color: var(--accent); width: 150px; }
+  input[type=checkbox] { accent-color: var(--accent); }
+
+  .stats { display: flex; gap: 20px; flex-wrap: wrap; color: var(--dim); font-size: 12.5px; margin-top: 10px; }
+  .stats b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+
+  /* candidate pair bars */
+  .bars { display: grid; gap: 5px; }
+  .bar { display: grid; grid-template-columns: minmax(84px, auto) 1fr auto; gap: 9px; align-items: center; font-size: 12.5px; }
+  .bar .k { font-family: var(--mono); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .t { background: var(--panel-2); border-radius: 4px; height: 15px; position: relative; overflow: hidden; }
+  .bar .t i { display: block; height: 100%; background: #34606a; border-radius: 4px; }
+  .bar.win .t i { background: var(--accent); }
+  .bar .c { color: var(--dim); font-variant-numeric: tabular-nums; min-width: 3.5ch; text-align: right; }
+
+  /* merge table */
+  .tablewrap { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--panel-2); color: var(--dim);
+       font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; z-index: 1; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.mono, th.mono { font-family: var(--mono); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+  tbody tr.fresh { background: rgba(95, 211, 196, 0.09); }
+
+  /* token chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 3px; font-family: var(--mono); font-size: 13px; line-height: 1.9; }
+  .chip {
+    padding: 1px 5px; border-radius: 4px; cursor: pointer;
+    border: 1px solid transparent; white-space: pre-wrap; color: #08161c;
+  }
+  .chip:hover { border-color: var(--ink); }
+  .chip.sel { outline: 2px solid var(--ink); }
+  .chip .id { font-size: 9.5px; opacity: 0.62; margin-left: 4px; vertical-align: 1px; }
+  .chip.raw { color: #f4d4d4; background: #5a2a2a !important; }
+
+  /* trace ladder */
+  .ladder { display: grid; gap: 4px; font-family: var(--mono); font-size: 12.5px; }
+  .rung { display: grid; grid-template-columns: 62px 1fr; gap: 10px; align-items: baseline; }
+  .rung .lab { color: var(--dim); font-size: 11px; white-space: nowrap; }
+  .rung .seq { display: flex; flex-wrap: wrap; gap: 3px; }
+  .cell { padding: 0 4px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); white-space: pre; }
+  .cell.hot { background: var(--accent); color: #06231f; border-color: var(--accent); }
+
+  .diverge { display: grid; gap: 8px; }
+  .dv { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; font-size: 12.5px; }
+  .dv .w { font-family: var(--mono); color: var(--accent); font-weight: 600; }
+  .dv .line { font-family: var(--mono); font-size: 12px; margin-top: 3px; color: var(--dim); }
+  .dv .line b { color: var(--ink); font-weight: 600; }
+
+  canvas { display: block; width: 100%; height: 150px; }
+
+  .note { color: var(--dim); font-size: 12.5px; margin: 10px 0 0; max-width: 82ch; }
+  .note code, .inline { font-family: var(--mono); background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .empty { color: var(--dim); font-size: 13px; padding: 6px 0; }
+
+  footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12.5px; }
+  footer h3 { color: var(--ink); font-size: 13px; margin: 0 0 6px; }
+  footer p { max-width: 84ch; }
+
+  /* ---- preview mode: chrome off, one dense readable frame for the storybook card ---- */
+  body.preview .wrap { max-width: none; padding: 18px 22px; }
+  body.preview header, body.preview footer, body.preview section, body.preview .banner { display: none; }
+  body.preview #previewStage { display: block; }
+  #previewStage { display: none; }
+  #previewStage h1 { font-size: 25px; margin: 0 0 2px; }
+  #previewStage .sub { color: var(--dim); font-size: 12.5px; margin: 0 0 14px; }
+  #previewStage .pgrid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 22px; align-items: start; }
+  #previewStage .cap { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--dim); margin: 0 0 6px; font-weight: 700; }
+  #previewStage table { font-size: 12px; }
+  #previewStage td, #previewStage th { padding: 3px 8px; }
+  #previewStage .pvfoot {
+    margin: 20px 0 0; padding-top: 12px; border-top: 1px solid var(--line);
+    color: var(--dim); font-size: 12.5px;
+  }
+  #previewStage .pvfoot b { color: var(--ink); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- preview stage: only visible with ?preview=1, used by the playground index card -->
+  <div id="previewStage">
+    <h1>BPE Forge<span class="dot">.</span></h1>
+    <p class="sub">Train a byte pair encoding tokenizer in the browser, then watch it cut text up.</p>
+    <div class="pgrid">
+      <div>
+        <p class="cap">Tokens, from a vocabulary trained on this page</p>
+        <div class="chips" id="pvChips"></div>
+      </div>
+      <div>
+        <p class="cap">The merges that made them, in the order it learned them</p>
+        <table><tbody id="pvMerges"></tbody></table>
+      </div>
+    </div>
+    <p class="pvfoot" id="pvFoot"></p>
+  </div>
+
+  <header>
+    <h1>BPE Forge<span class="dot">.</span></h1>
+    <p class="tag">Byte pair encoding, built in front of you. Give it text, watch it choose which
+      pair of symbols to glue together next, and then use the tokenizer you just trained.</p>
+    <p class="banner"><b>This is not anyone's real tokenizer.</b> It learns its whole vocabulary
+      from the text in panel 1, here, offline, in this tab. It shares no merges and no token IDs
+      with any commercial model, so use it to understand the mechanism and never to predict a
+      bill. All sample text was written for this build and is illustrative.</p>
+  </header>
+
+  <section>
+    <h2><span class="n">1</span> &middot; Corpus</h2>
+    <p class="lede">The tokenizer knows nothing except what is in this box. Everything it learns,
+      it learns from here.</p>
+    <div class="panel">
+      <div class="row">
+        <button class="ghost" data-sample="prose">Sample: prose</button>
+        <button class="ghost" data-sample="code">Sample: code</button>
+        <button class="ghost" data-sample="mixed">Sample: many scripts</button>
+        <span class="spacer"></span>
+        <button class="ghost" id="clearCorpus">Clear</button>
+      </div>
+      <div class="row"><textarea id="corpus" rows="7" spellcheck="false"></textarea></div>
+      <div class="stats">
+        <span><b id="cChars">0</b> characters</span>
+        <span><b id="cBytes">0</b> UTF&#8209;8 bytes</span>
+        <span><b id="cChunks">0</b> chunks</span>
+        <span><b id="cUniq">0</b> unique chunks</span>
+      </div>
+      <p class="note">A <span class="inline">chunk</span> is what the pretokenizer produces before
+        any merging happens: a regex splits the text on word, number, punctuation and whitespace
+        boundaries, and merges are only ever allowed <em>inside</em> one chunk. That is why a token
+        never straddles two words, and why the leading space is glued to the front of a word
+        instead of standing alone.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">2</span> &middot; Train</h2>
+    <p class="lede">One merge per step. Count every adjacent pair of symbols in the corpus, take
+      the most common one, and replace it everywhere with a single new symbol. That is the whole
+      algorithm. Repeat until the vocabulary is as big as you want it.</p>
+    <div class="panel">
+      <div class="row">
+        <button class="primary" id="btnStep">Step</button>
+        <button id="btnRun">Run</button>
+        <button id="btnReset">Reset</button>
+        <span class="spacer"></span>
+        <label class="ctl">target
+          <input type="range" id="target" min="10" max="500" step="10" value="220">
+          <b id="targetVal" style="color:var(--ink);font-variant-numeric:tabular-nums">220</b>
+          merges
+        </label>
+      </div>
+      <div class="stats">
+        <span><b id="sMerges">0</b> merges done</span>
+        <span><b id="sVocab">256</b> vocabulary</span>
+        <span><b id="sSyms">0</b> symbols left in corpus</span>
+        <span><b id="sShrink">0.00&times;</b> shrink vs bytes</span>
+      </div>
+
+      <div class="two" style="margin-top:16px">
+        <div>
+          <p class="cap" style="font-size:11px;text-transform:uppercase;letter-spacing:0.09em;color:var(--dim);margin:0 0 7px;font-weight:700">
+            This round's candidates</p>
+          <div class="bars" id="bars"><p class="empty">Press Step.</p></div>
+          <p class="note" id="barsNote">The bar in colour is the pair that wins this round. Ties
+            are broken by whichever pair the corpus scan met first, so a run is reproducible.</p>
+        </div>
+        <div>
+          <p class="cap" style="font-size:11px;text-transform:uppercase;letter-spacing:0.09em;color:var(--dim);margin:0 0 7px;font-weight:700">
+            Merge table</p>
+          <div class="tablewrap">
+            <table>
+              <thead><tr><th class="num">#</th><th class="mono">pair</th><th class="mono">token</th><th class="num">count</th></tr></thead>
+              <tbody id="mergeBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px">
+        <p class="cap" style="font-size:11px;text-transform:uppercase;letter-spacing:0.09em;color:var(--dim);margin:0 0 7px;font-weight:700">
+          Tokens needed for a held out paragraph, as the vocabulary grows</p>
+        <canvas id="curve" width="1000" height="300"></canvas>
+        <p class="note">The held out paragraph is <em>not</em> in the corpus, so this is compression
+          on text the tokenizer has never seen. It drops fast and then flattens. That elbow is the
+          real argument about vocabulary size: past it you are buying embedding rows and getting
+          almost no tokens back.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">3</span> &middot; Tokenize</h2>
+    <p class="lede">Now use it. Type anything. Every chip is one token, and the colour is just a
+      hash of the token so the same token always looks the same. Watch a capitalised word at the
+      start of a sentence: the tokenizer learned <span class="inline">&middot;the</span> with its
+      leading space and never met <span class="inline">The</span>, so it pays for that capital
+      letter one byte at a time.</p>
+    <div class="panel">
+      <div class="row"><textarea id="input" rows="3" spellcheck="false"></textarea></div>
+      <div class="row">
+        <label class="ctl"><input type="checkbox" id="showIds"> show token IDs</label>
+        <label class="ctl"><input type="checkbox" id="showRaw"> show the byte&#8209;map form</label>
+        <span class="spacer"></span>
+        <span class="stats" style="margin:0">
+          <span><b id="tTok">0</b> tokens</span>
+          <span><b id="tChars">0</b> chars</span>
+          <span><b id="tRatio">0.00</b> chars/token</span>
+        </span>
+      </div>
+      <div class="row"><div class="chips" id="chips"></div></div>
+      <p class="note" id="tokNote"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">4</span> &middot; Trace one chunk</h2>
+    <p class="lede">Click any chip above, or type a word here, to watch it climb from raw bytes to
+      its final tokens. Each rung is one merge firing, and the label is that merge's rank.</p>
+    <div class="panel">
+      <div class="row">
+        <input id="traceWord" type="text" spellcheck="false" value=" tokenizer"
+          style="flex:1 1 220px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-family:var(--mono);font-size:13px">
+      </div>
+      <div class="ladder" id="ladder" style="margin-top:12px"></div>
+      <p class="note">The encoder never picks the longest token it can see. It picks the merge with
+        the <em>lowest rank</em> that is present anywhere in the chunk, applies it everywhere in
+        that chunk, and looks again. Rank order is learned order, so an early cheap merge can
+        permanently block a later, longer one. Panel 5 is that fact with receipts.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">5</span> &middot; Where it surprises you</h2>
+    <p class="lede">Same vocabulary, two ways to cut a word up. Rank ordered merging is what this
+      tokenizer does. Longest match is what almost everyone assumes it does.</p>
+    <div class="panel">
+      <div class="row">
+        <button id="btnDiverge">Find disagreements in the corpus</button>
+        <span class="spacer"></span>
+        <span class="stats" style="margin:0"><span><b id="dvCount">&ndash;</b> chunks disagree</span></span>
+      </div>
+      <div class="diverge" id="diverge" style="margin-top:12px"><p class="empty">Train first, then press the button.</p></div>
+      <p class="note">Longest match walks left to right taking the biggest vocabulary entry that
+        fits. Byte pair encoding replays its merges in the order it learned them. Both are using
+        the identical vocabulary and they still cut some words in different places, which is the
+        clearest possible proof that a tokenizer is its merge <em>order</em>, not just its word list.</p>
+    </div>
+  </section>
+
+  <footer>
+    <h3>Three things this build exists to make obvious</h3>
+    <p><b>1. The capital G is an accident.</b> Byte level BPE cannot work on raw bytes, because
+      control characters and whitespace wreck the string handling, so all 256 byte values get
+      remapped onto printable code points first. The 188 already printable bytes keep their own
+      character. The other 68 are stacked in order starting at U+0100. Space is byte 32, and it is
+      the 33rd homeless byte, so it lands on U+0100 + 32 = U+0120, which renders as a capital G
+      with a dot over it. Tick "show the byte-map form" in panel 3 and every leading space in the
+      text turns into one. Nobody chose that. It is an offset.</p>
+    <p><b>2. Counting and merging disagree, on exactly one shape of pair.</b> Two occurrences of a
+      pair cannot overlap unless both halves are the same symbol. A run of five identical symbols
+      holds four overlapping occurrences of that pair but supports only two merges. Count the
+      overlapping way and every arithmetic identity in the training run stops closing, while the
+      tokenizer keeps working perfectly and looking fine.</p>
+    <p><b>3. A vocabulary is not a tokenizer.</b> Hand someone the exact list of tokens this page
+      learned and they still cannot reproduce its output, because the answer depends on the order
+      the merges were learned in. Panel 5 finds the words where that bites.</p>
+    <p style="margin-top:14px">Built offline, nothing leaves this page, no network calls, no
+      storage. Verification receipts live in <code>projects/playground/_verify/RESULTS.md</code>.</p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * 1. Byte level plumbing
+ * ------------------------------------------------------------------ */
+
+/* All 256 byte values mapped onto printable code points, so the merge machinery
+ * can treat everything as ordinary text. The 188 bytes that are already
+ * printable keep their own character; the remaining 68 are assigned in
+ * ascending byte order starting at U+0100. This is a bijection and it is
+ * exactly reversible, which panel 3 depends on. */
+function buildByteMap() {
+  const printable = [];
+  for (let b = 0x21; b <= 0x7e; b++) printable.push(b);   // ! .. ~
+  for (let b = 0xa1; b <= 0xac; b++) printable.push(b);   // inverted ! .. not sign
+  for (let b = 0xae; b <= 0xff; b++) printable.push(b);   // registered .. y diaeresis
+  const set = new Set(printable);
+  const b2u = new Array(256);
+  for (const b of printable) b2u[b] = String.fromCodePoint(b);
+  let n = 0;
+  for (let b = 0; b < 256; b++) {
+    if (!set.has(b)) { b2u[b] = String.fromCodePoint(0x100 + n); n++; }
+  }
+  const u2b = new Map();
+  for (let b = 0; b < 256; b++) u2b.set(b2u[b], b);
+  return { b2u, u2b, displaced: n };
+}
+const BYTEMAP = buildByteMap();
+/* U+0001 is not in the byte map's image, so it can never occur inside a symbol
+ * and is safe as the joiner in a pair key. Written as an escape rather than as
+ * the raw byte on purpose: a control character here is invisible in a diff. */
+const SEP = "\u0001";
+const ENC = new TextEncoder();
+const DEC = new TextDecoder("utf-8", { fatal: true });
+
+/* The pretokenizer. Text is cut here first and merges may never cross a cut,
+ * which is what keeps a token from spanning two words. Contractions, then
+ * letter runs, number runs, punctuation runs, then whitespace. The optional
+ * leading space in three of those branches is why " word" is one chunk. */
+const PRETOK = /'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+/gu;
+
+function pretokenize(text) {
+  return text.match(PRETOK) || [];
+}
+/* One chunk of text into its starting symbols: UTF-8 bytes, each remapped. */
+function chunkToSymbols(chunk) {
+  const bytes = ENC.encode(chunk);
+  const out = new Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) out[i] = BYTEMAP.b2u[bytes[i]];
+  return out;
+}
+/* A token string back into the text it stands for. Tokens can and do split a
+ * multi byte character down the middle, so this is allowed to fail, and when
+ * it does we show the raw bytes rather than a replacement character, because
+ * "this token is half of an emoji" is the interesting fact. */
+function tokenToText(tok) {
+  const bytes = new Uint8Array(tok.length);
+  for (let i = 0; i < tok.length; i++) {
+    const b = BYTEMAP.u2b.get(tok[i]);
+    if (b === undefined) return { ok: false, text: tok };
+    bytes[i] = b;
+  }
+  try { return { ok: true, text: DEC.decode(bytes) }; }
+  catch (e) {
+    return { ok: false, text: [...bytes].map(b => "\\x" + b.toString(16).padStart(2, "0")).join("") };
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. The tokenizer
+ * ------------------------------------------------------------------ */
+class BPE {
+  constructor(corpus) {
+    this.words = [];                  // { syms: [...], freq }
+    const seen = new Map();
+    for (const chunk of pretokenize(corpus)) {
+      const at = seen.get(chunk);
+      if (at === undefined) { seen.set(chunk, this.words.length); this.words.push({ chunk, syms: chunkToSymbols(chunk), freq: 1 }); }
+      else this.words[at].freq++;
+    }
+    this.merges = [];                 // { a, b, token, count, rank }
+    this.ranks = new Map();           // "a\u0001b" -> rank
+    this.vocab = new Map();           // token -> id
+    for (let b = 0; b < 256; b++) this.vocab.set(BYTEMAP.b2u[b], b);
+    this.startSymbols = this.symbolCount();
+  }
+  symbolCount() {
+    let n = 0;
+    for (const w of this.words) n += w.syms.length * w.freq;
+    return n;
+  }
+  /* Count every adjacent pair, weighted by how often its chunk occurs.
+   *
+   * The self overlap case is the whole reason this is not a one line loop.
+   * A pair (a, b) with a !== b can never overlap another occurrence of itself,
+   * so a plain scan is right for those. A pair (a, a) can: "aaaaa" holds four
+   * occurrences but only supports two merges. Counting it the overlapping way
+   * makes the recorded counts exceed the real work done, and then the identity
+   * "a merge of count C removes exactly C symbols" stops holding. So runs of a
+   * repeated symbol are counted by length, floor(run / 2). */
+  countPairs() {
+    const counts = new Map();         // key -> count.  Map keeps insertion order = first seen order.
+    const bump = (a, b, k) => {
+      const key = a + SEP + b;
+      counts.set(key, (counts.get(key) || 0) + k);
+    };
+    for (const w of this.words) {
+      const s = w.syms, f = w.freq;
+      for (let i = 0; i < s.length - 1; i++) {
+        if (s[i] !== s[i + 1]) bump(s[i], s[i + 1], f);
+      }
+      let i = 0;
+      while (i < s.length) {
+        let j = i;
+        while (j + 1 < s.length && s[j + 1] === s[i]) j++;
+        const run = j - i + 1;
+        if (run >= 2) bump(s[i], s[i], Math.floor(run / 2) * f);
+        i = j + 1;
+      }
+    }
+    return counts;
+  }
+  /* Replace every non overlapping occurrence of (a, b) with the joined token.
+   * Left to right, and i += 2 on a hit, which is what makes "aaaaa" become
+   * ["aa", "aa", "a"] and matches how countPairs counted it. */
+  static applyPair(syms, a, b) {
+    const out = [];
+    let hits = 0;
+    for (let i = 0; i < syms.length;) {
+      if (i < syms.length - 1 && syms[i] === a && syms[i + 1] === b) { out.push(a + b); i += 2; hits++; }
+      else { out.push(syms[i]); i++; }
+    }
+    return { out, hits };
+  }
+  /* One merge. Returns the merge record, or null when there is nothing left to
+   * merge (every chunk is a single symbol). */
+  step() {
+    const counts = this.countPairs();
+    let bestKey = null, bestCount = 0;
+    for (const [key, c] of counts) {
+      if (c > bestCount) { bestCount = c; bestKey = key; }   // strict >, so first seen wins a tie
+    }
+    if (bestKey === null || bestCount < 1) return null;
+    const [a, b] = bestKey.split(SEP);
+    const token = a + b;
+    let applied = 0;
+    for (const w of this.words) {
+      const r = BPE.applyPair(w.syms, a, b);
+      if (r.hits) { w.syms = r.out; applied += r.hits * w.freq; }
+    }
+    const rec = { a, b, token, count: bestCount, applied, rank: this.merges.length };
+    this.merges.push(rec);
+    this.ranks.set(bestKey, rec.rank);
+    this.vocab.set(token, 256 + rec.rank);
+    this.lastCounts = counts;
+    return rec;
+  }
+  /* Encode one chunk. Repeatedly find the lowest ranked merge present anywhere
+   * in the chunk and apply it. NOT longest match: rank order decides, so a long
+   * token can be unreachable because an earlier merge ate one of its halves.
+   * Returns the token list, and optionally the full ladder for panel 4. */
+  encodeChunk(chunk, trace) {
+    let syms = chunkToSymbols(chunk);
+    if (trace) trace.push({ rank: null, label: "bytes", syms: syms.slice(), a: null, b: null });
+    let guard = 0;
+    while (syms.length > 1 && guard++ < 10000) {
+      let bestRank = Infinity, bestA = null, bestB = null;
+      for (let i = 0; i < syms.length - 1; i++) {
+        const r = this.ranks.get(syms[i] + SEP + syms[i + 1]);
+        if (r !== undefined && r < bestRank) { bestRank = r; bestA = syms[i]; bestB = syms[i + 1]; }
+      }
+      if (bestA === null) break;
+      syms = BPE.applyPair(syms, bestA, bestB).out;
+      if (trace) trace.push({ rank: bestRank, label: "#" + bestRank, syms: syms.slice(), a: bestA, b: bestB });
+    }
+    return syms;
+  }
+  encode(text) {
+    const out = [];
+    for (const chunk of pretokenize(text)) for (const t of this.encodeChunk(chunk)) out.push(t);
+    return out;
+  }
+  /* Longest match over the same vocabulary, left to right. Here purely so
+   * panel 5 can show that it disagrees. */
+  greedyChunk(chunk) {
+    const syms = chunkToSymbols(chunk);
+    const out = [];
+    let i = 0;
+    while (i < syms.length) {
+      let took = null;
+      for (let j = syms.length; j > i; j--) {
+        const cand = syms.slice(i, j).join("");
+        if (this.vocab.has(cand)) { took = cand; i = j; break; }
+      }
+      if (took === null) { out.push(syms[i]); i++; } else out.push(took);
+    }
+    return out;
+  }
+  decode(tokens) {
+    const bytes = [];
+    for (const tok of tokens) for (const ch of tok) {
+      const b = BYTEMAP.u2b.get(ch);
+      if (b === undefined) return null;
+      bytes.push(b);
+    }
+    try { return new TextDecoder("utf-8").decode(new Uint8Array(bytes)); }
+    catch (e) { return null; }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. Sample text. Written for this build, illustrative only.
+ * ------------------------------------------------------------------ */
+const SAMPLES = {
+  prose:
+"A tokenizer is the part of a language model nobody looks at. It sits in front of everything, " +
+"it decides what a unit of text even is, and then it never comes up again until a bill arrives " +
+"or a word gets cut in a place that makes no sense.\n\n" +
+"Byte pair encoding starts from nothing. Every character is its own token, the vocabulary is " +
+"tiny, and the text is long. Then it counts. It counts every adjacent pair of tokens in the " +
+"whole corpus, finds the pair that occurs most often, and glues that pair into a single new " +
+"token. Then it counts again. Every merge makes the vocabulary one token bigger and the encoded " +
+"text a little shorter, and the tokenizer is nothing more than the ordered list of merges it " +
+"learned along the way.\n\n" +
+"What surprises people is that the merges are ordered. A tokenizer is not a list of words, it " +
+"is a recipe, and the steps have to be replayed in the order they were learned. Two tokenizers " +
+"trained on the same corpus with the same vocabulary size will agree. A tokenizer and a plain " +
+"longest match over the same vocabulary will not always agree, because longest match has no " +
+"idea which merge came first.\n\n" +
+"The other thing that surprises people is the spaces. In a byte level tokenizer the space " +
+"belongs to the word that follows it, so the token for a word at the start of a sentence and " +
+"the token for the same word in the middle of a sentence are different tokens entirely. The " +
+"tokenizer learned them separately, it counts them separately, and it will happily spend two " +
+"tokens on a word it already knows if you hand it that word with the wrong spacing.\n\n" +
+"None of this is complicated. It is counting, merging, and remembering the order. The whole " +
+"algorithm fits on a page. It is just invisible, and invisible things get treated as magic, and " +
+"magic is expensive.",
+  code:
+"function countPairs(words) {\n" +
+"  const counts = new Map();\n" +
+"  for (const word of words) {\n" +
+"    const syms = word.syms;\n" +
+"    for (let i = 0; i < syms.length - 1; i++) {\n" +
+"      const key = syms[i] + SEP + syms[i + 1];\n" +
+"      counts.set(key, (counts.get(key) || 0) + word.freq);\n" +
+"    }\n" +
+"  }\n" +
+"  return counts;\n" +
+"}\n\n" +
+"function bestPair(counts) {\n" +
+"  let bestKey = null;\n" +
+"  let bestCount = 0;\n" +
+"  for (const [key, count] of counts) {\n" +
+"    if (count > bestCount) {\n" +
+"      bestCount = count;\n" +
+"      bestKey = key;\n" +
+"    }\n" +
+"  }\n" +
+"  return bestKey;\n" +
+"}\n\n" +
+"function applyPair(syms, a, b) {\n" +
+"  const out = [];\n" +
+"  for (let i = 0; i < syms.length;) {\n" +
+"    if (syms[i] === a && syms[i + 1] === b) {\n" +
+"      out.push(a + b);\n" +
+"      i += 2;\n" +
+"    } else {\n" +
+"      out.push(syms[i]);\n" +
+"      i += 1;\n" +
+"    }\n" +
+"  }\n" +
+"  return out;\n" +
+"}\n\n" +
+"const merges = [];\n" +
+"for (let step = 0; step < target; step++) {\n" +
+"  const counts = countPairs(words);\n" +
+"  const key = bestPair(counts);\n" +
+"  if (key === null) break;\n" +
+"  merges.push(key);\n" +
+"}\n",
+  mixed:
+"the tokenizer counts the tokens and the counting is the tokenizer\n" +
+"aaaa aaaaa aaaaaa aaaaaaa aaaaaaaa\n" +
+"1234 12345 123456 2026 2026 2026-08-21\n" +
+"naive naivety cafe cafes resume resumes\n" +
+"the theme there their them then these those\n" +
+"tokenize tokenized tokenizer tokenizing tokenization\n" +
+"merge merged merges merging merger\n" +
+"run running runner runs rerun\n" +
+"Grosse Strasse und grosser Baum, der Baum ist gross\n" +
+"la casa, las casas, el gato, los gatos, la cosa, las cosas\n" +
+"un chat, deux chats, une chose, deux choses\n" +
+"cat dog cat dog cat dog bird cat dog bird\n"
+};
+
+/* Held out, deliberately NOT part of any sample corpus, so the compression
+ * curve in panel 2 is measured on text the tokenizer has never seen. */
+const HOLDOUT =
+"Every measurement of a tokenizer that matters is measured on text it was never trained on. " +
+"Compression on the training corpus is a statement about memory. Compression on something held " +
+"back is a statement about the language. The gap between the two is where the vocabulary size " +
+"argument actually lives, and the only way to see it is to keep a paragraph out of the counting " +
+"and then feed it in afterwards and watch what happens to the token count.";
+
+/* ------------------------------------------------------------------ *
+ * 4. Wiring
+ * ------------------------------------------------------------------ */
+const $ = id => document.getElementById(id);
+const PREVIEW = new URLSearchParams(location.search).has("preview");
+
+let bpe = null;
+let running = false;
+let curveData = [];
+
+function hueOf(tok) {
+  let h = 2166136261;
+  for (const c of tok) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % 360;
+}
+function chipStyle(tok) {
+  const h = hueOf(tok);
+  return "background:hsl(" + h + " 62% 72%)";
+}
+function visible(text) {
+  return text.replace(/ /g, "·").replace(/\n/g, "⏎").replace(/\t/g, "→");
+}
+
+function rebuild() {
+  bpe = new BPE($("corpus").value);
+  curveData = [];
+  running = false;
+  $("btnRun").textContent = "Run";
+  renderCorpusStats();
+  renderTrain(null);
+  renderMergeTable(true);
+  measureCurve();
+  renderCurve();
+  renderTokens();
+  renderTrace();
+  $("diverge").innerHTML = '<p class="empty">Press the button.</p>';
+  $("dvCount").textContent = "-";
+}
+
+function renderCorpusStats() {
+  const text = $("corpus").value;
+  const chunks = pretokenize(text);
+  $("cChars").textContent = text.length.toLocaleString();
+  $("cBytes").textContent = ENC.encode(text).length.toLocaleString();
+  $("cChunks").textContent = chunks.length.toLocaleString();
+  $("cUniq").textContent = bpe ? bpe.words.length.toLocaleString() : "0";
+}
+
+function renderTrain(rec) {
+  $("sMerges").textContent = bpe.merges.length.toLocaleString();
+  $("sVocab").textContent = bpe.vocab.size.toLocaleString();
+  const left = bpe.symbolCount();
+  $("sSyms").textContent = left.toLocaleString();
+  $("sShrink").textContent = (left ? (bpe.startSymbols / left) : 0).toFixed(2) + "×";
+
+  const counts = bpe.lastCounts;
+  const bars = $("bars");
+  if (!counts) { bars.innerHTML = '<p class="empty">Press Step.</p>'; return; }
+  const top = [...counts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8);
+  const max = top.length ? top[0][1] : 1;
+  /* The field flattens fast, and that is the lesson rather than a display bug:
+   * once the best remaining pair is worth 3 or 4 occurrences, every further
+   * merge buys almost nothing, which is the same fact the curve below shows as
+   * an elbow. Say it out loud instead of letting eight equal bars look broken. */
+  const tied = top.filter(t => t[1] === max).length;
+  $("barsNote").innerHTML = "Best remaining pair occurs <b style=\"color:var(--ink)\">" + max +
+    "</b> time" + (max === 1 ? "" : "s") +
+    (tied > 1 ? ", tied with " + (tied - 1) + " other" + (tied === 2 ? "" : "s") : "") +
+    ". Ties go to whichever pair the corpus scan met first, so a run is reproducible. " +
+    (max <= 4
+      ? "The field has flattened: there is almost nothing left worth merging, which is the elbow in the curve below."
+      : "The bar in colour is the pair that wins this round.");
+  bars.innerHTML = top.map(([key, c]) => {
+    const [a, b] = key.split(SEP);
+    const win = rec && a === rec.a && b === rec.b;
+    const lab = visible(tokenToText(a).text) + " + " + visible(tokenToText(b).text);
+    return '<div class="bar' + (win ? " win" : "") + '"><span class="k" title="' +
+      lab.replace(/"/g, "&quot;") + '">' + escapeHtml(lab) + '</span>' +
+      '<span class="t"><i style="width:' + (100 * c / max).toFixed(1) + '%"></i></span>' +
+      '<span class="c">' + c + '</span></div>';
+  }).join("");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderMergeTable(reset) {
+  const body = $("mergeBody");
+  if (reset) body.innerHTML = "";
+  const shown = body.children.length;
+  const frag = document.createDocumentFragment();
+  for (let i = shown; i < bpe.merges.length; i++) {
+    const m = bpe.merges[i];
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td class="num">' + m.rank + '</td>' +
+      '<td class="mono">' + escapeHtml(visible(tokenToText(m.a).text)) + ' &middot; ' + escapeHtml(visible(tokenToText(m.b).text)) + '</td>' +
+      '<td class="mono" style="color:var(--accent)">' + escapeHtml(visible(tokenToText(m.token).text)) + '</td>' +
+      '<td class="num">' + m.count + '</td>';
+    frag.appendChild(tr);
+  }
+  body.appendChild(frag);
+  for (const tr of body.querySelectorAll("tr.fresh")) tr.classList.remove("fresh");
+  if (body.lastElementChild && bpe.merges.length) {
+    body.lastElementChild.classList.add("fresh");
+    body.parentElement.scrollTop = body.parentElement.scrollHeight;
+  }
+}
+
+function measureCurve() {
+  curveData.push({ merges: bpe.merges.length, tokens: bpe.encode(HOLDOUT).length });
+}
+
+function renderCurve() {
+  const cv = $("curve");
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#111823"; ctx.fillRect(0, 0, W, H);
+  const pad = { l: 52, r: 14, t: 16, b: 30 };
+  const maxX = Math.max(10, Number($("target").value));
+  const maxY = curveData.length ? curveData[0].tokens : 1;
+  const x = v => pad.l + (W - pad.l - pad.r) * (v / maxX);
+  const y = v => pad.t + (H - pad.t - pad.b) * (1 - v / maxY);
+
+  ctx.strokeStyle = "#2a3441"; ctx.lineWidth = 1;
+  ctx.fillStyle = "#8b98a8"; ctx.font = "14px ui-sans-serif, system-ui, sans-serif";
+  for (let i = 0; i <= 4; i++) {
+    const v = maxY * i / 4, py = Math.round(y(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.l, py); ctx.lineTo(W - pad.r, py); ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillText(Math.round(v), pad.l - 8, py + 5);
+  }
+  ctx.textAlign = "center";
+  ctx.fillText("0", x(0), H - 9);
+  ctx.fillText(String(maxX) + " merges", x(maxX) - 34, H - 9);
+
+  if (curveData.length > 1) {
+    ctx.strokeStyle = "#5fd3c4"; ctx.lineWidth = 2.5; ctx.beginPath();
+    curveData.forEach((d, i) => { const px = x(d.merges), py = y(d.tokens); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+    ctx.stroke();
+    const last = curveData[curveData.length - 1];
+    ctx.fillStyle = "#5fd3c4";
+    ctx.beginPath(); ctx.arc(x(last.merges), y(last.tokens), 3.5, 0, 7); ctx.fill();
+    ctx.textAlign = "left";
+    ctx.fillText(last.tokens + " tokens", Math.min(x(last.merges) + 10, W - 120), y(last.tokens) - 8);
+  } else {
+    ctx.fillStyle = "#8b98a8"; ctx.textAlign = "center";
+    ctx.fillText("step the trainer to plot this", W / 2, H / 2);
+  }
+}
+
+let selectedChunk = null;
+function renderTokens() {
+  const text = $("input").value;
+  const showIds = $("showIds").checked, showRaw = $("showRaw").checked;
+  const box = $("chips");
+  const chunks = pretokenize(text);
+  box.innerHTML = "";
+  let n = 0;
+  for (const chunk of chunks) {
+    for (const tok of bpe.encodeChunk(chunk)) {
+      const info = tokenToText(tok);
+      const span = document.createElement("span");
+      span.className = "chip" + (info.ok ? "" : " raw");
+      if (info.ok) span.setAttribute("style", chipStyle(tok));
+      span.dataset.chunk = chunk;
+      span.dataset.token = tok;
+      span.textContent = showRaw ? tok : visible(info.text);
+      if (showIds) {
+        const s = document.createElement("span");
+        s.className = "id"; s.textContent = bpe.vocab.get(tok);
+        span.appendChild(s);
+      }
+      span.title = "chunk: " + JSON.stringify(chunk) + "  |  id " + bpe.vocab.get(tok);
+      box.appendChild(span);
+      n++;
+    }
+  }
+  $("tTok").textContent = n.toLocaleString();
+  $("tChars").textContent = text.length.toLocaleString();
+  $("tRatio").textContent = n ? (text.length / n).toFixed(2) : "0.00";
+
+  const roundTrip = bpe.decode([...box.children].map(c => c.dataset.token));
+  const ok = roundTrip === text;
+  $("tokNote").innerHTML = ok
+    ? "Decoded back to the input exactly, character for character. That is the invariant that " +
+      "matters most in a tokenizer: whatever it does to your text, gluing the tokens back " +
+      "together has to return the original bytes. A red chip is a token holding part of a " +
+      "multi&#8209;byte character, so it has no readable text of its own and is shown as raw bytes."
+    : '<b style="color:var(--warn)">Round trip mismatch.</b> The tokens do not reassemble into the input.';
+}
+
+function renderTrace() {
+  const word = selectedChunk !== null ? selectedChunk : $("traceWord").value;
+  const trace = [];
+  bpe.encodeChunk(word, trace);
+  const lad = $("ladder");
+  if (!word) { lad.innerHTML = '<p class="empty">Type a word above.</p>'; return; }
+  lad.innerHTML = trace.map(t => {
+    const seq = t.syms.map(s => {
+      const hot = t.a !== null && s === t.a + t.b;
+      return '<span class="cell' + (hot ? " hot" : "") + '">' + escapeHtml(visible(tokenToText(s).text)) + '</span>';
+    }).join("");
+    return '<div class="rung"><span class="lab">' + escapeHtml(t.label) + '</span><span class="seq">' + seq + '</span></div>';
+  }).join("") +
+    '<div class="rung" style="margin-top:6px"><span class="lab" style="color:var(--accent)">result</span>' +
+    '<span class="seq" style="color:var(--dim)">' + trace[trace.length - 1].syms.length +
+    ' token' + (trace[trace.length - 1].syms.length === 1 ? "" : "s") + ', ' + (trace.length - 1) +
+    ' merge' + (trace.length - 1 === 1 ? "" : "s") + ' fired</span></div>';
+}
+
+function findDivergences() {
+  const seen = new Set();
+  const rows = [];
+  for (const w of bpe.words) {
+    if (seen.has(w.chunk)) continue;
+    seen.add(w.chunk);
+    const a = bpe.encodeChunk(w.chunk), b = bpe.greedyChunk(w.chunk);
+    if (a.length !== b.length || a.some((t, i) => t !== b[i])) rows.push({ chunk: w.chunk, bpe: a, greedy: b });
+  }
+  $("dvCount").textContent = rows.length.toLocaleString();
+  const box = $("diverge");
+  if (!rows.length) {
+    box.innerHTML = '<p class="empty">No disagreements in this corpus at ' + bpe.merges.length +
+      ' merges. That is a real result, not a failure: with few merges the two agree everywhere. ' +
+      'Train further, or load the "many scripts" sample, and they come apart.</p>';
+    return;
+  }
+  const fmt = toks => toks.map(t => '<b>' + escapeHtml(visible(tokenToText(t).text)) + '</b>').join(" · ");
+  box.innerHTML = rows.slice(0, 12).map(r =>
+    '<div class="dv"><span class="w">' + escapeHtml(visible(r.chunk)) + '</span>' +
+    '<div class="line">rank ordered &nbsp;' + fmt(r.bpe) + '&nbsp; (' + r.bpe.length + ')</div>' +
+    '<div class="line">longest match &nbsp;' + fmt(r.greedy) + '&nbsp; (' + r.greedy.length + ')</div></div>'
+  ).join("") + (rows.length > 12 ? '<p class="empty">' + (rows.length - 12) + ' more not shown.</p>' : "");
+}
+
+/* ---- trainer control ---- */
+function doStep(n) {
+  let last = null;
+  for (let i = 0; i < n; i++) {
+    if (bpe.merges.length >= Number($("target").value)) break;
+    const r = bpe.step();
+    if (!r) break;
+    last = r;
+    /* Measured every single merge, not once per batch. Measuring per batch drew
+     * a straight line between two points, which is worse than no chart: the
+     * whole reason this panel exists is the bend. 220 merges plus 220 holdout
+     * encodes was measured at 177ms, so per merge costs nothing. */
+    measureCurve();
+  }
+  renderTrain(last);
+  renderMergeTable(false);
+  renderCurve();
+  renderTokens();
+  renderTrace();
+  return last;
+}
+function loop() {
+  if (!running) return;
+  const done = doStep(3);
+  if (!done || bpe.merges.length >= Number($("target").value)) { running = false; $("btnRun").textContent = "Run"; return; }
+  requestAnimationFrame(loop);
+}
+
+/* ---- events ---- */
+function wire() {
+  $("corpus").addEventListener("input", () => { rebuild(); });
+  for (const b of document.querySelectorAll("[data-sample]")) {
+    b.addEventListener("click", () => { $("corpus").value = SAMPLES[b.dataset.sample]; rebuild(); });
+  }
+  $("clearCorpus").addEventListener("click", () => { $("corpus").value = ""; rebuild(); });
+  $("btnStep").addEventListener("click", () => { running = false; $("btnRun").textContent = "Run"; doStep(1); });
+  $("btnRun").addEventListener("click", () => {
+    running = !running;
+    $("btnRun").textContent = running ? "Pause" : "Run";
+    if (running) loop();
+  });
+  $("btnReset").addEventListener("click", () => rebuild());
+  $("target").addEventListener("input", () => { $("targetVal").textContent = $("target").value; renderCurve(); });
+  $("input").addEventListener("input", () => { selectedChunk = null; renderTokens(); renderTrace(); });
+  $("showIds").addEventListener("change", renderTokens);
+  $("showRaw").addEventListener("change", renderTokens);
+  $("traceWord").addEventListener("input", () => { selectedChunk = null; renderTrace(); });
+  $("chips").addEventListener("click", e => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    for (const c of $("chips").querySelectorAll(".sel")) c.classList.remove("sel");
+    chip.classList.add("sel");
+    selectedChunk = chip.dataset.chunk;
+    $("traceWord").value = chip.dataset.chunk;
+    renderTrace();
+  });
+  $("btnDiverge").addEventListener("click", findDivergences);
+}
+
+function renderPreview() {
+  document.body.classList.add("preview");
+  $("corpus").value = SAMPLES.prose;
+  bpe = new BPE(SAMPLES.prose);
+  for (let i = 0; i < 200; i++) if (!bpe.step()) break;
+  const chips = $("pvChips");
+  for (const tok of bpe.encode("The tokenizer counts every pair, merges the winner, and counts again.")) {
+    const info = tokenToText(tok);
+    const s = document.createElement("span");
+    s.className = "chip"; s.setAttribute("style", chipStyle(tok));
+    s.textContent = visible(info.text);
+    chips.appendChild(s);
+  }
+  const bytes = ENC.encode(SAMPLES.prose).length;
+  $("pvFoot").innerHTML = "<b>" + bpe.merges.length + "</b> merges learned from <b>" +
+    bytes.toLocaleString() + "</b> bytes of text, for a vocabulary of <b>" + bpe.vocab.size +
+    "</b>. Every merge, every count and every colour above was computed in this frame, offline.";
+  $("pvMerges").innerHTML = bpe.merges.slice(0, 13).map(m =>
+    '<tr><td class="num">' + m.rank + '</td><td class="mono">' +
+    escapeHtml(visible(tokenToText(m.a).text)) + ' &middot; ' + escapeHtml(visible(tokenToText(m.b).text)) +
+    '</td><td class="mono" style="color:var(--accent)">' + escapeHtml(visible(tokenToText(m.token).text)) +
+    '</td><td class="num">' + m.count + '</td></tr>').join("");
+}
+
+/* ---- boot ---- */
+$("corpus").value = SAMPLES.prose;
+$("input").value = "The tokenizer counts every pair, merges the winner, and counts again. 🧮";
+if (PREVIEW) {
+  renderPreview();
+} else {
+  wire();
+  rebuild();
+  /* Boot part trained rather than untrained or finished. 60 merges is enough
+   * that " tokenizer" has already become a single token (measured: it does so
+   * by merge 40) so panel 4 opens on the payoff, while leaving most of the way
+   * to the 220 target still to watch. */
+  doStep(60);
+}
+
+/* Read only handle for the verification suites. Nothing in the UI uses it, and
+ * the checkers drive the page through real clicks and only read back through
+ * here to assert. */
+window.__forge = {
+  get bpe() { return bpe; },
+  BPE, BYTEMAP, SAMPLES, HOLDOUT, pretokenize, chunkToSymbols, tokenToText, buildByteMap, SEP
+};
+</script>
+</body>
+</html>

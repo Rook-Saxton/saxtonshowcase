@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  ============================================================================
+  WAVE FUNCTION COLLAPSE LAB
+  Built 2026-08-20, playground build #1. Self-contained: one file,
+  inline CSS and JS, no dependencies, no network. Opens offline in a browser.
+
+  WHAT IT DOES
+    An interactive, step-through visualizer for the Wave Function Collapse
+    algorithm (Maxim Gumin, 2016), in its simple tiled form. Every cell starts
+    holding every tile at once. The solver repeatedly picks the least uncertain
+    cell, collapses it to one tile, and propagates that decision outward until
+    nothing else can be eliminated. You can watch it run, single-step it, hover
+    any cell to see exactly which tiles are still legal there, click a cell to
+    force a collapse by hand, and re-run any result from its seed.
+
+    Three tilesets share one solver: Pipes, Circuit, and Terrain. Swapping the
+    tileset changes nothing but the tile definitions, which is the whole point:
+    WFC is a constraint solver, and the art is data.
+
+  WHAT I LEARNED BUILDING IT
+    1. The propagation is the algorithm. Collapsing is trivial. The part that
+       actually matters is arc consistency: a support-counter table
+       compatible[cell][tile][direction] holding "how many tiles in the
+       neighbour on that side still permit this tile here." When a counter hits
+       zero the tile is impossible and gets banned, which cascades. Rebuilding
+       that count by rescanning neighbours each time is the naive version and
+       it is dramatically slower.
+    2. The counter bookkeeping has one direction flip that is easy to get
+       backwards, and getting it backwards still produces plausible-looking
+       output. Notes are inline at ban().
+    3. Rotating a tile is NOT the same as rotating its edge sockets. It is,
+       only while every socket is symmetric about the middle of its edge. The
+       Terrain set stores its sockets as ordered corner pairs, so rotation
+       would silently mismatch. It enumerates all 16 corner states instead.
+    4. Shannon entropy over tile weights beats a raw candidate count for
+       choosing the next cell, and the tiny random tiebreak matters more than
+       it looks like it should.
+    5. Contradictions are normal, not a bug. This build counts them, backtracks
+       a bounded number of steps, and falls back to a full restart. The stats
+       panel shows all three numbers on purpose.
+    6. The lesson that actually cost me something. The first version rendered
+       every rotated tile twice-rotated: it turned the canvas AND drew from the
+       already-rotated sockets. Thirty-six solves and roughly fifteen thousand
+       cell pairs audited clean straight through it, because the grid DATA was
+       never wrong. Only the picture was, by a quarter turn. Auditing the
+       output of a generator does not audit the generator's rendering, and I
+       would not have caught it by reading the code either. I caught it by
+       looking at a screenshot big enough to see one tile.
+    7. WFC's cost barely depends on the seed. Total bans over a solve is always
+       exactly cells * (tiles - 1), and for a tileset where every socket has the
+       same number of partners even the support-update count is fixed by the
+       grid alone. That closed form turned out to be the sharpest available
+       test of the propagator: it predicts an internal counter to the unit.
+
+  VERIFIED BY
+    ../_verify/check_wfc.js  solver audit: every adjacency in 36 solves checked
+                             against the raw sockets, tileset structure, a
+                             closed-form cost prediction, and two negative
+                             controls that must fail.
+    ../_verify/check_ui.js   end-to-end: 23 assertions driven only through real
+                             clicks, drags, hover and keys.
+    ../_verify/check_index.js the playground index that links here.
+    All three were green at commit time. Receipts: ../_verify/RESULTS.md.
+
+  WHY I BUILT IT
+    I had read about WFC and could describe it. I could not have written the
+    propagator from scratch, which means I did not actually know it. A
+    step-through visualizer is the version of learning something that leaves
+    an artifact behind for everyone else.
+
+  All imagery is generated procedurally at load time. No sample data, no real
+  data of any kind, nothing outbound.
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wave Function Collapse Lab</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #151b24;
+    --panel-2: #1c2430;
+    --line: #2a3441;
+    --ink: #e6edf3;
+    --ink-dim: #8b98a8;
+    --accent: #5fd3c4;
+    --accent-2: #f0b429;
+    --warn: #f2777a;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  header h1 {
+    font-size: 26px;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  header h1 .dot { color: var(--accent); }
+  header p.lede {
+    margin: 0 0 22px;
+    color: var(--ink-dim);
+    max-width: 76ch;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 322px;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 940px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .stage {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+  canvas#grid {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+    cursor: crosshair;
+    background: #000;
+  }
+  .stage-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    padding: 10px 4px 2px;
+    color: var(--ink-dim);
+    font-size: 13px;
+  }
+  .stage-foot b { color: var(--ink); font-weight: 600; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 14px 16px;
+    margin-bottom: 16px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-dim);
+    margin: 0 0 12px;
+    font-weight: 700;
+  }
+
+  .row { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; }
+  .row:last-child { margin-bottom: 0; }
+  .row label { flex: 0 0 78px; font-size: 13px; color: var(--ink-dim); }
+  .row .val { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink); }
+
+  select, input[type="text"] {
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 7px 9px;
+    font: inherit;
+    font-size: 13px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); min-width: 0; }
+  input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+
+  .btns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  button {
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 9px 10px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  button:hover { background: #26303d; border-color: #3a4757; }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #07231f; }
+  button.primary:hover { background: #74e0d2; border-color: #74e0d2; }
+  button.wide { grid-column: 1 / -1; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .stat { background: var(--panel-2); border-radius: 7px; padding: 8px 10px; }
+  .stat .k { font-size: 11px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat .v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat.bad .v { color: var(--warn); }
+  .stat.warm .v { color: var(--accent-2); }
+
+  #inspector .hint { color: var(--ink-dim); font-size: 13px; margin: 0; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+  .swatches canvas {
+    width: 34px; height: 34px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    image-rendering: auto;
+  }
+  .insp-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .insp-head .cell { font-weight: 700; }
+  .insp-head .ent { color: var(--ink-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+  details.explain {
+    margin-top: 22px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+  }
+  details.explain summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--ink);
+    list-style: none;
+  }
+  details.explain summary::-webkit-details-marker { display: none; }
+  details.explain summary::before { content: "▸ "; color: var(--accent); }
+  details.explain[open] summary::before { content: "▾ "; }
+  details.explain .body { color: var(--ink-dim); max-width: 82ch; }
+  details.explain .body h3 { color: var(--ink); font-size: 14px; margin: 18px 0 6px; }
+  details.explain .body code {
+    background: var(--panel-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    color: var(--accent);
+  }
+  details.explain .body ol, details.explain .body ul { padding-left: 22px; }
+  details.explain .body li { margin-bottom: 5px; }
+
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--ink-dim); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+  footer.credit { margin-top: 26px; color: var(--ink-dim); font-size: 12.5px; }
+
+  /* Preview mode: index.html?preview=terrain&size=18&seed=x
+     Strips the page down to the grid alone, solves it once and stops, so the
+     playground index can embed a LIVE card instead of a screenshot. Real
+     output, no binary in the repo, still works with no network. */
+  html.preview, html.preview body { background: transparent; overflow: hidden; }
+  html.preview .wrap { max-width: none; padding: 0; }
+  html.preview header,
+  html.preview aside,
+  html.preview details.explain,
+  html.preview footer.credit,
+  html.preview .stage-foot { display: none; }
+  html.preview .layout { display: block; }
+  html.preview .stage { border: 0; border-radius: 0; padding: 0; background: transparent; overflow: hidden; }
+  html.preview canvas#grid { border-radius: 0; cursor: default; pointer-events: none; margin-top: -25%; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Wave Function Collapse Lab<span class="dot">.</span></h1>
+    <p class="lede">
+      Every cell starts as every tile at once. The solver collapses the least uncertain cell, then
+      propagates that decision until nothing more can be ruled out. Hover a cell to see what is still
+      legal there. Click one to collapse it yourself. Same solver, three tilesets.
+    </p>
+  </header>
+
+  <div class="layout">
+
+    <div>
+      <div class="stage">
+        <canvas id="grid" width="960" height="960"></canvas>
+        <div class="stage-foot">
+          <span id="statusLine">Ready.</span>
+          <span class="legend" style="margin-left:auto">
+            <span><i style="background:#5fd3c4"></i> settled</span>
+            <span><i style="background:#4a5568"></i> uncertain (blend of candidates)</span>
+            <span><i style="background:#f0b429"></i> just propagated</span>
+          </span>
+        </div>
+      </div>
+
+      <details class="explain" id="explain">
+        <summary>How it works, and what bit me</summary>
+        <div class="body">
+          <p>
+            Wave Function Collapse borrows a name from physics and almost nothing else. It is a
+            constraint solver. The tiles and their legal neighbours are the constraints; the grid is the
+            variable set; the output is one satisfying assignment out of an enormous space.
+          </p>
+
+          <h3>The loop</h3>
+          <ol>
+            <li><b>Observe.</b> Find the uncollapsed cell with the lowest Shannon entropy over its
+              remaining candidates, weighted by how common each tile should be. Break ties with a
+              little noise, or the output grows visible seams.</li>
+            <li><b>Collapse.</b> Pick one of that cell's candidates at random, weighted, and ban every
+              other candidate there.</li>
+            <li><b>Propagate.</b> Each ban can make a neighbour's tile unsupported, which bans that,
+              which cascades. Run it to a fixed point.</li>
+            <li><b>Repeat</b> until every cell is settled, or until a cell runs out of candidates,
+              which is a contradiction.</li>
+          </ol>
+
+          <h3>Propagation is the whole algorithm</h3>
+          <p>
+            The naive version rescans a cell's neighbours after every change and is far too slow. The
+            real trick is a support counter: <code>compatible[cell][tile][dir]</code> holds the number
+            of tiles still alive in the neighbour on side <code>dir</code> that permit
+            <code>tile</code> here. Banning a tile decrements the counters it was supporting. A counter
+            reaching zero means that tile has lost its last supporter on that side, so it gets banned
+            too. No rescanning, ever.
+          </p>
+          <p>
+            <b>The flip that is easy to get backwards:</b> when tile <code>t2</code> is banned from
+            cell <code>j</code>, the counters to decrement live in the <i>neighbour</i> cell
+            <code>i</code>, and they are indexed by the direction pointing from <code>i</code> back to
+            <code>j</code>, not the direction you walked. Get it backwards and the solver still runs,
+            still terminates, and still emits output that looks fine at a glance while quietly
+            permitting illegal adjacencies. There is a checker for exactly this in the build folder.
+          </p>
+          <p>
+            <b>Something I did not expect, found while checking the stats panel.</b> The total number
+            of tiles banned over a completed solve is always exactly
+            <code>cells &times; (tiles &minus; 1)</code>, because every cell sheds all but one
+            candidate, whatever route it took. So the ban count measures nothing, and the panel
+            reports <b>support updates</b> instead: one counter touched, once, which is what the
+            algorithm actually costs.
+          </p>
+          <p>
+            Then the real surprise. That number is <i>also</i> constant across seeds for Pipes and
+            Terrain, to the unit. Both sets happen to give every socket the same number of partners
+            (8 per direction for Pipes, 4 for Terrain), so every tile costs the same to ban and the
+            total collapses to
+            <code>degree &times; (tiles &minus; 1) &times; in&#8209;grid neighbour slots</code>.
+            For a 26&times;26 Pipes grid that predicts 8 &times; 15 &times; 2600 = 312,000, and the
+            solver's own counter says 312,000. Circuit mixes three socket types in unequal
+            proportions, its per-tile degree ranges 40 to 60, and its count wanders by a few hundred
+            run to run. <b>WFC's cost is set by the shape of your tileset far more than by luck</b>,
+            and that closed form turned out to be the sharpest test of the propagator in the whole
+            build: a bookkeeping bug would miss it immediately.
+          </p>
+
+          <h3>Rotation is not socket permutation</h3>
+          <p>
+            Pipes and Circuit generate their rotations automatically by cycling the four edge labels.
+            That is only valid because every one of their sockets is symmetric about the middle of its
+            edge. Terrain stores each socket as an <i>ordered pair of corners</i>, so a rotation would
+            need the pair reversed on two of the four sides. Rather than special-case it, Terrain
+            enumerates all sixteen land/water corner states directly and derives its sockets from them.
+            Cheaper, and it cannot silently drift.
+          </p>
+
+          <h3>Contradictions are expected</h3>
+          <p>
+            Plain WFC has no lookahead, so it paints itself into corners. This build keeps a bounded
+            stack of snapshots: on a contradiction it rewinds one collapse, forbids the choice it just
+            made, and carries on. When the stack is exhausted it restarts the grid outright. The stats
+            panel reports contradictions, backtracks, and restarts separately, because a run that
+            "succeeded" after nine restarts is worth knowing about.
+          </p>
+
+          <h3>Things worth trying</h3>
+          <ul>
+            <li>Turn <b>closed border</b> on and off with Pipes. Off, pipes run off the edges. On, every
+              run is a sealed plumbing diagram, and the contradiction count climbs.</li>
+            <li>Set the speed to its slowest and watch a single collapse light up its blast radius in
+              amber. Long-range ripples are the algorithm doing real work.</li>
+            <li>Hover a cell early in a Circuit run: dozens of candidates. Hover its neighbour after one
+              collapse nearby and watch the list shrink.</li>
+            <li>Click cells by hand to plant constraints, then hit Run and see what the solver builds
+              around them.</li>
+            <li>Copy a seed you liked and paste it back to reproduce the exact same output.</li>
+          </ul>
+        </div>
+      </details>
+    </div>
+
+    <aside>
+      <div class="panel">
+        <h2>Setup</h2>
+        <div class="row">
+          <label for="tileset">Tileset</label>
+          <select id="tileset"></select>
+        </div>
+        <div class="row">
+          <label for="size">Grid</label>
+          <input type="range" id="size" min="10" max="40" step="1" value="22">
+          <span class="val" id="sizeVal">22 &times; 22</span>
+        </div>
+        <div class="row">
+          <label for="seed">Seed</label>
+          <input type="text" id="seed" spellcheck="false" value="">
+        </div>
+        <div class="row">
+          <label for="border">Border</label>
+          <input type="checkbox" id="border" checked>
+          <span class="val" id="borderVal">closed</span>
+        </div>
+        <div class="row">
+          <label for="speed">Speed</label>
+          <input type="range" id="speed" min="0" max="100" step="1" value="55">
+          <span class="val" id="speedVal">18/s</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Run</h2>
+        <div class="btns">
+          <button id="runBtn" class="primary">Run</button>
+          <button id="stepBtn">Step</button>
+          <button id="resetBtn">Reset</button>
+          <button id="newSeedBtn">New seed</button>
+          <button id="finishBtn" class="wide">Solve instantly</button>
+          <button id="pngBtn" class="wide">Save PNG</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Stats</h2>
+        <div class="stats">
+          <div class="stat"><div class="k">Settled</div><div class="v" id="stCollapsed">0</div></div>
+          <div class="stat"><div class="k">Candidates left</div><div class="v" id="stCands">0</div></div>
+          <div class="stat"><div class="k">Support updates</div><div class="v" id="stBans">0</div></div>
+          <div class="stat warm"><div class="k">Backtracks</div><div class="v" id="stBack">0</div></div>
+          <div class="stat bad"><div class="k">Contradictions</div><div class="v" id="stContra">0</div></div>
+          <div class="stat bad"><div class="k">Restarts</div><div class="v" id="stRestart">0</div></div>
+        </div>
+      </div>
+
+      <div class="panel" id="inspector">
+        <h2>Cell inspector</h2>
+        <p class="hint" id="inspHint">Hover the grid to inspect a cell. Click to collapse one by hand.</p>
+        <div id="inspBody" style="display:none">
+          <div class="insp-head">
+            <span class="cell" id="inspCell"></span>
+            <span class="ent" id="inspEnt"></span>
+          </div>
+          <div class="swatches" id="inspSwatches"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Tileset</h2>
+        <p class="hint" id="setBlurb" style="margin:0 0 10px;color:var(--ink-dim);font-size:13px"></p>
+        <div class="swatches" id="allTiles"></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="credit">
+    Built offline, runs offline. Everything on screen is drawn procedurally in this file.
+    Algorithm after Maxim Gumin's Wave Function Collapse (simple tiled model, 2016).
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   0. Small utilities
+   ========================================================================== */
+
+// Deterministic PRNG so any run can be reproduced from its seed string.
+function hashSeed(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return h >>> 0;
+}
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function randomSeedString() {
+  const words = ["amber", "quartz", "harbor", "lattice", "cobalt", "ember", "drift", "signal",
+                 "meadow", "vellum", "static", "orbit", "thistle", "cinder", "aurora", "kelp"];
+  const a = words[Math.floor(Math.random() * words.length)];
+  const b = words[Math.floor(Math.random() * words.length)];
+  return a + "-" + b + "-" + Math.floor(Math.random() * 9000 + 1000);
+}
+
+// Direction order is fixed everywhere: 0 = N, 1 = E, 2 = S, 3 = W.
+const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+const DIRNAME = ["N", "E", "S", "W"];
+const opposite = d => (d + 2) % 4;
+
+/* ==========================================================================
+   1. Tilesets
+   Each tile declares four edge SOCKETS in [N, E, S, W] order. Two tiles may sit
+   side by side when the sockets they present to each other are identical.
+   `rotate: true` generates the three extra rotations by cycling the socket
+   array, which is ONLY sound while every socket is symmetric about the middle
+   of its own edge. Terrain's are not, so Terrain enumerates instead.
+   ========================================================================== */
+
+const TAU = Math.PI * 2;
+
+function roundedDot(ctx, x, y, r, fill) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fillStyle = fill; ctx.fill();
+}
+
+const TILESETS = {
+
+  /* ---- PIPES: sockets '0' (flat edge) and '1' (pipe crosses this edge) ---- */
+  pipes: {
+    name: "Pipes",
+    blurb: "Two sockets, six base shapes, sixteen tiles after rotation. The smallest set that still surprises you.",
+    rotate: true,
+    borderSocket: "0",
+    bg: "#141a22",
+    tiles: [
+      { id: "blank",    e: "0000", w: 1.1 },
+      { id: "end",      e: "1000", w: 0.35 },
+      { id: "straight", e: "1010", w: 2.2 },
+      { id: "corner",   e: "1100", w: 2.0 },
+      { id: "tee",      e: "1110", w: 0.8 },
+      { id: "cross",    e: "1111", w: 0.3 }
+    ],
+    draw(ctx, S, tile) {
+      ctx.fillStyle = "#141a22";
+      ctx.fillRect(0, 0, S, S);
+      // faint plate seam so blank tiles are not dead space
+      ctx.strokeStyle = "rgba(255,255,255,0.035)";
+      ctx.lineWidth = Math.max(1, S * 0.012);
+      ctx.strokeRect(S * 0.5 - S * 0.5 + 0.5, 0.5, S - 1, S - 1);
+
+      const c = S / 2;
+      const conns = [];
+      for (let d = 0; d < 4; d++) if (tile.edges[d] === "1") conns.push(d);
+
+      if (conns.length === 0) {
+        roundedDot(ctx, c, c, S * 0.045, "rgba(255,255,255,0.10)");
+        return;
+      }
+      // dark casing under the pipe gives it a little depth
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#0a1015";
+      ctx.lineWidth = S * 0.30;
+      for (const d of conns) {
+        ctx.beginPath(); ctx.moveTo(c, c);
+        ctx.lineTo(c + DIRS[d][0] * S * 0.52, c + DIRS[d][1] * S * 0.52);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = "#5fd3c4";
+      ctx.lineWidth = S * 0.17;
+      for (const d of conns) {
+        ctx.beginPath(); ctx.moveTo(c, c);
+        ctx.lineTo(c + DIRS[d][0] * S * 0.52, c + DIRS[d][1] * S * 0.52);
+        ctx.stroke();
+      }
+      if (conns.length === 1) {
+        roundedDot(ctx, c, c, S * 0.155, "#0a1015");
+        roundedDot(ctx, c, c, S * 0.105, "#8defe1");
+      } else if (conns.length >= 3) {
+        roundedDot(ctx, c, c, S * 0.085, "#0f1c1f");
+      }
+    }
+  },
+
+  /* ---- CIRCUIT: three sockets. '.' bare board, 'w' signal wire, 'b' bus ---- */
+  circuit: {
+    name: "Circuit",
+    blurb: "Three socket types instead of two: bare board, thin signal wire, fat bus. Adjacency stops being binary and the output gets opinions.",
+    rotate: true,
+    borderSocket: ".",
+    bg: "#0b1410",
+    tiles: [
+      { id: "board",     e: "....", w: 1.6 },
+      { id: "pad",       e: "w...", w: 0.5 },
+      { id: "wire",      e: "w.w.", w: 2.4 },
+      { id: "wbend",     e: "ww..", w: 1.8 },
+      { id: "wtee",      e: "www.", w: 0.7 },
+      { id: "wcross",    e: "wwww", w: 0.25 },
+      { id: "bus",       e: "b.b.", w: 2.2 },
+      { id: "bbend",     e: "bb..", w: 1.1 },
+      { id: "btee",      e: "bbb.", w: 0.45 },
+      { id: "chip",      e: "b.w.", w: 0.9 },
+      { id: "tap",       e: "bwb.", w: 0.8 }
+    ],
+    draw(ctx, S, tile) {
+      ctx.fillStyle = "#0b1410";
+      ctx.fillRect(0, 0, S, S);
+      // board texture: a couple of faint traces going nowhere
+      ctx.strokeStyle = "rgba(120,200,150,0.05)";
+      ctx.lineWidth = Math.max(1, S * 0.02);
+      ctx.beginPath();
+      ctx.moveTo(S * 0.12, S * 0.88); ctx.lineTo(S * 0.88, S * 0.12);
+      ctx.stroke();
+
+      const c = S / 2;
+      const gold = "#f0b429";
+      const goldDim = "#a97c14";
+
+      const drawLeg = (d, width, color) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = "butt";
+        ctx.beginPath();
+        ctx.moveTo(c, c);
+        ctx.lineTo(c + DIRS[d][0] * S * 0.52, c + DIRS[d][1] * S * 0.52);
+        ctx.stroke();
+      };
+
+      const busLegs = [], wireLegs = [];
+      for (let d = 0; d < 4; d++) {
+        if (tile.edges[d] === "b") busLegs.push(d);
+        else if (tile.edges[d] === "w") wireLegs.push(d);
+      }
+
+      for (const d of busLegs) drawLeg(d, S * 0.22, goldDim);
+      for (const d of busLegs) drawLeg(d, S * 0.13, gold);
+      for (const d of wireLegs) drawLeg(d, S * 0.075, gold);
+
+      if (busLegs.length && wireLegs.length) {
+        // a component sits where a bus hands off to a signal wire
+        const w = S * 0.34, h = S * 0.26;
+        ctx.fillStyle = "#1d2b22";
+        ctx.strokeStyle = "#3d5a45";
+        ctx.lineWidth = Math.max(1, S * 0.018);
+        ctx.beginPath();
+        ctx.rect(c - w / 2, c - h / 2, w, h);
+        ctx.fill(); ctx.stroke();
+        roundedDot(ctx, c - w * 0.28, c, S * 0.028, gold);
+        roundedDot(ctx, c + w * 0.28, c, S * 0.028, gold);
+      } else if (busLegs.length >= 2 || wireLegs.length >= 3) {
+        roundedDot(ctx, c, c, S * 0.055, "#ffd979");
+      } else if (wireLegs.length === 1 && busLegs.length === 0) {
+        roundedDot(ctx, c, c, S * 0.14, goldDim);
+        roundedDot(ctx, c, c, S * 0.085, "#0b1410");
+      } else if (busLegs.length === 1) {
+        ctx.fillStyle = goldDim;
+        ctx.fillRect(c - S * 0.13, c - S * 0.13, S * 0.26, S * 0.26);
+      }
+    }
+  },
+
+  /* ---- TERRAIN: sockets are ORDERED CORNER PAIRS, so no auto-rotation ----
+     Corners are (nw, ne, se, sw), each land 'L' or water 'W'.
+     Horizontal edges read left to right, vertical edges read top to bottom, so
+     two touching tiles agree exactly when they agree on the two corners they
+     physically share. Sixteen tiles, enumerated. ---------------------------- */
+  terrain: {
+    name: "Terrain",
+    blurb: "Sockets built from shared corners rather than symmetric labels. All sixteen land/water corner states, no rotation trickery, marching-squares coastlines.",
+    rotate: false,
+    borderSocket: "WW",
+    bg: "#0a1a26",
+    tiles: (function () {
+      const out = [];
+      for (let m = 0; m < 16; m++) {
+        const nw = (m & 1) ? "L" : "W";
+        const ne = (m & 2) ? "L" : "W";
+        const se = (m & 4) ? "L" : "W";
+        const sw = (m & 8) ? "L" : "W";
+        const land = (nw === "L") + (ne === "L") + (se === "L") + (sw === "L");
+        out.push({
+          id: "t" + m,
+          e: [nw + ne, ne + se, sw + se, nw + sw],   // N, E, S, W
+          w: (land === 0 || land === 4) ? 4.5 : (land === 2 ? 1.0 : 1.4),
+          corners: [nw, ne, se, sw]
+        });
+      }
+      return out;
+    })(),
+    draw(ctx, S, tile) {
+      // Bilinear interpolate the four corner values, then threshold. That is
+      // marching squares by another name and it gives clean diagonal coasts.
+      const [nw, ne, se, sw] = tile.corners;
+      const v = { nw: nw === "L" ? 1 : 0, ne: ne === "L" ? 1 : 0,
+                  se: se === "L" ? 1 : 0, sw: sw === "L" ? 1 : 0 };
+      const img = ctx.createImageData(S, S);
+      const px = img.data;
+      for (let y = 0; y < S; y++) {
+        const ty = (y + 0.5) / S;
+        for (let x = 0; x < S; x++) {
+          const tx = (x + 0.5) / S;
+          const top = v.nw * (1 - tx) + v.ne * tx;
+          const bot = v.sw * (1 - tx) + v.se * tx;
+          const val = top * (1 - ty) + bot * ty;
+          let r, g, b;
+          if (val > 0.62)      { r = 74;  g = 124; b = 62;  }   // inland
+          else if (val > 0.52) { r = 96;  g = 148; b = 70;  }   // grass
+          else if (val > 0.44) { r = 197; g = 178; b = 118; }   // sand
+          else if (val > 0.28) { r = 43;  g = 106; b = 130; }   // shallows
+          else                 { r = 20;  g = 58;  b = 86;  }   // deep
+          const i = (y * S + x) * 4;
+          px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+  }
+};
+
+/* ==========================================================================
+   2. Expand a tileset into concrete tiles + the adjacency propagator
+   ========================================================================== */
+
+const RES = 72;   // pixels each tile is pre-rendered at, once, then blitted
+
+function expandTileset(key) {
+  const set = TILESETS[key];
+  const raw = typeof set.tiles === "function" ? set.tiles() : set.tiles;
+  const tiles = [];
+
+  for (const base of raw) {
+    const baseEdges = Array.isArray(base.e) ? base.e.slice() : base.e.split("");
+    const seen = new Set();
+    const rots = set.rotate ? 4 : 1;
+    for (let r = 0; r < rots; r++) {
+      // rotate the tile r quarter-turns clockwise: the socket that was on the
+      // west edge ends up on the north edge, so edges[i] <- base[(i - r) mod 4]
+      const edges = [0, 1, 2, 3].map(i => baseEdges[(i - r + 8) % 4]);
+      const sig = edges.join("|");
+      if (seen.has(sig)) continue;      // rotationally symmetric, skip the dup
+      seen.add(sig);
+      tiles.push({
+        index: tiles.length,
+        baseId: base.id,
+        rot: r,
+        edges,
+        corners: base.corners,
+        weight: base.w
+      });
+    }
+  }
+
+  // Pre-render every tile once. Everything after this is a blit.
+  for (const t of tiles) {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = RES;
+    const cx = cv.getContext("2d");
+    // Draw straight from t.edges, which are ALREADY the rotated sockets. Do not
+    // also rotate the context: that was the first real bug in this build, and
+    // it survived a 36-run adjacency audit because the grid DATA stayed legal
+    // the whole time. Only the picture was a quarter turn off from its own
+    // sockets. The edge-profile check in ../_verify exists to catch a repeat.
+    set.draw(cx, RES, t);
+    t.canvas = cv;
+    // average colour, used to paint a cell that is still in superposition
+    const d = cx.getImageData(0, 0, RES, RES).data;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+    const n = d.length / 4;
+    t.avg = [r / n, g / n, b / n];
+  }
+
+  // propagator[d][t] = every tile allowed to sit in the neighbour on side d
+  // of a cell holding t. Edge sockets must match exactly.
+  const T = tiles.length;
+  const propagator = [[], [], [], []];
+  for (let d = 0; d < 4; d++) {
+    for (let t = 0; t < T; t++) {
+      const list = [];
+      for (let t2 = 0; t2 < T; t2++) {
+        if (tiles[t].edges[d] === tiles[t2].edges[opposite(d)]) list.push(t2);
+      }
+      propagator[d][t] = list;
+    }
+  }
+
+  return { key, set, tiles, propagator };
+}
+
+/* ==========================================================================
+   3. The solver
+   ========================================================================== */
+
+class WFC {
+  constructor(model, size, rng, closedBorder) {
+    this.model = model;
+    this.W = size; this.H = size;
+    this.N = size * size;
+    this.T = model.tiles.length;
+    this.rng = rng;
+    this.closedBorder = closedBorder;
+
+    const N = this.N, T = this.T;
+    this.possible = new Uint8Array(N * T).fill(1);
+    this.numPossible = new Int32Array(N).fill(T);
+    this.compatible = new Int16Array(N * T * 4);
+    this.collapsed = new Int32Array(N).fill(-1);
+
+    this.weights = new Float64Array(T);
+    this.weightLog = new Float64Array(T);
+    let sumW = 0, sumWLW = 0;
+    for (let t = 0; t < T; t++) {
+      const w = model.tiles[t].weight;
+      this.weights[t] = w;
+      this.weightLog[t] = w * Math.log(w);
+      sumW += w; sumWLW += this.weightLog[t];
+    }
+    this.sumW = new Float64Array(N).fill(sumW);
+    this.sumWLW = new Float64Array(N).fill(sumWLW);
+
+    // compatible[i][t][d] starts at "every tile that could legally sit on side
+    // d of a cell holding t", because at init the neighbour still holds all.
+    for (let i = 0; i < N; i++) {
+      for (let t = 0; t < T; t++) {
+        for (let d = 0; d < 4; d++) {
+          this.compatible[(i * T + t) * 4 + d] = model.propagator[d][t].length;
+        }
+      }
+    }
+
+    this.stack = [];
+    this.settled = 0;
+    this.bans = 0;
+    // `bans` is not a measurement: a completed solve always lands on exactly
+    // N * (T - 1) of them, since every cell ends up shedding all but one tile.
+    // `work` is the number that actually varies, and it is the real cost of the
+    // algorithm: one support counter touched, once.
+    this.work = 0;
+    this.contradiction = false;
+    this.touched = new Map();     // cell -> timestamp, for the ripple overlay
+    this.snapshots = [];
+    this.stats = { contradictions: 0, backtracks: 0, restarts: 0 };
+
+    if (closedBorder) this.applyBorder();
+  }
+
+  idx(x, y) { return y * this.W + x; }
+
+  neighbour(i, d) {
+    const x = i % this.W, y = (i / this.W) | 0;
+    const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
+    if (nx < 0 || ny < 0 || nx >= this.W || ny >= this.H) return -1;
+    return ny * this.W + nx;
+  }
+
+  // Force the outward-facing edges of the grid to the tileset's "empty" socket.
+  applyBorder() {
+    const bs = this.model.set.borderSocket;
+    for (let i = 0; i < this.N; i++) {
+      for (let d = 0; d < 4; d++) {
+        if (this.neighbour(i, d) !== -1) continue;
+        for (let t = 0; t < this.T; t++) {
+          if (this.possible[i * this.T + t] && this.model.tiles[t].edges[d] !== bs) {
+            this.ban(i, t);
+          }
+        }
+      }
+    }
+    this.propagate();
+  }
+
+  ban(i, t) {
+    const T = this.T;
+    if (!this.possible[i * T + t]) return;
+    this.possible[i * T + t] = 0;
+    this.bans++;
+
+    // zero the counters for this tile so a later decrement cannot resurrect it
+    for (let d = 0; d < 4; d++) this.compatible[(i * T + t) * 4 + d] = 0;
+
+    this.numPossible[i]--;
+    this.sumW[i] -= this.weights[t];
+    this.sumWLW[i] -= this.weightLog[t];
+    if (this.numPossible[i] === 0) this.contradiction = true;
+
+    this.stack.push(i, t);
+  }
+
+  propagate() {
+    const T = this.T, prop = this.model.propagator;
+    let steps = 0;
+    while (this.stack.length) {
+      const t2 = this.stack.pop();
+      const j = this.stack.pop();
+      steps++;
+      this.touched.set(j, performance.now());
+
+      for (let d = 0; d < 4; d++) {
+        const i = this.neighbour(j, d);
+        if (i === -1) continue;
+        // THE FLIP: t2 just died in j. Cell i sees j on side opposite(d).
+        // Every tile t in i that was counting t2 as a supporter over there
+        // loses one. Those tiles are exactly propagator[d][t2], the tiles
+        // that may sit on side d of a cell holding t2, i.e. the tiles in i.
+        const list = prop[d][t2];
+        const od = opposite(d);
+        for (let k = 0; k < list.length; k++) {
+          const t = list[k];
+          const at = (i * T + t) * 4 + od;
+          this.work++;
+          if (this.compatible[at] > 0) {
+            this.compatible[at]--;
+            if (this.compatible[at] === 0 && this.possible[i * T + t]) this.ban(i, t);
+          }
+        }
+      }
+    }
+    return steps;
+  }
+
+  lowestEntropyCell() {
+    let best = -1, bestVal = Infinity;
+    for (let i = 0; i < this.N; i++) {
+      if (this.numPossible[i] <= 1) continue;
+      const e = Math.log(this.sumW[i]) - this.sumWLW[i] / this.sumW[i];
+      const v = e + this.rng() * 1e-6;      // noise breaks ties, kills seams
+      if (v < bestVal) { bestVal = v; best = i; }
+    }
+    return best;
+  }
+
+  entropyAt(i) {
+    if (this.numPossible[i] <= 1) return 0;
+    return Math.log(this.sumW[i]) - this.sumWLW[i] / this.sumW[i];
+  }
+
+  pickTile(i, exclude) {
+    const T = this.T;
+    let total = 0;
+    for (let t = 0; t < T; t++) {
+      if (this.possible[i * T + t] && !(exclude && exclude.has(t))) total += this.weights[t];
+    }
+    if (total <= 0) return -1;
+    let r = this.rng() * total;
+    for (let t = 0; t < T; t++) {
+      if (!this.possible[i * T + t] || (exclude && exclude.has(t))) continue;
+      r -= this.weights[t];
+      if (r <= 0) return t;
+    }
+    for (let t = T - 1; t >= 0; t--) {
+      if (this.possible[i * T + t] && !(exclude && exclude.has(t))) return t;
+    }
+    return -1;
+  }
+
+  snapshot(cell, tile) {
+    const s = {
+      cell, tile,
+      tried: new Set([tile]),
+      possible: this.possible.slice(),
+      numPossible: this.numPossible.slice(),
+      compatible: this.compatible.slice(),
+      collapsed: this.collapsed.slice(),
+      sumW: this.sumW.slice(),
+      sumWLW: this.sumWLW.slice(),
+      settled: this.settled,
+      bans: this.bans
+    };
+    this.snapshots.push(s);
+    // bounded history: keep memory sane on big grids, restart if we run out
+    const cap = Math.max(6, Math.floor(2.4e7 / (this.N * this.T * 2 + 1)));
+    while (this.snapshots.length > Math.min(cap, 48)) this.snapshots.shift();
+  }
+
+  restore(s) {
+    this.possible.set(s.possible);
+    this.numPossible.set(s.numPossible);
+    this.compatible.set(s.compatible);
+    this.collapsed.set(s.collapsed);
+    this.sumW.set(s.sumW);
+    this.sumWLW.set(s.sumWLW);
+    this.settled = s.settled;
+    this.bans = s.bans;
+    this.stack.length = 0;
+    this.contradiction = false;
+  }
+
+  collapseCell(i, tile) {
+    const T = this.T;
+    for (let t = 0; t < T; t++) if (t !== tile && this.possible[i * T + t]) this.ban(i, t);
+    this.collapsed[i] = tile;
+    this.settled++;
+  }
+
+  // One observe + propagate. Returns 'done' | 'ok' | 'contradiction' | 'restart'
+  step() {
+    if (this.settled >= this.N) return "done";
+    const i = this.lowestEntropyCell();
+    if (i === -1) {
+      // no cell has 2+ candidates left. Either every cell is down to exactly one
+      // (so propagation already solved the rest and we just record it), or some
+      // cell has none, which is a contradiction we have to unwind.
+      for (let c = 0; c < this.N; c++) {
+        if (this.collapsed[c] === -1) {
+          for (let t = 0; t < this.T; t++) {
+            if (this.possible[c * this.T + t]) { this.collapsed[c] = t; this.settled++; break; }
+          }
+        }
+      }
+      return this.settled >= this.N ? "done" : this.handleContradiction();
+    }
+
+    const t = this.pickTile(i);
+    if (t === -1) return this.handleContradiction();
+
+    this.snapshot(i, t);
+    this.touched.clear();
+    this.collapseCell(i, t);
+    this.propagate();
+
+    if (this.contradiction) return this.handleContradiction();
+    return this.settled >= this.N ? "done" : "ok";
+  }
+
+  handleContradiction() {
+    this.stats.contradictions++;
+    while (this.snapshots.length) {
+      const s = this.snapshots[this.snapshots.length - 1];
+      this.restore(s);
+      const alt = this.pickTile(s.cell, s.tried);
+      if (alt === -1) { this.snapshots.pop(); continue; }
+      s.tried.add(alt);
+      this.stats.backtracks++;
+      this.touched.clear();
+      this.collapseCell(s.cell, alt);
+      this.propagate();
+      if (!this.contradiction) return "ok";
+    }
+    return "restart";
+  }
+
+  // No animation, no snapshots retained beyond what backtracking needs.
+  solve(maxRestarts) {
+    let restarts = 0;
+    for (;;) {
+      let r;
+      do { r = this.step(); } while (r === "ok");
+      if (r === "done") return true;
+      if (++restarts > maxRestarts) return false;
+      this.stats.restarts++;
+      this.reset();
+    }
+  }
+
+  reset() {
+    const T = this.T;
+    this.possible.fill(1);
+    this.numPossible.fill(T);
+    this.collapsed.fill(-1);
+    let sumW = 0, sumWLW = 0;
+    for (let t = 0; t < T; t++) { sumW += this.weights[t]; sumWLW += this.weightLog[t]; }
+    this.sumW.fill(sumW);
+    this.sumWLW.fill(sumWLW);
+    for (let i = 0; i < this.N; i++)
+      for (let t = 0; t < T; t++)
+        for (let d = 0; d < 4; d++)
+          this.compatible[(i * T + t) * 4 + d] = this.model.propagator[d][t].length;
+    this.stack.length = 0;
+    this.snapshots.length = 0;
+    this.settled = 0;
+    this.bans = 0;
+    this.work = 0;
+    this.contradiction = false;
+    this.touched.clear();
+    if (this.closedBorder) this.applyBorder();
+  }
+
+  candidatesAt(i) {
+    const out = [];
+    for (let t = 0; t < this.T; t++) if (this.possible[i * this.T + t]) out.push(t);
+    return out;
+  }
+
+  totalCandidates() {
+    let n = 0;
+    for (let i = 0; i < this.N; i++) n += this.numPossible[i];
+    return n;
+  }
+}
+
+/* ==========================================================================
+   4. Rendering
+   ========================================================================== */
+
+const canvas = document.getElementById("grid");
+const ctx = canvas.getContext("2d");
+const CANVAS_PX = 960;
+
+let model = null;
+let wfc = null;
+let running = false;
+let hoverCell = -1;
+let acc = 0, lastT = 0;
+
+function render() {
+  const S = CANVAS_PX / wfc.W;
+  ctx.fillStyle = model.set.bg;
+  ctx.fillRect(0, 0, CANVAS_PX, CANVAS_PX);
+  ctx.imageSmoothingEnabled = true;
+
+  const now = performance.now();
+  const T = wfc.T;
+
+  for (let y = 0; y < wfc.H; y++) {
+    for (let x = 0; x < wfc.W; x++) {
+      const i = y * wfc.W + x;
+      const px = x * S, py = y * S;
+      const t = wfc.collapsed[i];
+
+      if (t >= 0) {
+        ctx.drawImage(model.tiles[t].canvas, px, py, S + 0.6, S + 0.6);
+      } else {
+        // still in superposition: paint the weighted average of what is left
+        let r = 0, g = 0, b = 0, tot = 0;
+        for (let k = 0; k < T; k++) {
+          if (!wfc.possible[i * T + k]) continue;
+          const w = wfc.weights[k], a = model.tiles[k].avg;
+          r += a[0] * w; g += a[1] * w; b += a[2] * w; tot += w;
+        }
+        if (tot > 0) {
+          // desaturate toward slate the more uncertain the cell is
+          const unc = Math.min(1, (wfc.numPossible[i] - 1) / Math.max(1, T - 1));
+          const mix = 0.34 + 0.4 * unc;
+          const sr = 74, sg = 85, sb = 104;
+          const cr = (r / tot) * (1 - mix) + sr * mix;
+          const cg = (g / tot) * (1 - mix) + sg * mix;
+          const cb = (b / tot) * (1 - mix) + sb * mix;
+          ctx.fillStyle = `rgb(${cr | 0},${cg | 0},${cb | 0})`;
+        } else {
+          ctx.fillStyle = "#5a1f22";     // contradicted cell, nothing legal left
+        }
+        ctx.fillRect(px, py, S + 0.6, S + 0.6);
+      }
+
+      // amber flash on cells the last propagation touched
+      const tt = wfc.touched.get(i);
+      if (tt !== undefined) {
+        const age = (now - tt) / 620;
+        if (age < 1) {
+          ctx.strokeStyle = `rgba(240,180,41,${(1 - age) * 0.85})`;
+          ctx.lineWidth = Math.max(1.2, S * 0.07);
+          ctx.strokeRect(px + S * 0.06, py + S * 0.06, S * 0.88, S * 0.88);
+        } else {
+          wfc.touched.delete(i);
+        }
+      }
+    }
+  }
+
+  if (hoverCell >= 0) {
+    const hx = (hoverCell % wfc.W) * S, hy = ((hoverCell / wfc.W) | 0) * S;
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = Math.max(1.5, S * 0.055);
+    ctx.strokeRect(hx + 1, hy + 1, S - 2, S - 2);
+  }
+}
+
+/* ==========================================================================
+   5. UI
+   ========================================================================== */
+
+const el = id => document.getElementById(id);
+const ui = {
+  tileset: el("tileset"), size: el("size"), sizeVal: el("sizeVal"),
+  seed: el("seed"), border: el("border"), borderVal: el("borderVal"),
+  speed: el("speed"), speedVal: el("speedVal"),
+  runBtn: el("runBtn"), stepBtn: el("stepBtn"), resetBtn: el("resetBtn"),
+  newSeedBtn: el("newSeedBtn"), finishBtn: el("finishBtn"), pngBtn: el("pngBtn"),
+  status: el("statusLine"),
+  stCollapsed: el("stCollapsed"), stCands: el("stCands"), stBans: el("stBans"),
+  stBack: el("stBack"), stContra: el("stContra"), stRestart: el("stRestart"),
+  inspHint: el("inspHint"), inspBody: el("inspBody"), inspCell: el("inspCell"),
+  inspEnt: el("inspEnt"), inspSwatches: el("inspSwatches"),
+  setBlurb: el("setBlurb"), allTiles: el("allTiles")
+};
+
+for (const key of Object.keys(TILESETS)) {
+  const o = document.createElement("option");
+  o.value = key; o.textContent = TILESETS[key].name;
+  ui.tileset.appendChild(o);
+}
+ui.seed.value = randomSeedString();
+
+// speed slider is exponential: 1 collapse/sec up to "as fast as the frame allows"
+function speedPerSec() {
+  const v = +ui.speed.value;
+  if (v >= 100) return 100000;
+  return Math.round(Math.pow(10, 0 + (v / 100) * 2.7));
+}
+function fmtSpeed() {
+  const s = speedPerSec();
+  return s >= 100000 ? "max" : s + "/s";
+}
+
+function tileSwatch(t, px) {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 44;
+  const c = cv.getContext("2d");
+  c.imageSmoothingEnabled = true;
+  c.drawImage(model.tiles[t].canvas, 0, 0, 44, 44);
+  if (px) cv.style.width = cv.style.height = px + "px";
+  cv.title = model.tiles[t].baseId +
+    (model.set.rotate ? " r" + model.tiles[t].rot : "") +
+    "  [" + model.tiles[t].edges.map((e, d) => DIRNAME[d] + ":" + e).join(" ") + "]" +
+    "  w=" + model.tiles[t].weight;
+  return cv;
+}
+
+function rebuildTilePalette() {
+  ui.setBlurb.textContent = model.set.blurb;
+  ui.allTiles.innerHTML = "";
+  for (let t = 0; t < model.tiles.length; t++) ui.allTiles.appendChild(tileSwatch(t, 26));
+}
+
+function newRun(keepSeed) {
+  running = false;
+  ui.runBtn.textContent = "Run";
+  ui.runBtn.classList.add("primary");
+  const key = ui.tileset.value;
+  if (!model || model.key !== key) { model = expandTileset(key); rebuildTilePalette(); }
+  if (!keepSeed) ui.seed.value = randomSeedString();
+  const rng = mulberry32(hashSeed(ui.seed.value));
+  wfc = new WFC(model, +ui.size.value, rng, ui.border.checked);
+  hoverCell = -1;
+  updateStats();
+  setStatus("Ready. " + model.tiles.length + " tiles, " +
+            wfc.N + " cells, " + wfc.totalCandidates().toLocaleString() + " candidates in play.");
+  render();
+  updateInspector();
+}
+
+function setStatus(s) { ui.status.textContent = s; }
+
+function updateStats() {
+  ui.stCollapsed.textContent = wfc.settled + " / " + wfc.N;
+  ui.stCands.textContent = wfc.totalCandidates().toLocaleString();
+  ui.stBans.textContent = wfc.work.toLocaleString();
+  ui.stBack.textContent = wfc.stats.backtracks;
+  ui.stContra.textContent = wfc.stats.contradictions;
+  ui.stRestart.textContent = wfc.stats.restarts;
+}
+
+function doStep() {
+  const r = wfc.step();
+  if (r === "restart") {
+    wfc.stats.restarts++;
+    wfc.reset();
+    setStatus("Painted into a corner with no snapshots left. Restarted the grid.");
+  } else if (r === "done") {
+    running = false;
+    ui.runBtn.textContent = "Run";
+    ui.runBtn.classList.add("primary");
+    setStatus("Solved. " + wfc.N + " cells, " + wfc.work.toLocaleString() + " support updates, " +
+              wfc.stats.contradictions + " contradictions, " +
+              wfc.stats.backtracks + " backtracks, " + wfc.stats.restarts + " restarts.");
+  }
+  return r;
+}
+
+function frame(ts) {
+  if (!lastT) lastT = ts;
+  const dt = Math.min(0.25, (ts - lastT) / 1000);
+  lastT = ts;
+
+  if (running && wfc.settled < wfc.N) {
+    const rate = speedPerSec();
+    if (rate >= 100000) {
+      const budget = performance.now() + 12;
+      let n = 0;
+      while (wfc.settled < wfc.N && performance.now() < budget && n < 4000) { doStep(); n++; }
+    } else {
+      acc += dt * rate;
+      let n = 0;
+      while (acc >= 1 && wfc.settled < wfc.N && n < 500) { doStep(); acc -= 1; n++; }
+    }
+    updateStats();
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+
+function updateInspector() {
+  if (hoverCell < 0 || !wfc) {
+    ui.inspHint.style.display = "";
+    ui.inspBody.style.display = "none";
+    return;
+  }
+  const i = hoverCell;
+  const x = i % wfc.W, y = (i / wfc.W) | 0;
+  const cands = wfc.candidatesAt(i);
+  ui.inspHint.style.display = "none";
+  ui.inspBody.style.display = "";
+  ui.inspCell.textContent = "(" + x + ", " + y + ")";
+  if (wfc.collapsed[i] >= 0) {
+    ui.inspEnt.textContent = "settled · " + model.tiles[wfc.collapsed[i]].baseId;
+  } else if (cands.length === 0) {
+    ui.inspEnt.textContent = "contradiction · 0 candidates";
+  } else {
+    ui.inspEnt.textContent = cands.length + " candidates · entropy " +
+      wfc.entropyAt(i).toFixed(3);
+  }
+  ui.inspSwatches.innerHTML = "";
+  for (const t of cands.slice(0, 40)) ui.inspSwatches.appendChild(tileSwatch(t));
+  if (cands.length > 40) {
+    const more = document.createElement("span");
+    more.style.cssText = "font-size:12px;color:var(--ink-dim);align-self:center";
+    more.textContent = "+" + (cands.length - 40);
+    ui.inspSwatches.appendChild(more);
+  }
+}
+
+canvas.addEventListener("mousemove", e => {
+  const r = canvas.getBoundingClientRect();
+  const x = Math.floor(((e.clientX - r.left) / r.width) * wfc.W);
+  const y = Math.floor(((e.clientY - r.top) / r.height) * wfc.H);
+  const i = (x >= 0 && y >= 0 && x < wfc.W && y < wfc.H) ? y * wfc.W + x : -1;
+  if (i !== hoverCell) { hoverCell = i; updateInspector(); }
+});
+canvas.addEventListener("mouseleave", () => { hoverCell = -1; updateInspector(); });
+
+canvas.addEventListener("click", () => {
+  if (hoverCell < 0 || wfc.collapsed[hoverCell] >= 0) return;
+  const t = wfc.pickTile(hoverCell);
+  if (t === -1) return;
+  wfc.snapshot(hoverCell, t);
+  wfc.touched.clear();
+  wfc.collapseCell(hoverCell, t);
+  wfc.propagate();
+  if (wfc.contradiction) {
+    const r = wfc.handleContradiction();
+    if (r === "restart") { wfc.stats.restarts++; wfc.reset(); }
+  }
+  updateStats(); updateInspector();
+  setStatus("Placed " + model.tiles[t].baseId + " by hand at (" +
+            (hoverCell % wfc.W) + ", " + ((hoverCell / wfc.W) | 0) + ").");
+});
+
+ui.runBtn.addEventListener("click", () => {
+  if (wfc.settled >= wfc.N) { newRun(false); }
+  running = !running;
+  ui.runBtn.textContent = running ? "Pause" : "Run";
+  ui.runBtn.classList.toggle("primary", !running);
+  if (running) setStatus("Running at " + fmtSpeed() + ".");
+});
+ui.stepBtn.addEventListener("click", () => {
+  running = false;
+  ui.runBtn.textContent = "Run";
+  ui.runBtn.classList.add("primary");
+  doStep(); updateStats(); updateInspector();
+});
+ui.resetBtn.addEventListener("click", () => newRun(true));
+ui.newSeedBtn.addEventListener("click", () => newRun(false));
+ui.finishBtn.addEventListener("click", () => {
+  running = false;
+  ui.runBtn.textContent = "Run";
+  ui.runBtn.classList.add("primary");
+  const t0 = performance.now();
+  const ok = wfc.solve(30);
+  const ms = performance.now() - t0;
+  updateStats(); updateInspector();
+  setStatus(ok
+    ? "Solved in " + ms.toFixed(0) + " ms · " + wfc.stats.contradictions +
+      " contradictions, " + wfc.stats.backtracks + " backtracks, " +
+      wfc.stats.restarts + " restarts."
+    : "Gave up after 30 restarts. Try a smaller grid or open the border.");
+});
+ui.pngBtn.addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.download = "wfc-" + ui.tileset.value + "-" + ui.seed.value + ".png";
+  a.href = canvas.toDataURL("image/png");
+  a.click();
+});
+
+ui.tileset.addEventListener("change", () => newRun(true));
+ui.size.addEventListener("input", () => {
+  ui.sizeVal.textContent = ui.size.value + " × " + ui.size.value;
+  newRun(true);
+});
+ui.border.addEventListener("change", () => {
+  ui.borderVal.textContent = ui.border.checked ? "closed" : "open";
+  newRun(true);
+});
+ui.speed.addEventListener("input", () => { ui.speedVal.textContent = fmtSpeed(); });
+ui.seed.addEventListener("change", () => newRun(true));
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.key === " ") { e.preventDefault(); ui.runBtn.click(); }
+  else if (e.key === "s") ui.stepBtn.click();
+  else if (e.key === "r") ui.resetBtn.click();
+  else if (e.key === "n") ui.newSeedBtn.click();
+});
+
+// Preview mode, used by the playground index to embed this build as a live
+// card. Reads its setup from the query string, solves once, then stops: no
+// animation loop, so a page full of these costs almost nothing to leave open.
+const params = new URLSearchParams(location.search);
+const previewSet = params.get("preview");
+if (previewSet !== null) {
+  document.documentElement.classList.add("preview");
+  if (TILESETS[previewSet]) ui.tileset.value = previewSet;
+  if (params.get("size")) ui.size.value = params.get("size");
+  if (params.get("seed")) ui.seed.value = params.get("seed");
+  ui.border.checked = params.get("border") !== "open";
+}
+
+ui.sizeVal.textContent = ui.size.value + " × " + ui.size.value;
+ui.speedVal.textContent = fmtSpeed();
+newRun(true);
+
+if (previewSet !== null) {
+  wfc.solve(30);
+  wfc.touched.clear();
+  updateStats();
+  render();
+} else {
+  requestAnimationFrame(frame);
+}
+
+// Exposed only so the offline checker in ../_verify can drive and audit a run.
+window.__wfcLab = {
+  get wfc() { return wfc; },
+  get model() { return model; },
+  newRun, doStep, expandTileset, WFC, mulberry32, hashSeed, TILESETS
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  ============================================================================
+  HARMONICS LAB
+  Built 2026-08-23, playground build #2. Self-contained: one file,
+  inline CSS and JS, no dependencies, no network. Opens offline in a browser.
+
+  WHAT IT DOES
+    An additive synthesis bench. Sixteen sliders, one per harmonic. Drag them
+    and you are writing a Fourier series by hand: the waveform redraws from the
+    coefficients, the spectrum redraws, and the sound changes under your
+    fingers while a drone holds. Presets load the exact classical series for a
+    sawtooth, a square, a triangle and an impulse, so you can watch a shape
+    assemble itself out of nothing but sine waves.
+
+    The part I actually built it for is the "Prove it" panel. It renders the
+    current patch through a real OfflineAudioContext, correlates the returned
+    samples against the curve drawn on screen, and prints the largest
+    disagreement in sample units. The toy audits its own picture, live, in
+    front of you. That is the exact bug class that got past build #1: the data
+    was right and the drawing was wrong, and nothing in the audit could see it.
+
+  WHAT I LEARNED BUILDING IT
+    1. createPeriodicWave's sign convention is not something to remember, so I
+       measured it before writing a line of the app. A single partial rendered
+       offline at 441 Hz (a period of exactly 100 samples) gave x[0]=0,
+       x[25]=+1 for imag[1]=1, and x[0]=+1, x[25]=0 for real[1]=1. So the
+       waveform is  sum over k of  real[k]*cos(2*pi*k*t) + imag[k]*sin(2*pi*k*t),
+       both terms positive, index 0 is DC and ignored. To place partial k at
+       amplitude a and phase p: real[k] = a*sin(p), imag[k] = a*cos(p).
+    2. Web Audio NORMALIZES a periodic wave by default. The same probe asked
+       for a lone sine at amplitude 0.25 and got a peak of 1.0 back. So the
+       numbers on the sliders mean nothing to the ear unless you pass
+       {disableNormalization: true}, which this build does everywhere. That is
+       a picture-versus-sound divergence built into the platform default, and
+       it is switchable in the Prove it panel: on a stock preset the largest
+       sample error goes from 0.00014 to 0.100, about 700 times worse and five
+       times the panel's own 0.02 threshold. It is only that mild because the
+       presets are level matched to a peak of 0.9; drag the sliders up and the
+       gap grows with the distance between your peak and 1.0.
+    3. Phase is nearly inaudible and violently visible. Hit "Random" on a
+       sawtooth: the waveform stops looking like a ramp entirely, the spectrum
+       does not move by a pixel, and the tone barely changes. The ear is
+       largely insensitive to the relative phase of the harmonics of a steady
+       tone, an observation usually credited to Ohm and Helmholtz in the
+       nineteenth century. "Largely" is doing real work in that sentence: it
+       holds for steady tones, not for attacks, and the peak amplitude it
+       throws around is very real, which is why the clip meter moves when the
+       loudness does not.
+    4. Gibbs overshoot does not decay. Load Square and sweep the partial limit:
+       the ripple next to the jump gets narrower and never gets shorter. The
+       partial sum peak converges to (2/pi)*Si(pi) = 1.178980, about 9% of the
+       full jump height, forever. That number is asserted in the checker.
+    5. Band limiting is why the same patch is duller at the top of the
+       keyboard. Play C7 with all sixteen partials up and the render comes back
+       missing its top harmonics, because they sit above Nyquist and Chrome
+       drops them rather than alias them. The Prove it panel measures this.
+
+  WHAT BIT ME
+    Both bites landed in the verification, not in the build, which is its own
+    lesson: the instrument is as likely to be wrong as the thing it measures.
+
+    First, the checker's canvas audit read the grey zero line as part of the
+    curve, because clearRect leaves a canvas TRANSPARENT rather than filling it
+    with the CSS background colour, so a 55%-alpha grey stroke reads back at
+    near full strength and slipped through a loose green test. One stray pixel
+    per column dragged the mean by up to 36 px.
+
+    Second, and the more interesting one: after fixing that, a stubborn 2 px
+    error remained, and it was NOT a drawing bug. The residual tracked the
+    local slope of the curve at a ratio of 1.00, which is the signature of a
+    horizontal half-pixel offset. A 2 px stroke through a vertex lays ink in
+    more than one pixel column, so reading a column index back to a curve
+    coordinate needs a sub-pixel coverage convention that belongs to the
+    renderer. Asserting an exact y per column would have been asserting my
+    guess about Skia. The audit now checks that each column's ink sits inside
+    the range the curve actually spans across that column, which is convention
+    free, plus a separate check that the ink reaches exactly as high and as low
+    as the amplitude says. Three negative controls confirm it still rejects a
+    mirrored curve, a curve 25% too short, and a curve slid 6 px.
+
+    Third, smaller: an amplitude read back from a rendered buffer by
+    correlation is only leakage free over a whole number of periods, and a
+    musical pitch almost never divides the sample rate evenly. The pointwise
+    max error has no such problem, so that is the headline gate and the per
+    harmonic amplitudes are reported as the softer number they are.
+
+  HOW TO DRIVE IT
+    Drag anywhere across the harmonic bars to paint amplitudes. Space toggles
+    the drone. The letter keys a w s e d f t g y h u j k play an octave.
+    Shift+click a bar zeroes it. Everything is keyboard reachable.
+
+  Preview mode for the playground index: index.html?preview=square
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harmonics Lab</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b24; --panel-2: #1c2430; --line: #2a3441;
+    --ink: #e6edf3; --dim: #8b98a8; --accent: #5fd3c4; --accent-2: #d9a441;
+    --warn: #e5766b; --good: #6fcf7f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px; line-height: 1.5;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .app { max-width: 1180px; margin: 0 auto; padding: 30px 20px 70px; }
+
+  header { border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 22px; }
+  h1 { font-size: 27px; margin: 0 0 6px; letter-spacing: -0.015em; }
+  h1 .dot { color: var(--accent); }
+  header p { color: var(--dim); margin: 0; max-width: 82ch; font-size: 14px; }
+
+  main { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 20px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 15px 16px; margin-bottom: 18px; }
+  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+              color: var(--dim); font-weight: 700; margin: 0 0 11px; }
+
+  canvas { display: block; width: 100%; background: var(--panel-2); border-radius: 8px; border: 1px solid var(--line); }
+  #wave { aspect-ratio: 5 / 2; }
+  #spec { aspect-ratio: 3 / 2; }
+  .cvfoot { display: flex; gap: 16px; flex-wrap: wrap; color: var(--dim); font-size: 12px; margin-top: 8px; }
+  .cvfoot b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cvfoot .swatch { display: inline-block; width: 20px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+
+  /* ---- harmonic bars ------------------------------------------------- */
+  .bars { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; height: 168px;
+          touch-action: none; user-select: none; cursor: ns-resize; margin-top: 4px; }
+  .bar { position: relative; background: var(--panel-2); border: 1px solid var(--line);
+         border-radius: 4px; overflow: hidden; }
+  .bar .fill { position: absolute; left: 0; right: 0; bottom: 0;
+               background: linear-gradient(180deg, var(--accent), #2f8d84); height: 0%; }
+  .bar.flip .fill { background: linear-gradient(180deg, var(--accent-2), #8c6420); }
+  .bar.off .fill { opacity: 0.16; }
+  .bar.hot { outline: 1px solid var(--accent); outline-offset: 1px; }
+  .baraxis { display: grid; grid-template-columns: repeat(16, 1fr); gap: 4px; margin-top: 5px; }
+  .baraxis span { text-align: center; font-size: 10.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .baraxis span.mut { opacity: 0.35; }
+
+  /* ---- controls ------------------------------------------------------ */
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 13px; }
+  .row .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim);
+              font-weight: 700; margin-right: 2px; }
+  button {
+    font: inherit; font-size: 13px; color: var(--ink); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #06231f; font-weight: 600; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=range] { accent-color: var(--accent); width: 130px; }
+  label.chk { font-size: 13px; color: var(--dim); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .val { font-variant-numeric: tabular-nums; color: var(--ink); font-size: 13px; min-width: 3.2em; }
+
+  /* ---- keyboard ------------------------------------------------------ */
+  .keys { display: grid; grid-template-columns: repeat(13, 1fr); gap: 3px; margin-top: 6px; touch-action: none; }
+  .key { height: 54px; border-radius: 0 0 6px 6px; border: 1px solid var(--line); background: #e6edf3;
+         color: #0d1117; font-size: 10.5px; display: flex; align-items: flex-end; justify-content: center;
+         padding-bottom: 5px; cursor: pointer; user-select: none; }
+  .key.black { background: #232c38; color: var(--dim); }
+  .key.down { background: var(--accent); color: #06231f; }
+  .key.black.down { background: #2f8d84; color: #06231f; }
+  .key .nn { margin-right: 3px; font-weight: 600; }
+  .key .kc { opacity: 0.65; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  /* ---- prove it ------------------------------------------------------ */
+  .verdict { border-radius: 7px; padding: 9px 11px; font-size: 13px; margin: 10px 0 0;
+             border: 1px solid var(--line); background: var(--panel-2); }
+  .verdict.good { border-color: #2f6b3a; }
+  .verdict.bad { border-color: #7a3b34; }
+  .verdict b { font-variant-numeric: tabular-nums; }
+  table.hx { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px;
+             font-variant-numeric: tabular-nums; }
+  table.hx th { text-align: right; color: var(--dim); font-weight: 600; padding: 2px 4px;
+                border-bottom: 1px solid var(--line); font-size: 10.5px; text-transform: uppercase;
+                letter-spacing: 0.05em; }
+  table.hx th:first-child, table.hx td:first-child { text-align: left; }
+  table.hx td { text-align: right; padding: 2px 4px; border-bottom: 1px solid rgba(42,52,65,0.5); }
+  table.hx td.gone { color: var(--warn); }
+  table.hx td.ok { color: var(--good); }
+
+  .explain p { color: var(--dim); font-size: 13px; margin: 0 0 9px; }
+  .explain p:last-child { margin-bottom: 0; }
+  .explain b { color: var(--ink); font-weight: 600; }
+  .explain code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px;
+                  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 12.5px; margin-top: 4px; }
+  details[open] summary { margin-bottom: 8px; }
+
+  .hint { color: var(--dim); font-size: 12px; margin-top: 9px; }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: minmax(0, 1fr); }
+    .bars { height: 130px; }
+    .app { padding: 20px 14px 50px; }
+  }
+  /* thirteen keys across a phone is about 30px each, and two labels do not fit
+     in that. The note name is the one a mouse user does not need. */
+  @media (max-width: 560px) {
+    .key .nn { display: none; }
+    .key { font-size: 11px; padding-bottom: 6px; }
+  }
+
+  /* ---- preview mode for the playground index ------------------------- */
+  body.preview .app { padding: 16px 18px; max-width: none; }
+  body.preview header { padding-bottom: 10px; margin-bottom: 12px; }
+  body.preview h1 { font-size: 20px; }
+  body.preview header p { font-size: 12px; }
+  body.preview main { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; }
+  body.preview .panel { margin-bottom: 12px; padding: 11px 12px; }
+  body.preview .hidepv { display: none !important; }
+  body.preview .bars { height: 92px; }
+  body.preview #wave { aspect-ratio: 5 / 1.6; }
+  /* the index renders this in a 2:1 iframe with scrolling off, so the whole
+     card has to land inside the frame. The prose is on the card already. */
+  body.preview header p { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Harmonics Lab<span class="dot">.</span></h1>
+    <p>Sixteen sliders, one per harmonic. Drag them and you are writing a Fourier series by hand.
+       Every shape you can hear here is nothing but sine waves stacked in the right proportions,
+       and the panel on the right renders the patch through the real audio engine to prove the
+       drawing on screen is not lying to you.</p>
+  </header>
+
+  <main>
+    <section>
+      <div class="panel">
+        <h2>Waveform <span class="mono" style="text-transform:none;letter-spacing:0">(two periods)</span></h2>
+        <canvas id="wave" width="900" height="360" aria-label="Waveform built from the harmonic amplitudes"></canvas>
+        <div class="cvfoot">
+          <span><span class="swatch" style="background:var(--accent)"></span>drawn from the sliders</span>
+          <span id="measLegend" hidden><span class="swatch" style="background:var(--accent-2)"></span>measured from the audio engine</span>
+          <span>peak <b id="rdPeak">0.00</b></span>
+          <span>rms <b id="rdRms">0.00</b></span>
+          <span>crest <b id="rdCrest">0.0</b></span>
+          <span>brightness <b id="rdCentroid">0.0</b>x</span>
+        </div>
+
+        <div class="bars" id="bars" role="group" aria-label="Harmonic amplitudes"></div>
+        <div class="baraxis" id="baraxis"></div>
+
+        <div class="row">
+          <span class="lab">Preset</span>
+          <button data-preset="sine">Sine</button>
+          <button data-preset="saw">Sawtooth</button>
+          <button data-preset="square">Square</button>
+          <button data-preset="triangle">Triangle</button>
+          <button data-preset="odd">Odd only</button>
+          <button data-preset="impulse">Impulse</button>
+        </div>
+
+        <div class="row">
+          <span class="lab">Partials</span>
+          <input type="range" id="limit" min="1" max="16" step="1" value="16" aria-label="Highest harmonic used">
+          <span class="val" id="rdLimit">16</span>
+          <span class="lab" style="margin-left:12px">Phase</span>
+          <button data-phase="zero">Zero</button>
+          <button data-phase="alt">Alternate</button>
+          <button data-phase="random">Random</button>
+        </div>
+
+        <div class="row hidepv">
+          <button id="drone">Drone (space)</button>
+          <span class="lab" style="margin-left:6px">Octave</span>
+          <input type="range" id="octave" min="-2" max="3" step="1" value="0" aria-label="Octave shift">
+          <span class="val" id="rdOct">0</span>
+          <span class="lab" style="margin-left:6px">Level</span>
+          <input type="range" id="level" min="0" max="100" step="1" value="30" aria-label="Output level">
+          <label class="chk" style="margin-left:6px"><input type="checkbox" id="hardgate"> instant note-off</label>
+        </div>
+
+        <div class="keys hidepv" id="keys" role="group" aria-label="Keyboard"></div>
+        <p class="hint hidepv">Drag across the bars to paint. Shift+click a bar to zero it.
+           Space toggles the drone. Letter keys <span class="mono">a w s e d f t g y h u j k</span> play an octave.
+           Turn <b>instant note-off</b> on and listen to the click: cutting a gain to zero mid-cycle leaves a
+           step in the waveform, and a step is a broadband transient.</p>
+      </div>
+    </section>
+
+    <aside>
+      <div class="panel">
+        <h2>Spectrum</h2>
+        <canvas id="spec" width="600" height="400" aria-label="Harmonic amplitudes as a bar spectrum"></canvas>
+        <div class="cvfoot">
+          <span><span class="swatch" style="background:var(--accent)"></span>requested</span>
+          <span id="specLegend" hidden><span class="swatch" style="background:var(--accent-2)"></span>measured</span>
+        </div>
+      </div>
+
+      <div class="panel hidepv">
+        <h2>Prove it</h2>
+        <p class="explain" style="margin:0 0 10px">Renders this exact patch through an
+          <code>OfflineAudioContext</code> and compares the samples that come back against the curve
+          this page is drawing. Same patch, two completely separate paths to it.</p>
+        <div class="row" style="margin-top:0">
+          <button id="proveBtn">Render and compare</button>
+          <label class="chk"><input type="checkbox" id="normalize"> let Web Audio normalize</label>
+        </div>
+        <div class="verdict" id="verdict">Not run yet.</div>
+        <details id="hxWrap" hidden>
+          <summary>Per harmonic, requested against measured</summary>
+          <table class="hx" id="hxTable"></table>
+          <p class="hint" style="margin-top:8px">Measured amplitudes are read back by correlating the
+             rendered buffer against each harmonic. That is only leakage free over a whole number of
+             periods, and a musical pitch rarely divides the sample rate evenly, so treat these as
+             accurate to roughly a percent. The max error above has no such caveat: it is a
+             sample by sample comparison.</p>
+        </details>
+      </div>
+
+      <div class="panel explain hidepv">
+        <h2>What is going on</h2>
+        <p><b>Any periodic sound is a stack of sines.</b> Fourier's claim is that a repeating shape can
+           be written as a sum of sine waves at whole multiples of its own frequency. The sliders are
+           those multipliers. Nothing else is generating sound here.</p>
+        <p><b>The engine takes coefficients, not samples.</b> <code>createPeriodicWave(real, imag)</code>
+           builds an oscillator straight from a Fourier series: entry <i>k</i> is harmonic <i>k</i>, entry
+           0 is DC and ignored. Measured convention, not remembered:
+           <code>x(t) = sum real[k]&middot;cos(2&pi;kt) + imag[k]&middot;sin(2&pi;kt)</code>, both terms
+           positive. To put partial <i>k</i> at amplitude <i>a</i> and phase <i>p</i>:
+           <code>real[k] = a&middot;sin(p)</code>, <code>imag[k] = a&middot;cos(p)</code>.</p>
+        <p><b>It rescales your wave unless you stop it.</b> By default the engine normalizes a periodic
+           wave to a peak of 1. Ask for a lone sine at 0.25 and you get back a peak of 1.0. This build
+           passes <code>{disableNormalization: true}</code> everywhere so the sliders mean what they
+           say. Tick the normalize box above and re-run: on a stock preset the largest sample error
+           goes from about 0.0001 to about 0.1, roughly 700 times worse. It is that mild only
+           because the presets are level matched to a peak of 0.9. Push the sliders up first and the
+           gap grows with the distance between your peak and 1.0.</p>
+        <p><b>Phase is loud to the eye and quiet to the ear.</b> Load Sawtooth, then hit Random. The
+           waveform stops being a ramp, the spectrum does not move, and the tone barely changes. The
+           ear is largely insensitive to the relative phase of the harmonics in a steady tone, an
+           observation usually credited to Ohm and Helmholtz. Largely, not entirely: it does not hold
+           through an attack, and the peak level it throws around is completely real, which is why the
+           crest factor moves when the loudness does not.</p>
+        <p><b>Gibbs ringing never shrinks.</b> Load Square and sweep the partial count. The wobble
+           beside each jump gets narrower and never gets shorter. The overshoot converges to
+           <code>(2/&pi;)&middot;Si(&pi;) = 1.178980</code> times the half jump, about 9% of the full
+           jump, and stays there for every finite number of partials.</p>
+        <p><b>High notes lose their top.</b> Play near the top of the keyboard with every partial up
+           and hit Render and compare. Harmonics above the Nyquist frequency come back missing: the
+           engine drops them rather than let them fold back down as aliases. Same patch, duller tone,
+           purely because of where you played it.</p>
+        <details>
+          <summary>Why this build exists</summary>
+          <p>Build #1 in this playground shipped with a rendering bug that thirty six audited solves
+             walked straight past, because the audit checked the data and the bug was in the picture.
+             So this one has the comparison between the two built into the interface as a button, and
+             the checker asserts on it.</p>
+        </details>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+"use strict";
+(function () {
+  const N = 16;                       // harmonics on screen
+  const TWO_PI = Math.PI * 2;
+  const A4 = 440, C4 = A4 * Math.pow(2, -9 / 12);
+  const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B", "C"];
+  const KEYCHARS = ["a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j", "k"];
+
+  // ---- state ------------------------------------------------------------
+  const S = {
+    amps: new Float64Array(N + 1),    // 1..N, index 0 unused (DC is ignored by the engine)
+    phases: new Float64Array(N + 1),
+    limit: N,
+    octave: 0,
+    level: 0.30,
+    hardGate: false,
+    normalize: false,
+    preset: "saw",
+    measured: null,                   // {freq, samples, sampleRate, amps[], phases[], maxErr, rmsErr, normalize}
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+
+  // Any change to the patch makes the last measurement describe a sound that no
+  // longer exists. Dropping the samples is not enough: the verdict text is a
+  // CONCLUSION, and leaving a stale one on screen is exactly the failure this
+  // build is about. So the wording goes with the data.
+  function invalidateProof() {
+    if (!S.measured) return;
+    S.measured = null;
+    const v = $("verdict");
+    if (v) {
+      v.className = "verdict";
+      v.textContent = "The patch changed since that was measured. Run it again.";
+    }
+    const hx = $("hxWrap");
+    if (hx) hx.hidden = true;
+  }
+
+  // ---- the one piece of maths everything else agrees with ----------------
+  // u is position within one period, in turns. This is the curve on screen AND
+  // the curve the engine is asked for. If those two ever disagree, the Prove it
+  // panel is what says so.
+  function sampleAt(u, amps, phases, limit) {
+    amps = amps || S.amps; phases = phases || S.phases;
+    limit = limit === undefined ? S.limit : limit;
+    let s = 0;
+    for (let k = 1; k <= N; k++) {
+      if (k > limit) break;
+      const a = amps[k];
+      if (a === 0) continue;
+      s += a * Math.sin(TWO_PI * k * u + phases[k]);
+    }
+    return s;
+  }
+
+  function analyse(amps, phases, limit, steps) {
+    steps = steps || 4096;
+    let peak = 0, sq = 0;
+    for (let i = 0; i < steps; i++) {
+      const v = sampleAt(i / steps, amps, phases, limit);
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+      sq += v * v;
+    }
+    let num = 0, den = 0;
+    const lim = limit === undefined ? S.limit : limit;
+    for (let k = 1; k <= Math.min(N, lim); k++) { num += k * amps[k]; den += amps[k]; }
+    return {
+      peak: peak,
+      rms: Math.sqrt(sq / steps),
+      centroid: den > 0 ? num / den : 0,
+    };
+  }
+
+  // Fourier coefficients, exactly as the textbooks write them. Stored raw, then
+  // scaled once so the loudest preset and the quietest agree on peak level.
+  const PRESETS = {
+    sine:     () => ({ a: (k) => k === 1 ? 1 : 0, p: () => 0 }),
+    saw:      () => ({ a: (k) => 1 / k, p: () => 0 }),
+    square:   () => ({ a: (k) => k % 2 ? 1 / k : 0, p: () => 0 }),
+    triangle: () => ({ a: (k) => k % 2 ? 1 / (k * k) : 0,
+                       p: (k) => ((k - 1) / 2) % 2 ? Math.PI : 0 }),
+    odd:      () => ({ a: (k) => k % 2 ? 1 / Math.sqrt(k) : 0, p: () => 0 }),
+    impulse:  () => ({ a: () => 1, p: () => Math.PI / 2 }),   // all cosines: a Dirichlet spike
+  };
+
+  function loadPreset(name) {
+    const f = PRESETS[name]();
+    for (let k = 1; k <= N; k++) { S.amps[k] = f.a(k); S.phases[k] = f.p(k); }
+    // scale so every preset arrives at the same peak, otherwise Impulse is
+    // sixteen times louder than Sine and the comparison is about level, not timbre
+    const peak = analyse(S.amps, S.phases, N).peak;
+    if (peak > 0) for (let k = 1; k <= N; k++) S.amps[k] = S.amps[k] * 0.9 / peak;
+    S.preset = name;
+    invalidateProof();
+    render();
+    retuneVoices();
+  }
+
+  function setPhaseMode(mode) {
+    for (let k = 1; k <= N; k++) {
+      S.phases[k] = mode === "zero" ? 0
+                  : mode === "alt" ? (k % 2 ? 0 : Math.PI)
+                  : Math.random() * TWO_PI;
+    }
+    invalidateProof();
+    render();
+    retuneVoices();
+  }
+
+  // ---- audio ------------------------------------------------------------
+  let ctx = null, master = null;
+  const voices = new Map();           // key -> {osc, gain}
+
+  function audio() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      master = ctx.createGain();
+      master.gain.value = S.level;
+      master.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+    return ctx;
+  }
+
+  function coefficients() {
+    const real = new Float32Array(N + 1), imag = new Float32Array(N + 1);
+    for (let k = 1; k <= N; k++) {
+      const a = k <= S.limit ? S.amps[k] : 0;
+      real[k] = a * Math.sin(S.phases[k]);   // cosine term
+      imag[k] = a * Math.cos(S.phases[k]);   // sine term
+    }
+    return { real: real, imag: imag };
+  }
+
+  function currentWave(c) {
+    const co = coefficients();
+    return c.createPeriodicWave(co.real, co.imag, { disableNormalization: !S.normalize });
+  }
+
+  function noteFreq(semi) { return C4 * Math.pow(2, (semi + 12 * S.octave) / 12); }
+
+  function noteOn(id, semi) {
+    if (voices.has(id)) return;
+    const c = audio();
+    const osc = c.createOscillator();
+    osc.setPeriodicWave(currentWave(c));
+    osc.frequency.value = noteFreq(semi);
+    const g = c.createGain();
+    g.gain.value = 0;
+    g.gain.setValueAtTime(0, c.currentTime);
+    g.gain.linearRampToValueAtTime(1, c.currentTime + 0.008);
+    osc.connect(g); g.connect(master); osc.start();
+    voices.set(id, { osc: osc, gain: g, semi: semi });
+    paintKeys();
+  }
+
+  function noteOff(id) {
+    const v = voices.get(id);
+    if (!v) return;
+    voices.delete(id);
+    const c = ctx, t = c.currentTime;
+    if (S.hardGate) {
+      // the whole point: a gain that jumps to zero mid cycle leaves a step, and
+      // a step is a click. This is the wrong way to do it, on purpose.
+      v.gain.gain.cancelScheduledValues(t);
+      v.gain.gain.setValueAtTime(0, t);
+      v.osc.stop(t + 0.01);
+    } else {
+      v.gain.gain.cancelScheduledValues(t);
+      v.gain.gain.setValueAtTime(v.gain.gain.value, t);
+      v.gain.gain.linearRampToValueAtTime(0, t + 0.02);
+      v.osc.stop(t + 0.05);
+    }
+    paintKeys();
+  }
+
+  function retuneVoices() {
+    if (!ctx || voices.size === 0) return;
+    const w = currentWave(ctx);
+    voices.forEach((v) => { v.osc.setPeriodicWave(w); v.osc.frequency.value = noteFreq(v.semi); });
+  }
+
+  function droneOn() { return voices.has("drone"); }
+  function toggleDrone() {
+    if (droneOn()) noteOff("drone"); else noteOn("drone", 0);
+    $("drone").classList.toggle("on", droneOn());
+  }
+
+  // ---- drawing ----------------------------------------------------------
+  function fitCanvas(cv) {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    const g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { g: g, w: r.width, h: r.height };
+  }
+
+  function drawWave() {
+    const { g, w, h } = fitCanvas($("wave"));
+    g.clearRect(0, 0, w, h);
+    const mid = h / 2;
+    const info = analyse(S.amps, S.phases, S.limit, 2048);
+    const scale = (h / 2 - 12) / Math.max(1, info.peak * 1.06);
+
+    g.strokeStyle = "rgba(42,52,65,0.9)"; g.lineWidth = 1;
+    for (let i = 0; i <= 8; i++) {
+      const x = w * i / 8;
+      g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke();
+    }
+    // the +1 / -1 clip lines, so "will clip" is visible and not just a word
+    g.setLineDash([4, 4]); g.strokeStyle = "rgba(229,118,107,0.45)";
+    [1, -1].forEach((s) => {
+      const y = mid - s * scale;
+      if (y > 2 && y < h - 2) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+    });
+    g.setLineDash([]);
+    g.strokeStyle = "rgba(139,152,168,0.55)";
+    g.beginPath(); g.moveTo(0, mid); g.lineTo(w, mid); g.stroke();
+
+    // measured trace underneath, so a disagreement shows as the accent line
+    // failing to cover the amber one
+    const m = S.measured;
+    if (m && m.samples) {
+      g.strokeStyle = "#d9a441"; g.lineWidth = 3.5;
+      g.beginPath();
+      const per = m.sampleRate / m.freq;
+      for (let px = 0; px <= w; px++) {
+        const n = Math.round(px / w * per * 2);
+        if (n >= m.samples.length) break;
+        const y = mid - m.samples[n] * scale;
+        px === 0 ? g.moveTo(px, y) : g.lineTo(px, y);
+      }
+      g.stroke();
+    }
+
+    g.strokeStyle = "#5fd3c4"; g.lineWidth = 2;
+    g.beginPath();
+    for (let px = 0; px <= w; px++) {
+      const y = mid - sampleAt(px / w * 2, null, null, S.limit) * scale;
+      px === 0 ? g.moveTo(px, y) : g.lineTo(px, y);
+    }
+    g.stroke();
+
+    $("rdPeak").textContent = info.peak.toFixed(2);
+    $("rdPeak").style.color = info.peak > 1 ? "#e5766b" : "";
+    $("rdRms").textContent = info.rms.toFixed(3);
+    $("rdCrest").textContent = info.rms > 0 ? (info.peak / info.rms).toFixed(1) : "0.0";
+    $("rdCentroid").textContent = info.centroid.toFixed(1);
+    $("measLegend").hidden = !(m && m.samples);
+  }
+
+  function drawSpec() {
+    const { g, w, h } = fitCanvas($("spec"));
+    g.clearRect(0, 0, w, h);
+    const padL = 6, padB = 18, padT = 8;
+    const plotH = h - padB - padT, cw = (w - padL * 2) / N;
+    let top = 0;
+    for (let k = 1; k <= N; k++) top = Math.max(top, S.amps[k]);
+    if (S.measured) for (let k = 1; k <= N; k++) top = Math.max(top, S.measured.amps[k] || 0);
+    top = Math.max(top, 0.05) * 1.12;
+
+    g.strokeStyle = "rgba(42,52,65,0.9)"; g.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + plotH * i / 4;
+      g.beginPath(); g.moveTo(padL, y); g.lineTo(w - padL, y); g.stroke();
+    }
+    for (let k = 1; k <= N; k++) {
+      const a = k <= S.limit ? S.amps[k] : 0;
+      const x = padL + (k - 1) * cw, bh = plotH * (a / top);
+      g.fillStyle = k <= S.limit ? "#5fd3c4" : "#2a3441";
+      g.fillRect(x + cw * 0.16, padT + plotH - bh, cw * 0.68, bh);
+      if (S.measured) {
+        const mb = plotH * ((S.measured.amps[k] || 0) / top);
+        g.strokeStyle = "#d9a441"; g.lineWidth = 1.5;
+        g.strokeRect(x + cw * 0.06, padT + plotH - mb, cw * 0.88, Math.max(mb, 0.5));
+      }
+      if (k === 1 || k % 4 === 0) {
+        g.fillStyle = "#8b98a8"; g.font = "10px ui-monospace, Menlo, Consolas, monospace";
+        g.textAlign = "center";
+        g.fillText(String(k), x + cw / 2, h - 5);
+      }
+    }
+    $("specLegend").hidden = !S.measured;
+  }
+
+  function paintBars() {
+    for (let k = 1; k <= N; k++) {
+      const bar = document.querySelector('.bar[data-k="' + k + '"]');
+      const fill = bar.firstElementChild;
+      fill.style.height = (S.amps[k] * 100) + "%";
+      bar.classList.toggle("off", k > S.limit);
+      // amber when the partial is inverted, so phase is not an invisible state
+      const ph = ((S.phases[k] % TWO_PI) + TWO_PI) % TWO_PI;
+      bar.classList.toggle("flip", ph > Math.PI / 2 && ph < 3 * Math.PI / 2);
+      bar.setAttribute("aria-valuenow", S.amps[k].toFixed(3));
+      bar.title = "harmonic " + k + "  amplitude " + S.amps[k].toFixed(3) +
+                  "  phase " + (ph / Math.PI).toFixed(2) + "π";
+      document.querySelector('.baraxis span[data-k="' + k + '"]').classList.toggle("mut", k > S.limit);
+    }
+  }
+
+  function paintKeys() {
+    document.querySelectorAll(".key").forEach((el) => {
+      el.classList.toggle("down", voices.has("k" + el.dataset.semi));
+    });
+  }
+
+  function render() { paintBars(); drawWave(); drawSpec(); }
+
+  // ---- prove it ---------------------------------------------------------
+  // Renders the current patch offline and compares it, sample by sample,
+  // against sampleAt(): the same function that draws the curve on screen.
+  async function proveIt() {
+    const sr = 44100;
+    const freq = noteFreq(voices.size ? [...voices.values()][0].semi : 0);
+    const dur = 0.25;
+    const frames = Math.round(sr * dur);
+    const oc = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, frames, sr);
+    const co = coefficients();
+    const wave = oc.createPeriodicWave(co.real, co.imag, { disableNormalization: !S.normalize });
+    const osc = oc.createOscillator();
+    osc.setPeriodicWave(wave);
+    osc.frequency.value = freq;
+    osc.connect(oc.destination);
+    osc.start(0);
+    const buf = await oc.startRendering();
+    const x = buf.getChannelData(0);
+
+    // pointwise error, over a whole number of periods so the tail is not ragged
+    const per = sr / freq;
+    const usable = Math.floor(frames / per) * per;
+    let maxErr = 0, sq = 0, cnt = 0;
+    for (let n = 0; n < usable; n++) {
+      const want = sampleAt(freq * n / sr);
+      const err = Math.abs(x[n] - want);
+      if (err > maxErr) maxErr = err;
+      sq += err * err; cnt++;
+    }
+    const rmsErr = Math.sqrt(sq / Math.max(1, cnt));
+
+    // per harmonic amplitude by correlation
+    const amps = new Float64Array(N + 1), phs = new Float64Array(N + 1);
+    for (let k = 1; k <= N; k++) {
+      let sa = 0, cb = 0;
+      for (let n = 0; n < usable; n++) {
+        const ang = TWO_PI * k * freq * n / sr;
+        sa += x[n] * Math.sin(ang); cb += x[n] * Math.cos(ang);
+      }
+      sa = 2 * sa / usable; cb = 2 * cb / usable;
+      amps[k] = Math.hypot(sa, cb);
+      phs[k] = Math.atan2(cb, sa);
+    }
+
+    S.measured = { freq: freq, sampleRate: sr, samples: x.slice(0, Math.ceil(per * 2) + 2),
+                   amps: amps, phases: phs, maxErr: maxErr, rmsErr: rmsErr,
+                   normalize: S.normalize, nyquist: sr / 2 };
+    reportProof();
+    render();
+    return S.measured;
+  }
+
+  function reportProof() {
+    const m = S.measured;
+    const v = $("verdict");
+    const ok = m.maxErr < 0.02;
+    v.className = "verdict " + (ok ? "good" : "bad");
+    const gone = [];
+    for (let k = 1; k <= S.limit; k++) {
+      if (S.amps[k] > 0.02 && k * m.freq > m.nyquist) gone.push(k);
+    }
+    v.innerHTML =
+      (ok ? "The picture matches the sound. " : "The picture and the sound disagree. ") +
+      "Largest sample by sample error over " + Math.round(m.freq) + " Hz: <b>" +
+      m.maxErr.toFixed(4) + "</b> (rms <b>" + m.rmsErr.toFixed(5) + "</b>)." +
+      (m.normalize
+        ? " <b>Normalization is on</b>, so the engine rescaled the wave and the amplitudes on the sliders no longer mean anything to the ear."
+        : "") +
+      (gone.length
+        ? " Harmonics " + gone.join(", ") + " sit above Nyquist (" + m.nyquist +
+          " Hz) and were dropped rather than aliased."
+        : "");
+
+    const rows = ['<tr><th>k</th><th>Hz</th><th>asked</th><th>got</th><th>diff</th></tr>'];
+    for (let k = 1; k <= N; k++) {
+      const want = k <= S.limit ? S.amps[k] : 0, got = m.amps[k];
+      if (want < 0.005 && got < 0.005) continue;
+      const d = Math.abs(got - want);
+      const cls = d > 0.02 ? "gone" : "ok";
+      rows.push("<tr><td>" + k + "</td><td>" + Math.round(k * m.freq) + "</td><td>" +
+                want.toFixed(3) + "</td><td>" + got.toFixed(3) + '</td><td class="' + cls + '">' +
+                d.toFixed(3) + "</td></tr>");
+    }
+    $("hxTable").innerHTML = rows.join("");
+    $("hxWrap").hidden = false;
+  }
+
+  // ---- build the DOM ----------------------------------------------------
+  const barsEl = $("bars"), axisEl = $("baraxis");
+  for (let k = 1; k <= N; k++) {
+    const b = document.createElement("div");
+    b.className = "bar"; b.dataset.k = k; b.tabIndex = 0;
+    b.setAttribute("role", "slider");
+    b.setAttribute("aria-label", "Harmonic " + k + " amplitude");
+    b.setAttribute("aria-valuemin", "0"); b.setAttribute("aria-valuemax", "1");
+    b.innerHTML = '<div class="fill"></div>';
+    barsEl.appendChild(b);
+    const s = document.createElement("span");
+    s.dataset.k = k; s.textContent = k;
+    axisEl.appendChild(s);
+  }
+
+  const keysEl = $("keys");
+  for (let i = 0; i < 13; i++) {
+    const k = document.createElement("div");
+    const black = [1, 3, 6, 8, 10].indexOf(i) >= 0;
+    k.className = "key" + (black ? " black" : "");
+    k.dataset.semi = i;
+    k.innerHTML = '<span class="nn">' + NOTE_NAMES[i] + '</span><span class="kc">' +
+                  KEYCHARS[i] + '</span>';
+    keysEl.appendChild(k);
+  }
+
+  // ---- interaction ------------------------------------------------------
+  let painting = false;
+  function paintFrom(ev) {
+    const r = barsEl.getBoundingClientRect();
+    const idx = clamp(Math.floor((ev.clientX - r.left) / (r.width / N)), 0, N - 1) + 1;
+    const v = clamp(1 - (ev.clientY - r.top) / r.height, 0, 1);
+    S.amps[idx] = ev.shiftKey ? 0 : Math.round(v * 1000) / 1000;
+    invalidateProof();
+    render(); retuneVoices();
+  }
+  barsEl.addEventListener("pointerdown", (e) => {
+    painting = true; barsEl.setPointerCapture(e.pointerId); paintFrom(e); e.preventDefault();
+  });
+  barsEl.addEventListener("pointermove", (e) => {
+    const r = barsEl.getBoundingClientRect();
+    const idx = clamp(Math.floor((e.clientX - r.left) / (r.width / N)), 0, N - 1) + 1;
+    document.querySelectorAll(".bar").forEach((b) => b.classList.toggle("hot", +b.dataset.k === idx));
+    if (painting) paintFrom(e);
+  });
+  barsEl.addEventListener("pointerup", () => { painting = false; });
+  barsEl.addEventListener("pointercancel", () => { painting = false; });
+  barsEl.addEventListener("pointerleave", () => {
+    document.querySelectorAll(".bar").forEach((b) => b.classList.remove("hot"));
+  });
+  barsEl.addEventListener("keydown", (e) => {
+    const k = +(e.target.dataset && e.target.dataset.k);
+    if (!k) return;
+    const step = e.shiftKey ? 0.01 : 0.05;
+    if (e.key === "ArrowUp") S.amps[k] = clamp(S.amps[k] + step, 0, 1);
+    else if (e.key === "ArrowDown") S.amps[k] = clamp(S.amps[k] - step, 0, 1);
+    else if (e.key === "Home") S.amps[k] = 0;
+    else return;
+    e.preventDefault(); invalidateProof(); render(); retuneVoices();
+  });
+
+  document.querySelectorAll("[data-preset]").forEach((b) => {
+    b.addEventListener("click", () => {
+      loadPreset(b.dataset.preset);
+      document.querySelectorAll("[data-preset]").forEach((o) => o.classList.toggle("on", o === b));
+    });
+  });
+  document.querySelectorAll("[data-phase]").forEach((b) => {
+    b.addEventListener("click", () => {
+      setPhaseMode(b.dataset.phase);
+      document.querySelectorAll("[data-phase]").forEach((o) => o.classList.toggle("on", o === b));
+    });
+  });
+
+  $("limit").addEventListener("input", (e) => {
+    S.limit = +e.target.value; $("rdLimit").textContent = S.limit;
+    invalidateProof(); render(); retuneVoices();
+  });
+  $("octave").addEventListener("input", (e) => {
+    S.octave = +e.target.value;
+    $("rdOct").textContent = (S.octave > 0 ? "+" : "") + S.octave;
+    invalidateProof(); retuneVoices();
+  });
+  $("level").addEventListener("input", (e) => {
+    S.level = +e.target.value / 100;
+    if (master) master.gain.value = S.level;
+  });
+  $("hardgate").addEventListener("change", (e) => { S.hardGate = e.target.checked; });
+  $("normalize").addEventListener("change", (e) => { S.normalize = e.target.checked; retuneVoices(); });
+  $("drone").addEventListener("click", toggleDrone);
+  $("proveBtn").addEventListener("click", async () => {
+    const b = $("proveBtn");
+    b.disabled = true; b.textContent = "Rendering...";
+    try { await proveIt(); } finally { b.disabled = false; b.textContent = "Render and compare"; }
+  });
+
+  keysEl.addEventListener("pointerdown", (e) => {
+    const key = e.target.closest(".key"); if (!key) return;
+    keysEl.setPointerCapture(e.pointerId);
+    noteOn("k" + key.dataset.semi, +key.dataset.semi); e.preventDefault();
+  });
+  const releaseAll = () => { [...voices.keys()].forEach((id) => { if (id !== "drone") noteOff(id); }); };
+  keysEl.addEventListener("pointerup", releaseAll);
+  keysEl.addEventListener("pointercancel", releaseAll);
+
+  const held = new Set();
+  window.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.classList.contains("bar")) return;
+    if (e.code === "Space") { e.preventDefault(); toggleDrone(); return; }
+    const i = KEYCHARS.indexOf(e.key.toLowerCase());
+    if (i < 0 || held.has(e.key)) return;
+    held.add(e.key); noteOn("k" + i, i);
+  });
+  window.addEventListener("keyup", (e) => {
+    const i = KEYCHARS.indexOf(e.key.toLowerCase());
+    if (i < 0) return;
+    held.delete(e.key); noteOff("k" + i);
+  });
+
+  let raf = null;
+  window.addEventListener("resize", () => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => { drawWave(); drawSpec(); });
+  });
+
+  // ---- preview mode -----------------------------------------------------
+  const params = new URLSearchParams(location.search);
+  const preview = params.get("preview");
+  if (preview) {
+    document.body.classList.add("preview");
+    const name = PRESETS[preview] ? preview : "square";
+    loadPreset(name);
+    document.querySelector('[data-preset="' + name + '"]').classList.add("on");
+  } else {
+    loadPreset("saw");
+    document.querySelector('[data-preset="saw"]').classList.add("on");
+    document.querySelector('[data-phase="zero"]').classList.add("on");
+  }
+
+  // ---- test surface -----------------------------------------------------
+  // Read only. The checker drives this build through real clicks and keys and
+  // reads state back here to assert; it never reaches in to make things happen.
+  window.LAB = {
+    state: S,
+    sampleAt: sampleAt,
+    analyse: analyse,
+    coefficients: coefficients,
+    noteFreq: noteFreq,
+    voiceCount: () => voices.size,
+    droneOn: droneOn,
+    lastProof: () => S.measured,
+    proveIt: proveIt,
+    N: N,
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,845 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swept: which commit form is safe right now</title>
+<!--
+  ===========================================================================
+  SWEPT, a commit safety check for a working tree that several sessions share
+  ===========================================================================
+
+  WHAT IT DOES
+  Paste the output of `git status --porcelain`, tick the paths you mean to
+  commit, and it tells you which of the two commit forms will quietly take
+  someone else's work with it:
+
+      git commit -m "..."              commits THE INDEX
+      git commit -m "..." -- <paths>   commits THE WORKING TREE of those paths
+
+  Those are not "one careful form and one sloppy form". They are opposites,
+  and which one destroys a peer's work depends entirely on the state of the
+  tree, never on which one you typed. So there is no safe default to memorise,
+  which is exactly why this is a tool and not a rule.
+
+  It also prints the `git diff` that shows what the form you are about to use
+  will ACTUALLY commit, because reading `git diff --cached` and then running a
+  pathspec commit means you inspected one object and committed a different one.
+
+  WHY IT EXISTS
+  In a working tree several sessions share, one commit can quietly sweep a
+  peer's work into itself. There is no safe command form to memorise. The
+  answer is a PROCEDURE (read the tree state first, then let that pick the
+  form), and a procedure nobody will run correctly at one in the morning is a
+  procedure that does not exist. This makes it one
+  paste. It ships no hook and changes nobody's commit path.
+
+  WHAT I LEARNED, all of it measured in throwaway repositories by
+  _verify/measure_git_matrix.js rather than recalled, because the write-up I
+  started from says of itself that it was wrong three times in one afternoon:
+
+  1. The two columns of `git status --porcelain` ARE the two axes of the
+     safety question. X is the index against HEAD, Y is the working tree
+     against the index. A path you are committing with a dirty Y is what makes
+     the pathspec form unsafe. A path you are NOT committing with a dirty X is
+     what makes the bare form unsafe. Nothing else matters, and both are
+     decidable from the porcelain text alone.
+
+  2. I predicted the two indistinguishable states would be "peer's unstaged
+     hunk in my file" versus "peer's staged hunk in my file", both reading MM.
+     WRONG, and the measurement said so. Once a peer stages into your file the
+     tree and index agree again, so it reads `M `, identical to your own
+     ordinary staged work. The ambiguity is real but it sits somewhere else
+     than I thought, and no form of commit escapes it.
+
+  3. A space in a path forces `git status --porcelain` to quote it. That is
+     what makes splitting a rename on " -> " safe: a path that contains that
+     sequence is always quoted, so an unquoted line can never contain one.
+     Non-ASCII comes back octal-escaped inside those quotes (café is
+     "caf\303\251.txt"), which is bytes and not characters.
+
+  4. `git commit -- <path>` refuses outright during a merge, with "cannot do a
+     partial commit during a merge", and refuses a path git has never seen.
+     Both refusals are better than what I assumed, which was that it would do
+     something.
+
+  THE LINE THIS TOOL WILL NOT CROSS
+  It reports STATE. It never claims AUTHORSHIP. Git records no author for an
+  uncommitted hunk, so nothing can tell a peer's paragraph from yours inside a
+  file, and a tool that implied otherwise would be worse than no tool. Every
+  verdict here is of the form "content exists that your index does not have",
+  never "someone else wrote this".
+
+  Self-contained, offline, no dependencies, no network, reads nothing.
+  Built 2026-09-10.
+-->
+<style>
+  :root{
+    --bg:#0d1117; --panel:#151b23; --panel2:#1b232d; --line:#2a3441;
+    --ink:#e8edf3; --dim:#93a1b0; --faint:#65727f;
+    --safe:#3fb950; --safe-bg:#0f2a17; --safe-line:#1f5c2e;
+    --warn:#d29922; --warn-bg:#2b2210; --warn-line:#6b5312;
+    --bad:#f85149; --bad-bg:#2d1416; --bad-line:#7a2b2b;
+    --info:#58a6ff; --info-bg:#101d2e; --info-line:#20406b;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--sans);
+    font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--info)}
+  code,kbd,.mono{font-family:var(--mono)}
+
+  .wrap{max-width:1180px; margin:0 auto; padding:28px 20px 64px}
+
+  header.top{border-bottom:1px solid var(--line); padding-bottom:18px; margin-bottom:24px}
+  .brand{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+  h1{font-size:30px; margin:0; letter-spacing:-.02em}
+  .brand .tag{
+    font-family:var(--mono); font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--warn); border:1px solid var(--warn-line); background:var(--warn-bg);
+    padding:3px 9px; border-radius:999px;
+  }
+  header.top p{margin:10px 0 0; color:var(--dim); max-width:76ch}
+
+  .cols{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:22px; align-items:start}
+  @media (max-width:900px){ .cols{grid-template-columns:minmax(0,1fr)} }
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px}
+  .panel + .panel{margin-top:18px}
+  .panel h2{
+    font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint);
+    margin:0 0 12px; font-weight:600;
+  }
+
+  textarea{
+    /* tall enough that the longest worked example, seven paths, sits in the box
+       without scrolling; a status you have to scroll is a status you skim */
+    width:100%; min-height:158px; resize:vertical; background:#0a0e14; color:var(--ink);
+    border:1px solid var(--line); border-radius:8px; padding:11px 12px;
+    font-family:var(--mono); font-size:13px; line-height:1.6; tab-size:2;
+  }
+  textarea:focus{outline:2px solid var(--info); outline-offset:-1px; border-color:var(--info)}
+  .hint{color:var(--faint); font-size:12.5px; margin:9px 0 0}
+  .hint code{color:var(--dim); background:var(--panel2); padding:1px 5px; border-radius:4px}
+
+  .chips{display:flex; flex-wrap:wrap; gap:7px; margin-top:13px}
+  .chip{
+    font:inherit; font-size:12.5px; cursor:pointer; color:var(--dim);
+    background:var(--panel2); border:1px solid var(--line); border-radius:999px; padding:5px 11px;
+  }
+  .chip:hover{border-color:var(--info); color:var(--ink)}
+  .chip[aria-pressed="true"]{background:var(--info-bg); border-color:var(--info-line); color:var(--info)}
+
+  table.paths{width:100%; border-collapse:collapse; font-size:13.5px}
+  table.paths th{
+    text-align:left; font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--faint); font-weight:600; padding:0 8px 7px; border-bottom:1px solid var(--line);
+  }
+  table.paths td{padding:7px 8px; border-bottom:1px solid #1e2630; vertical-align:top}
+  table.paths tr:last-child td{border-bottom:0}
+  table.paths tr.sel{background:#111b27}
+  .xy{font-family:var(--mono); font-size:13px; letter-spacing:.14em; white-space:pre}
+  .xy .x{color:var(--safe)} .xy .y{color:var(--bad)} .xy .n{color:var(--faint)}
+  .p{font-family:var(--mono); font-size:12.5px; word-break:break-all}
+  .meaning{color:var(--dim); font-size:12.5px}
+  input[type=checkbox]{width:15px; height:15px; accent-color:var(--info); cursor:pointer; margin:2px 0 0}
+  .selall{font-size:12px; color:var(--info); background:none; border:0; cursor:pointer; padding:0; font-family:inherit}
+  .selall:hover{text-decoration:underline}
+
+  .verdict{border-radius:12px; border:1px solid var(--line); background:var(--panel); overflow:hidden}
+  .verdict + .verdict{margin-top:14px}
+  .verdict .vhead{display:flex; align-items:center; gap:11px; padding:13px 16px; border-bottom:1px solid var(--line)}
+  .verdict .cmd{font-family:var(--mono); font-size:13px; color:var(--ink); flex:1; min-width:0; word-break:break-all}
+  .badge{
+    font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.09em;
+    padding:4px 10px; border-radius:6px; white-space:nowrap; text-transform:uppercase;
+  }
+  .badge.safe{color:var(--safe); background:var(--safe-bg); border:1px solid var(--safe-line)}
+  .badge.bad{color:var(--bad); background:var(--bad-bg); border:1px solid var(--bad-line)}
+  .badge.warn{color:var(--warn); background:var(--warn-bg); border:1px solid var(--warn-line)}
+  .verdict.is-safe{border-color:var(--safe-line)}
+  .verdict.is-bad{border-color:var(--bad-line)}
+  .verdict.is-warn{border-color:var(--warn-line)}
+  .vbody{padding:12px 16px}
+  .vbody p{margin:0 0 8px}
+  .vbody p:last-child{margin-bottom:0}
+  .why{color:var(--dim); font-size:13.5px}
+  .culprits{list-style:none; margin:9px 0 0; padding:0; display:flex; flex-direction:column; gap:5px}
+  .culprits li{
+    font-family:var(--mono); font-size:12.5px; background:var(--panel2);
+    border:1px solid var(--line); border-left:3px solid var(--bad);
+    border-radius:5px; padding:6px 9px; word-break:break-all;
+  }
+  .culprits li .lbl{color:var(--faint); font-family:var(--sans); font-size:11.5px; display:block}
+
+  .note{border-radius:10px; padding:12px 14px; font-size:13.5px; margin-top:14px}
+  .note.info{background:var(--info-bg); border:1px solid var(--info-line); color:#c8dcf5}
+  .note.warn{background:var(--warn-bg); border:1px solid var(--warn-line); color:#f0dca8}
+  .note b{color:#fff}
+  .note code{background:rgba(255,255,255,.06); padding:1px 5px; border-radius:4px; font-size:12.5px}
+
+  pre.cmdblock{
+    background:#0a0e14; border:1px solid var(--line); border-radius:8px;
+    padding:11px 12px; margin:9px 0 0; overflow-x:auto;
+    font-family:var(--mono); font-size:12.5px; color:#b9e6c4; line-height:1.7;
+  }
+  pre.cmdblock .c{color:var(--faint)}
+
+  details.matrix{margin-top:22px; border:1px solid var(--line); border-radius:12px; background:var(--panel)}
+  details.matrix summary{cursor:pointer; padding:13px 18px; font-size:13.5px; color:var(--dim); user-select:none}
+  details.matrix summary:hover{color:var(--ink)}
+  details.matrix[open] summary{border-bottom:1px solid var(--line); color:var(--ink)}
+  .matrix .inner{padding:16px 18px}
+  table.m{width:100%; border-collapse:collapse; font-size:13px; margin-top:6px}
+  table.m th,table.m td{padding:7px 10px; border:1px solid var(--line); text-align:left}
+  table.m th{background:var(--panel2); color:var(--faint); font-size:11px; letter-spacing:.07em; text-transform:uppercase}
+  td.sw{color:var(--bad); font-weight:600} td.sf{color:var(--safe); font-weight:600}
+  td.rf{color:var(--warn); font-weight:600}
+  .matrix p{color:var(--dim); font-size:13.5px; margin:12px 0 0}
+  .matrix p:first-of-type{margin-top:0}
+
+  footer.foot{margin-top:30px; padding-top:16px; border-top:1px solid var(--line); color:var(--faint); font-size:12.5px}
+  footer.foot p{margin:0 0 6px}
+
+  .empty{color:var(--faint); font-size:13.5px; font-style:italic; padding:6px 2px}
+
+  /* ---------- preview mode: the index card's 2:1 thumbnail ----------
+     A card is a fixed 2:1 window onto a page that can be taller than it, so
+     anything below the fold may as well not exist. The first version of this
+     block left the input panel in and the thumbnail came back showing one
+     green SAFE card with the interesting answer cut off underneath, which
+     advertised the opposite of what the tool is for. Preview now drops the
+     input entirely and shows the state on the left and BOTH answers on the
+     right, which is the whole product in one glance. */
+  body.preview{overflow:hidden}
+  body.preview .wrap{padding:13px 15px; max-width:none}
+  body.preview header.top{padding-bottom:8px; margin-bottom:10px}
+  body.preview h1{font-size:21px}
+  body.preview header.top p{display:none}
+  body.preview .hide-in-preview{display:none !important}
+  body.preview .cols{grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr); gap:12px}
+  body.preview .panel{padding:9px 11px}
+  body.preview .panel h2{margin-bottom:7px; font-size:10.5px}
+  body.preview table.paths th{padding-bottom:4px}
+  body.preview table.paths td{padding:3px 6px; font-size:12px}
+  /* At card width the fourth column squeezes the path into three broken lines,
+     so it goes. The path and its two status letters are the state; the plain
+     English gloss is a reading aid for someone who has actually opened it. */
+  body.preview table.paths th:nth-child(4), body.preview table.paths td:nth-child(4){display:none}
+  body.preview table.paths{table-layout:fixed}
+  body.preview table.paths th:nth-child(1), body.preview table.paths td:nth-child(1){width:26px}
+  body.preview table.paths th:nth-child(2), body.preview table.paths td:nth-child(2){width:34px}
+  body.preview .p{font-size:11.5px; word-break:normal; overflow-wrap:anywhere}
+  body.preview .meaning{font-size:11px}
+  body.preview #verdicts{margin-top:0 !important}
+  body.preview .verdict .vhead{padding:7px 10px; gap:8px}
+  body.preview .verdict .cmd{font-size:11.5px}
+  body.preview .badge{font-size:10px; padding:3px 7px}
+  body.preview .vbody{padding:7px 10px}
+  body.preview .verdict + .verdict{margin-top:9px}
+  body.preview .why{
+    font-size:11.5px; line-height:1.45;
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  body.preview .culprits{margin-top:6px}
+  body.preview .culprits li{font-size:11px; padding:4px 7px}
+  body.preview #extras{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1>Swept</h1>
+      <span class="tag">shared worktree · commit safety</span>
+    </div>
+    <p>
+      Two ways to make a commit, and they are opposites. Paste your
+      <code class="mono">git status --porcelain</code>, tick what you mean to commit, and this says
+      which form takes work that is not yours along with it. There is no safe default form: safety
+      is a property of the tree, not of the command.
+    </p>
+  </header>
+
+  <div class="cols">
+
+    <!-- ------------------------------ input ------------------------------ -->
+    <div>
+      <section class="panel hide-in-preview">
+        <h2>1 · paste <span class="mono">git status --porcelain</span></h2>
+        <textarea id="input" spellcheck="false" aria-label="git status --porcelain output"></textarea>
+        <p class="hint hide-in-preview">
+          Porcelain v1 only. Two status columns, then the path.
+          <code>X</code> is the index against HEAD, <code>Y</code> is the working tree against the index.
+        </p>
+        <div class="chips hide-in-preview" id="chips" role="group" aria-label="worked examples"></div>
+        <p class="hint hide-in-preview" id="scenNote"></p>
+      </section>
+
+      <section class="panel">
+        <h2>
+          2 · tick what you are committing
+          <button class="selall hide-in-preview" id="selAll" type="button" style="float:right">select all tracked</button>
+        </h2>
+        <div id="pathsHost"></div>
+      </section>
+    </div>
+
+    <!-- ------------------------------ verdict ------------------------------ -->
+    <div>
+      <section>
+        <div class="panel hide-in-preview" style="padding-bottom:6px">
+          <h2>3 · the verdict</h2>
+        </div>
+        <div id="verdicts" style="margin-top:14px"></div>
+        <div id="extras"></div>
+      </section>
+    </div>
+
+  </div>
+
+  <details class="matrix hide-in-preview" id="matrixBox">
+    <summary>The measured matrix, and how it was measured</summary>
+    <div class="inner">
+      <p>
+        Every cell below was produced by building a throwaway repository, running the real sequence
+        with the real git binary, and reading what actually landed in the commit. Nothing here is
+        quoted from a document. The script is
+        <span class="mono">_verify/measure_git_matrix.js</span> and it re-runs in about a second.
+      </p>
+      <p>
+        The order is what makes it a fair test: <b>my change is staged first, then the peer's work
+        appears, then I commit.</b> Get that ordering wrong and every row comes out looking safe.
+      </p>
+      <table class="m">
+        <thead><tr>
+          <th>The other session's work</th>
+          <th>Tree reads</th>
+          <th><span class="mono">git commit -- A</span></th>
+          <th><span class="mono">git commit</span></th>
+        </tr></thead>
+        <tbody id="matrixRows"></tbody>
+      </table>
+      <p>
+        <b>Read the row where both forms sweep.</b> Once a peer stages into a file you are also
+        committing, the index and the working tree agree again, so the tree reads
+        <span class="mono">M&nbsp;</span> and looks exactly like your own ordinary staged work.
+        No command excludes their hunk and no amount of parsing detects it. That row is the one
+        this tool answers with "go and read the diff", because that is the only thing that works.
+      </p>
+      <p>
+        <b>What this tool cannot do, stated plainly.</b> Git stores no authorship for an
+        uncommitted change. So it can tell you a file holds content your index does not, and it can
+        never tell you who put it there. Every verdict is about state.
+      </p>
+    </div>
+  </details>
+
+  <footer class="foot hide-in-preview">
+    <p>Reads nothing, sends nothing, stores nothing. One file, offline, no dependencies.</p>
+    <p>Measured against git 2.43.0 on 2026-09-10. Ships no hook and changes no commit path.</p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   Porcelain v1 parser.
+
+   Line shape is XY<space>path. Measured facts this relies on, all from
+   _verify/measure_quoting.js rather than from memory:
+     - a path is quoted if it contains a space, a quote, a tab or any
+       non-ASCII byte; otherwise it is bare
+     - non-ASCII arrives octal escaped INSIDE the quotes, so decoding is a
+       byte operation and not a character one
+     - a rename entry is `old -> new`, and because any path containing the
+       sequence " -> " is necessarily quoted, an unquoted line can be split
+       on it with no ambiguity at all
+   ===================================================================== */
+
+const STAGED = new Set(["M", "A", "D", "R", "C", "T"]);          // X values meaning "in the index"
+const DIRTY  = new Set(["M", "D", "T"]);                          // Y values meaning "worktree differs"
+
+function unquote(s) {
+  const body = s.slice(1, -1);
+  const bytes = [];
+  const enc = new TextEncoder();
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c !== "\\") { for (const b of enc.encode(c)) bytes.push(b); continue; }
+    const n = body[++i];
+    if (n === undefined) { bytes.push(92); break; }
+    if (n === "n") bytes.push(10);
+    else if (n === "t") bytes.push(9);
+    else if (n === "r") bytes.push(13);
+    else if (n === "b") bytes.push(8);
+    else if (n === "f") bytes.push(12);
+    else if (n === "v") bytes.push(11);
+    else if (n === "a") bytes.push(7);
+    else if (n >= "0" && n <= "7") { bytes.push(parseInt(body.substr(i, 3), 8)); i += 2; }
+    else for (const b of enc.encode(n)) bytes.push(b);
+  }
+  return new TextDecoder("utf-8").decode(new Uint8Array(bytes));
+}
+
+/* Consume one path from the front of `rest`; returns [decodedPath, remainder]. */
+function takePath(rest) {
+  if (rest[0] !== '"') {
+    const i = rest.indexOf(" -> ");
+    return i === -1 ? [rest, ""] : [rest.slice(0, i), rest.slice(i)];
+  }
+  let i = 1;
+  while (i < rest.length) {
+    if (rest[i] === "\\") { i += 2; continue; }
+    if (rest[i] === '"') break;
+    i++;
+  }
+  return [unquote(rest.slice(0, i + 1)), rest.slice(i + 1)];
+}
+
+function parsePorcelain(text) {
+  const rows = [], problems = [];
+  for (const raw of text.split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    if (raw.length < 4 || raw[2] !== " ") { problems.push(raw); continue; }
+    const x = raw[0], y = raw[1];
+    let [first, remainder] = takePath(raw.slice(3));
+    let from = null, path = first;
+    if (remainder.startsWith(" -> ")) { from = first; [path] = takePath(remainder.slice(4)); }
+    rows.push({ x, y, path, from, raw });
+  }
+  return { rows, problems };
+}
+
+const isUnmerged = r =>
+  r.x === "U" || r.y === "U" || (r.x === "D" && r.y === "D") || (r.x === "A" && r.y === "A");
+const isUntracked = r => r.x === "?" && r.y === "?";
+const isIgnored   = r => r.x === "!" && r.y === "!";
+const isStaged    = r => !isUnmerged(r) && !isUntracked(r) && !isIgnored(r) && STAGED.has(r.x);
+const isDirty     = r => !isUnmerged(r) && !isUntracked(r) && !isIgnored(r) && DIRTY.has(r.y);
+
+function meaning(r) {
+  if (isUnmerged(r)) return "unmerged, a conflict is open here";
+  if (isIgnored(r))  return "ignored";
+  if (isUntracked(r)) return "untracked, git has never seen it";
+  const bits = [];
+  if (isStaged(r)) {
+    bits.push({ M: "staged edit", A: "staged as new", D: "staged deletion",
+                R: "staged rename", C: "staged copy", T: "staged type change" }[r.x]);
+  }
+  if (isDirty(r)) {
+    bits.push({ M: "unstaged edit on top", D: "deleted in the tree", T: "type changed in the tree" }[r.y]);
+  }
+  return bits.length ? bits.join(", ") : "clean";
+}
+
+/* =====================================================================
+   The decision engine.
+
+   Only two questions decide it, and both read straight off the columns:
+     pathspec form is unsafe  <=  a path you ARE committing has a dirty Y
+     bare form is unsafe      <=  a path you are NOT committing has a set X
+   ===================================================================== */
+
+function analyse(rows, selected) {
+  const inSet = r => selected.has(r.path);
+  const merging = rows.some(isUnmerged);
+
+  const pathspecSweeps = rows.filter(r => inSet(r) && isDirty(r));
+  const pathspecUnknown = rows.filter(r => inSet(r) && isUntracked(r));
+  const bareSweeps = rows.filter(r => !inSet(r) && isStaged(r));
+  const residual = rows.filter(r => inSet(r) && isStaged(r));
+  const untrackedOutside = rows.filter(r => !inSet(r) && isUntracked(r));
+
+  const chosen = rows.filter(inSet);
+
+  const pathspec = { form: "pathspec" };
+  if (chosen.length === 0) {
+    pathspec.state = "warn";
+    pathspec.head = "nothing selected";
+    pathspec.why = "Tick at least one path and this becomes answerable.";
+  } else if (merging) {
+    pathspec.state = "bad"; pathspec.head = "refuses";
+    pathspec.why = "A merge is in progress. Git will stop with “cannot do a partial commit during a merge”. " +
+                   "Resolve the conflict, then commit the merge whole.";
+    pathspec.list = rows.filter(isUnmerged);
+    pathspec.listLabel = "still unmerged";
+  } else if (pathspecUnknown.length) {
+    pathspec.state = "bad"; pathspec.head = "refuses";
+    pathspec.why = "Git will stop with “pathspec did not match any file(s) known to git”. " +
+                   "A pathspec commit can only name paths git already knows, so add these first. " +
+                   "Do not reach for git add -A to get past it, which is how the whole tree ends up in your commit.";
+    pathspec.list = pathspecUnknown;
+    pathspec.listLabel = "never added";
+  } else if (pathspecSweeps.length) {
+    pathspec.state = "bad"; pathspec.head = "sweeps";
+    pathspec.why = "This form commits the WORKING TREE of the paths you name, not your index. " +
+                   "These files hold changes your index does not, and every one of them will be in the commit.";
+    pathspec.list = pathspecSweeps;
+    pathspec.listLabel = "unstaged content that will be committed anyway";
+  } else {
+    pathspec.state = "safe"; pathspec.head = "safe";
+    pathspec.why = "Every path you named matches your index exactly, and nothing outside them can be pulled in. " +
+                   "Staged work elsewhere stays out.";
+  }
+
+  const bare = { form: "bare" };
+  if (chosen.length === 0) {
+    bare.state = "warn";
+    bare.head = "nothing selected";
+    bare.why = "Tick at least one path and this becomes answerable.";
+  } else if (merging) {
+    bare.state = "warn"; bare.head = "commits the merge";
+    bare.why = "A merge is open, so a bare commit concludes it and takes every resolved path with it. " +
+               "That is usually what you want, and it is never a partial commit.";
+    bare.list = rows.filter(isUnmerged);
+    bare.listLabel = "still unmerged";
+  } else if (bareSweeps.length) {
+    bare.state = "bad"; bare.head = "sweeps";
+    bare.why = "This form commits THE WHOLE INDEX. These paths are staged and you did not select them, " +
+               "so they land in your commit under your message.";
+    bare.list = bareSweeps;
+    bare.listLabel = "staged elsewhere, will be committed";
+  } else {
+    bare.state = "safe"; bare.head = "safe";
+    bare.why = "The index holds nothing but what you selected. Unstaged edits anywhere, and untracked " +
+               "files everywhere, stay out of it.";
+  }
+
+  return { pathspec, bare, residual, untrackedOutside, merging, chosen, pathspecUnknown };
+}
+
+/* =====================================================================
+   Rendering
+   ===================================================================== */
+
+const $ = s => document.querySelector(s);
+const el = (t, cls, txt) => { const n = document.createElement(t); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+const shq = p => (/^[A-Za-z0-9._\/@=+-]+$/.test(p) ? p : "'" + p.replace(/'/g, "'\\''") + "'");
+
+let ROWS = [], SELECTED = new Set(), ACTIVE_SCENARIO = null;
+
+/* The select-all control is a toggle, so its LABEL has to say which way it is
+ * about to go. It read "select all tracked" permanently until the end to end
+ * suite clicked it in a state where everything was already ticked and watched
+ * it clear the lot. The engine suite could never have seen that: the button
+ * did exactly what its code said and the code was not the thing that was
+ * wrong. A control whose label does not match what it will do is a small lie
+ * in the same family as the ones this whole build is about. */
+function syncSelAllLabel() {
+  const btn = $("#selAll");
+  const tracked = ROWS.filter(r => !isIgnored(r));
+  const every = tracked.length > 0 && tracked.every(r => SELECTED.has(r.path));
+  btn.textContent = every ? "clear selection" : "select all tracked";
+  btn.disabled = tracked.length === 0;
+}
+
+function renderPaths() {
+  syncSelAllLabel();
+  const host = $("#pathsHost");
+  host.textContent = "";
+  if (!ROWS.length) {
+    host.appendChild(el("div", "empty", "Nothing parsed yet. Paste some porcelain, or pick a worked example."));
+    return;
+  }
+  const table = el("table", "paths");
+  const thead = el("thead");
+  const hr = el("tr");
+  for (const h of ["", "XY", "path", "what that means"]) hr.appendChild(el("th", null, h));
+  thead.appendChild(hr); table.appendChild(thead);
+
+  const tb = el("tbody");
+  for (const r of ROWS) {
+    const tr = el("tr");
+    if (SELECTED.has(r.path)) tr.className = "sel";
+
+    const c1 = el("td");
+    const cb = el("input"); cb.type = "checkbox";
+    cb.checked = SELECTED.has(r.path);
+    cb.disabled = isIgnored(r);
+    cb.setAttribute("aria-label", "commit " + r.path);
+    cb.addEventListener("change", () => {
+      if (cb.checked) SELECTED.add(r.path); else SELECTED.delete(r.path);
+      renderPaths(); renderVerdicts();
+    });
+    c1.appendChild(cb); tr.appendChild(c1);
+
+    const c2 = el("td");
+    const xy = el("span", "xy");
+    const xs = el("span", isStaged(r) ? "x" : "n", r.x === " " ? "·" : r.x);
+    const ys = el("span", isDirty(r) || isUnmerged(r) ? "y" : "n", r.y === " " ? "·" : r.y);
+    xy.appendChild(xs); xy.appendChild(ys); c2.appendChild(xy); tr.appendChild(c2);
+
+    const c3 = el("td");
+    const p = el("div", "p", r.path);
+    c3.appendChild(p);
+    if (r.from) c3.appendChild(el("div", "meaning", "renamed from " + r.from));
+    tr.appendChild(c3);
+
+    tr.appendChild(el("td", "meaning", meaning(r)));
+    tb.appendChild(tr);
+  }
+  table.appendChild(tb);
+  host.appendChild(table);
+}
+
+function verdictCard(v, cmdText) {
+  const box = el("div", "verdict is-" + v.state);
+  const head = el("div", "vhead");
+  head.appendChild(el("span", "cmd", cmdText));
+  const b = el("span", "badge " + (v.state === "safe" ? "safe" : v.state === "bad" ? "bad" : "warn"));
+  b.textContent = v.head;
+  head.appendChild(b);
+  box.appendChild(head);
+
+  const body = el("div", "vbody");
+  body.appendChild(el("p", "why", v.why));
+  if (v.list && v.list.length) {
+    const ul = el("ul", "culprits");
+    for (const r of v.list) {
+      const li = el("li");
+      li.appendChild(el("span", "lbl", v.listLabel));
+      li.appendChild(document.createTextNode(r.path));
+      ul.appendChild(li);
+    }
+    body.appendChild(ul);
+  }
+  box.appendChild(body);
+  return box;
+}
+
+function renderVerdicts() {
+  const a = analyse(ROWS, SELECTED);
+  const host = $("#verdicts");
+  host.textContent = "";
+
+  const paths = a.chosen.map(r => shq(r.path)).join(" ");
+  host.appendChild(verdictCard(a.pathspec, 'git commit -m "…" -- ' + (paths || "<paths>")));
+  host.appendChild(verdictCard(a.bare, 'git commit -m "…"'));
+
+  const extras = $("#extras");
+  extras.textContent = "";
+  if (!a.chosen.length) return;
+
+  /* The residual nothing can fix. */
+  if (a.residual.length) {
+    const n = el("div", "note warn");
+    n.innerHTML =
+      "<b>Neither form covers this part.</b> " + a.residual.length +
+      (a.residual.length === 1 ? " path you selected is" : " paths you selected are") +
+      " already staged. If another session staged a hunk into " +
+      (a.residual.length === 1 ? "it" : "one of them") +
+      ", it is in your index now and <b>no commit form leaves it out</b>. The tree reads exactly " +
+      "like your own ordinary work, because once a change is staged the index and the working tree agree again. " +
+      "Reading the diff is the only thing that finds it.";
+    extras.appendChild(n);
+  }
+
+  /* Read the RIGHT diff. This is the sharpest one: the two forms commit two
+     different objects, so inspecting the wrong one is not a stale check, it is
+     a check of something you are not about to commit. */
+  const pick = a.pathspec.state === "safe" && a.bare.state !== "safe" ? "pathspec"
+             : a.bare.state === "safe" && a.pathspec.state !== "safe" ? "bare"
+             : a.pathspec.state === "safe" ? "either" : "neither";
+
+  const n2 = el("div", "note info");
+  const pre = el("pre", "cmdblock");
+  const line = (c, cmd) => { pre.appendChild(el("span", "c", c)); pre.appendChild(document.createTextNode("\n" + cmd + "\n\n")); };
+
+  if (pick === "neither") {
+    n2.innerHTML = "<b>Stop and talk to the other session.</b> Both forms take something that is not yours. " +
+      "There is nothing to type your way out of, so read what is actually there first:";
+    pre.appendChild(document.createTextNode("git status --porcelain\ngit diff HEAD -- " + (paths || "<paths>") + "\n"));
+  } else {
+    n2.innerHTML = "<b>Read the object you are about to commit, not the other one.</b> " +
+      "A bare commit writes the index and a pathspec commit writes the working tree, so <code>--cached</code> " +
+      "and the plain diff answer different questions. Use the one that matches your form:";
+    if (pick === "pathspec" || pick === "either") line("# for  git commit -- …   (this is the working tree)", "git diff HEAD -- " + (paths || "<paths>"));
+    if (pick === "bare" || pick === "either") line("# for  git commit          (this is the index)", "git diff --cached");
+  }
+  n2.appendChild(pre);
+  extras.appendChild(n2);
+
+  if (a.untrackedOutside.length) {
+    const n3 = el("div", "note info");
+    n3.innerHTML = "<b>" + a.untrackedOutside.length + " untracked " +
+      (a.untrackedOutside.length === 1 ? "file is" : "files are") +
+      " sitting in the tree and neither form can touch " + (a.untrackedOutside.length === 1 ? "it" : "them") +
+      ".</b> Untracked means not in the index, so a bare commit ignores it. Worth a glance anyway: " +
+      "if one of those is yours and you meant to commit it, nothing here will warn you again.";
+    extras.appendChild(n3);
+  }
+}
+
+/* =====================================================================
+   Worked examples. Every porcelain string below is verbatim output that
+   _verify/measure_git_matrix.js captured from a real repository, and the
+   commit that followed it was run and its contents read.
+   ===================================================================== */
+
+const SCENARIOS = [
+  { id: "solo", label: "just me, clean",
+    text: "M  notes.md",
+    select: ["notes.md"],
+    note: "The ordinary case. One staged file, nothing else moving. Both forms agree." },
+
+  { id: "c1", label: "C1 · peer typing into my file",
+    text: "MM tracker/shared-notes.md",
+    select: ["tracker/shared-notes.md"],
+    note: "Measured C1. I staged mine, then someone typed into the same file without staging. The pathspec form re-reads the file and takes their line; the bare form commits what I staged." },
+
+  { id: "c2", label: "C2 · peer staged elsewhere",
+    text: "M  tracker/shared-notes.md\nM  apps/serve.js",
+    select: ["tracker/shared-notes.md"],
+    note: "Measured C2, and it is the exact reverse of C1. A bare commit writes the whole index, so their file rides along under my message." },
+
+  { id: "c3", label: "C3 · peer staged into my file",
+    text: "M  tracker/shared-notes.md",
+    select: ["tracker/shared-notes.md"],
+    note: "Measured C3, and the uncomfortable one. It is byte for byte the same porcelain as the clean case, because once their hunk is staged the tree and the index agree. Both forms committed their work. This is the row that proves parsing has a floor." },
+
+  { id: "n1", label: "new file, never added",
+    text: "?? swept-notes.md",
+    select: ["swept-notes.md"],
+    note: "Measured N1. The pathspec form refuses outright. The trap is answering that with git add -A." },
+
+  { id: "n3", label: "new file, added, then touched",
+    text: "AM swept-notes.md",
+    select: ["swept-notes.md"],
+    note: "Measured N3. A new file is only new for about a minute in a shared tree. Once it exists anyone can open it, and the pathspec form still commits the tree." },
+
+  { id: "p7b", label: "peer staged a deletion",
+    text: "M  notes.md\nD  old-plan.md",
+    select: ["notes.md"],
+    note: "Measured P7b. A staged deletion behaves exactly like a staged edit, which means a bare commit deletes their file inside your commit." },
+
+  { id: "p7a", label: "untracked scratch lying about",
+    text: "M  notes.md\n?? scratch/probe.log",
+    select: ["notes.md"],
+    note: "Measured P7a. Untracked is not in the index, so nothing sweeps it. I expected to be wrong about this one and was not." },
+
+  { id: "merge", label: "mid-merge",
+    text: "UU tracker/shared-notes.md\nM  notes.md",
+    select: ["tracker/shared-notes.md", "notes.md"],
+    note: "Measured P7c. Git refuses a partial commit during a merge, in so many words. A better outcome than the silent one." },
+
+  { id: "messy", label: "a real Saturday",
+    text: 'MM tracker/shared-notes.md\nM  apps/serve.js\nA  projects/guard/index.js\n M knowledge/INDEX.md\nD  old-plan.md\nR  "a path with spaces.md" -> "renamed with spaces.md"\n?? scratch/probe.log',
+    select: ["tracker/shared-notes.md"],
+    note: "Seven paths, four sessions, one tree. Both forms are unsafe here and the honest answer is to go and talk to someone. The quoted rename is real porcelain: a space in a path forces the quotes." },
+];
+
+const MATRIX = [
+  ["unstaged, inside a file I am committing", "MM", "sweeps", "safe"],
+  ["staged, in a file I am not committing",   "M· elsewhere", "safe", "sweeps"],
+  ["staged, inside a file I am committing",   "M·", "sweeps", "sweeps"],
+  ["a new file I never added",                "??", "refuses", "not committed"],
+  ["a new file added, then edited",           "AM", "sweeps", "safe"],
+  ["a staged deletion elsewhere",             "D· elsewhere", "safe", "sweeps"],
+  ["untracked, anywhere",                     "??", "not committed", "not committed"],
+  ["a conflict is open",                      "UU", "refuses", "commits the merge"],
+];
+
+function renderMatrix() {
+  const tb = $("#matrixRows");
+  const cls = v => v === "sweeps" ? "sw" : v === "refuses" ? "rf" : "sf";
+  for (const [who, code, ps, bare] of MATRIX) {
+    const tr = el("tr");
+    tr.appendChild(el("td", null, who));
+    const c = el("td"); c.appendChild(el("span", "xy", code)); tr.appendChild(c);
+    tr.appendChild(el("td", cls(ps), ps));
+    tr.appendChild(el("td", cls(bare), bare));
+    tb.appendChild(tr);
+  }
+}
+
+function loadScenario(s) {
+  ACTIVE_SCENARIO = s.id;
+  $("#input").value = s.text;
+  const { rows } = parsePorcelain(s.text);
+  ROWS = rows;
+  SELECTED = new Set(s.select);
+  $("#scenNote").textContent = s.note;
+  for (const btn of document.querySelectorAll("#chips .chip"))
+    btn.setAttribute("aria-pressed", String(btn.dataset.id === s.id));
+  renderPaths(); renderVerdicts();
+}
+
+function reparseFromTextarea() {
+  const { rows } = parsePorcelain($("#input").value);
+  const keep = SELECTED;
+  ROWS = rows;
+  SELECTED = new Set(rows.filter(r => keep.has(r.path)).map(r => r.path));
+  ACTIVE_SCENARIO = null;
+  $("#scenNote").textContent = "";
+  for (const btn of document.querySelectorAll("#chips .chip")) btn.setAttribute("aria-pressed", "false");
+  renderPaths(); renderVerdicts();
+}
+
+function init() {
+  const params = new URLSearchParams(location.search);
+  const preview = params.has("preview");
+  if (preview) document.body.classList.add("preview");
+
+  const chips = $("#chips");
+  for (const s of SCENARIOS) {
+    const b = el("button", "chip", s.label);
+    b.type = "button"; b.dataset.id = s.id; b.setAttribute("aria-pressed", "false");
+    b.addEventListener("click", () => loadScenario(s));
+    chips.appendChild(b);
+  }
+
+  $("#input").addEventListener("input", reparseFromTextarea);
+  $("#selAll").addEventListener("click", () => {
+    const all = ROWS.filter(r => !isIgnored(r));
+    const every = all.every(r => SELECTED.has(r.path));
+    SELECTED = every ? new Set() : new Set(all.map(r => r.path));
+    renderPaths(); renderVerdicts();
+  });
+
+  renderMatrix();
+
+  const want = params.get("scenario") || (preview ? "c2" : "c1");
+  loadScenario(SCENARIOS.find(s => s.id === want) || SCENARIOS[1]);
+  if (!preview) $("#matrixBox").open = params.has("matrix");
+}
+
+/* Exposed for the checker, which drives the page through its real interface
+   but needs a way to assert on the engine directly for the negative controls. */
+window.__swept = { parsePorcelain, analyse, unquote, takePath, SCENARIOS, MATRIX,
+                   get rows(){ return ROWS; }, get selected(){ return SELECTED; },
+                   load: id => loadScenario(SCENARIOS.find(s => s.id === id)) };
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

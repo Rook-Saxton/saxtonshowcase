@@ -1,0 +1,1155 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cron Almanac</title>
+<!--
+  CRON ALMANAC.
+  Built 2026-09-01 for playground/. Self-contained, offline, no dependencies, no network.
+
+  WHAT IT DOES
+  You paste a five field cron expression and pick a time zone. It reads the expression back to
+  you in plain English, shows the next fires in both the chosen zone and UTC, and paints a whole
+  year as a 12 by 31 ribbon so the shape of the schedule is visible at a glance. Underneath that
+  it does the part nobody does by hand: it finds the two days a year where the schedule is a lie,
+  because a cron expression names a WALL CLOCK time and wall clock time is neither total (an hour
+  is deleted every spring) nor unique (an hour happens twice every autumn). A 02:30 job simply
+  does not run on the spring forward day. A 01:30 job has two candidate instants on the fall back
+  day and the daemon picks one. The almanac names both, per year, per zone.
+
+  It also lints the expression against the two systems of record it was checked against, and they
+  disagree with each other in ways worth knowing before a job silently does not run.
+
+  WHY I BUILT IT
+  Four playground builds in a row were "explain a mechanism by making it steppable", which had
+  become a house style rather than a choice, so the standing note in PLAYTIME_LOG.md said to break
+  it. This is the unused "small useful tool" lane, and it solves a common problem: schedulers such
+  as GitHub Actions evaluate cron in UTC, while the people reading the output often live in a zone
+  that moves twice a year.
+
+  WHAT I LEARNED BUILDING IT, ALL VERIFIED AGAINST A SOURCE RATHER THAN RECALLED
+  1. The day-of-month / day-of-week OR rule is real, and the man page does not describe the code.
+     crontab.5 says "If both fields are restricted (i.e., are not *), the command will be run when
+     either field matches". But entry.c sets the star flag on the field's FIRST CHARACTER:
+         if (ch == '*') e->flags |= DOM_STAR;
+     and cron.c then branches
+         ((e->flags & (DOM_STAR|DOW_STAR)) != 0 ? (thisdom && thisdow) : (thisdom || thisdow))
+     So "*/2" restricts the days of the month and still counts as a star, which flips the rule
+     from OR back to AND. Anyone implementing straight from the sentence in the man page gets
+     "*/2 * * * 5" wrong. I would have.
+  2. vixie's own field table allows things the GitHub Actions docs do not: day of week 0-7 with
+     both 0 and 7 meaning Sunday, month 0-12, and a "$" in the day of month field meaning the last
+     day of the month (the DOM_LAST flag). GitHub documents 0-6 and 1-12. Two systems of record,
+     one syntax, and a portable expression is the intersection rather than either one.
+  3. Converting a wall clock time to an instant needs no library, but it needs three lookups, not
+     one. Format the instant into the zone with Intl.DateTimeFormat to get the offset, then guess
+     and correct. The correction can converge on an instant whose local time is NOT the one you
+     asked for, and that is not a bug: it means you asked for a time that does not exist. The only
+     way to know is to convert back and compare. A single pass that trusts its own answer reports
+     a fire that will never happen.
+  4. GitHub's documented behaviour for the deleted hour is not the daemon's. Their words:
+     "during DST spring-forward transitions, scheduled workflows in skipped hours advance to the
+     next valid time. For example, a 2:30 AM schedule advances to 3:00 AM." A cron daemon walking
+     wall clock times just misses it. Both are implemented here and the toggle changes the count.
+  5. The ambiguous hour is the harder half and it gets much less attention than the skipped one.
+     A skipped fire is a fire that does not happen, which someone eventually notices. A repeated
+     hour is a fire that MIGHT happen twice, which nobody notices until it does.
+
+  SOURCES, ALL FETCHED 2026-09-01
+  - vixie/cron crontab.5, entry.c, cron.c   (field table, star flags, the match branch)
+  - github/docs data/reusables/repositories/cron.md
+  - github/docs data/reusables/repositories/actions-scheduled-workflow-example.md
+      "By default, scheduled workflows run in UTC."
+      "The shortest interval you can run scheduled workflows is once every 5 minutes."
+      the spring-forward advance rule, quoted above
+  - github/docs data/reusables/actions/schedule-delay.md
+      the high-load delay note, which is why an on-the-hour schedule gets a lint
+
+  HOUSE RULES OBSERVED
+  No network, no data leaves the page, nothing here is real household or account data, and
+  every expression it ships is an example.
+-->
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232c; --line:#2a323d;
+    --ink:#e6edf3; --dim:#9aa7b4; --faint:#6b7885;
+    --accent:#7cc4ff; --warn:#ffc46b; --bad:#ff8f8f; --good:#8fe0a8; --mag:#d3a4ff;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f6f8fa; --panel:#ffffff; --panel2:#f0f3f6; --line:#d6dde5;
+      --ink:#161b22; --dim:#4d5865; --faint:#7a8794;
+      --accent:#0b62c4; --warn:#8a5b00; --bad:#b3261e; --good:#1a7f4b; --mag:#7b3fbf;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink)}
+  body{font-family:var(--sans);font-size:15px;line-height:1.5;padding:18px 16px 60px}
+  .wrap{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+  header h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--dim);font-size:13.5px;max-width:70ch}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 15px}
+  .card h2{font-size:12px;margin:0 0 10px;color:var(--faint);text-transform:uppercase;letter-spacing:.09em;font-weight:600}
+
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+  .fieldset{display:flex;flex-direction:column;gap:5px}
+  .fieldset label{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em}
+  input[type=text],select{
+    background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:9px 11px;font-family:var(--mono);font-size:15px}
+  input#expr{width:100%;min-width:0;letter-spacing:.06em}
+  input#expr.bad{border-color:var(--bad)}
+  select{font-family:var(--sans);font-size:14px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .chip{background:var(--panel2);border:1px solid var(--line);color:var(--dim);
+    border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:var(--mono)}
+  .chip:hover{border-color:var(--accent);color:var(--ink)}
+  .chip b{font-family:var(--sans);font-weight:600;color:var(--faint);margin-left:6px;font-size:11px}
+  /* On a phone ten wrapped chips cost about 350px of scroll before the ribbon, which is the
+     thing worth looking at. One swipeable row instead. */
+  @media (max-width:640px){
+    .chips{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;
+           scroll-snap-type:x proximity;padding-bottom:5px;-webkit-overflow-scrolling:touch}
+    .chips::-webkit-scrollbar{height:4px}
+    .chips::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+    .chip{flex:0 0 auto;scroll-snap-align:start}
+  }
+  .toggles{display:flex;flex-wrap:wrap;gap:14px;margin-top:11px;font-size:13px;color:var(--dim)}
+  .toggles label{display:flex;gap:6px;align-items:center;cursor:pointer}
+
+  .reading{font-size:16px;line-height:1.45}
+  .reading .lit{font-family:var(--mono);color:var(--accent)}
+  .err{color:var(--bad);font-family:var(--mono);font-size:13.5px;white-space:pre-wrap}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:760px){.grid2{grid-template-columns:1fr}}
+
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th{text-align:left;color:var(--faint);font-weight:600;font-size:11px;
+     text-transform:uppercase;letter-spacing:.06em;padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
+  td{padding:5px 8px 5px 0;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:13px;
+     white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  td.tag{font-family:var(--sans);font-size:11.5px;letter-spacing:.03em}
+  .t-ok{color:var(--faint)} .t-skip{color:var(--bad)} .t-amb{color:var(--warn)} .t-moved{color:var(--mag)}
+
+  #ribbonWrap{position:relative}
+  canvas{display:block;width:100%;height:auto;border-radius:8px;background:var(--panel2)}
+  .tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line);
+    border-radius:7px;padding:6px 9px;font-family:var(--mono);font-size:12px;color:var(--ink);
+    box-shadow:0 6px 20px rgba(0,0,0,.35);white-space:pre;opacity:0;transition:opacity .08s}
+  .tip.on{opacity:1}
+  /* Every direct child is a nowrap item, so a long label wraps to its own line rather than
+     colliding with the swatches. The swatches carry their own class: an earlier version
+     styled ".scale span", which also matched the two text labels inside .scale and squashed
+     each of them to 13px. It looked exactly like an overlap bug and was a selector bug. */
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:12px;
+    color:var(--dim);align-items:center;line-height:1.35}
+  .legend > span{white-space:nowrap}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .scale{display:inline-flex;gap:2px;align-items:center;white-space:nowrap}
+  .scale i.sw{width:13px;height:11px;border-radius:2px;display:inline-block;margin:0}
+  .scale .cap{color:var(--faint)}
+
+  ul.lints{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+  ul.lints li{display:flex;gap:9px;font-size:13.5px;line-height:1.45}
+  ul.lints .b{flex:0 0 auto;font-size:10px;font-weight:700;letter-spacing:.07em;padding:2px 7px;
+    border-radius:5px;height:fit-content;margin-top:2px}
+  .b.stop{background:rgba(255,143,143,.15);color:var(--bad)}
+  .b.warn{background:rgba(255,196,107,.15);color:var(--warn)}
+  .b.note{background:rgba(124,196,255,.13);color:var(--accent)}
+  ul.lints code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .none{color:var(--faint);font-size:13.5px}
+
+  .stats{display:flex;flex-wrap:wrap;gap:20px}
+  .stat{display:flex;flex-direction:column;gap:1px}
+  .stat b{font-size:23px;font-family:var(--mono);font-weight:500;letter-spacing:-.02em}
+  .stat span{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em}
+  .stat.hot b{color:var(--warn)} .stat.cold b{color:var(--bad)}
+
+  footer{color:var(--faint);font-size:12.5px;line-height:1.6;max-width:78ch}
+  footer code{font-family:var(--mono);background:var(--panel2);padding:1px 5px;border-radius:4px}
+  details summary{cursor:pointer;color:var(--dim);font-size:13px}
+  details[open] summary{margin-bottom:8px}
+
+  /* The playground index is dark only, with a fixed palette and no media query, and so are the
+     other four builds in this folder. This one has a light mode, which meant its card rendered
+     light inside a dark gallery on any machine set to light. So preview mode pins the dark
+     tokens and the standalone page keeps both. Restated rather than reorganised: the light
+     values above are still the ones a person sees when they open the build itself. */
+  html.preview{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232c; --line:#2a323d;
+    --ink:#e6edf3; --dim:#9aa7b4; --faint:#6b7885;
+    --accent:#7cc4ff; --warn:#ffc46b; --bad:#ff8f8f; --good:#8fe0a8; --mag:#d3a4ff;
+  }
+
+  /* Preview mode for the playground index card: index.html?preview=1
+     A card is a fixed 2:1 window, so the preview shows the ribbon and its title only,
+     with everything above and below it removed rather than merely scrolled past. */
+  html.preview,html.preview body{background:var(--bg);overflow:hidden}
+  html.preview body{padding:10px 12px}
+  /* #inputCard has to go entirely, not just its .controls: leaving the card behind painted an
+     empty rounded box under the title and pushed December out of the card's 2:1 crop. The
+     ribbon rendered perfectly and simply sat where nobody could see it, which is the exact
+     failure the preview contract in ../README.md warns about. */
+  html.preview header p,html.preview .chips,html.preview .toggles,
+  html.preview .grid2,html.preview footer,html.preview details,
+  html.preview #inputCard,html.preview #lintCard,html.preview #readCard{display:none}
+  html.preview .wrap{gap:9px;max-width:none}
+  html.preview header h1{font-size:15px;margin:0}
+  html.preview .card{padding:9px 10px}
+  html.preview .legend{font-size:10.5px;gap:10px;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Cron Almanac</h1>
+    <p>A cron expression names a wall clock time, and wall clock time is neither complete nor
+       unique. Paste one, pick a zone, and see the whole year at once, including the two days where
+       the schedule does not mean what it says.</p>
+  </header>
+
+  <section class="card" id="inputCard">
+    <div class="controls">
+      <div class="fieldset" style="flex:1 1 260px">
+        <label for="expr">Cron expression (five fields)</label>
+        <input type="text" id="expr" value="30 4 1,15 * 5" spellcheck="false" autocomplete="off"
+               aria-describedby="reading">
+      </div>
+      <div class="fieldset">
+        <label for="zone">Evaluated in</label>
+        <select id="zone"></select>
+      </div>
+      <div class="fieldset">
+        <label for="year">Year</label>
+        <select id="year"></select>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="ghRule"> Use GitHub's rule for the deleted hour (advance to the next valid time)</label>
+      <label><input type="checkbox" id="ghLint" checked> Lint for GitHub Actions</label>
+    </div>
+  </section>
+
+  <section class="card" id="readCard">
+    <h2>Reading</h2>
+    <div class="reading" id="reading">&nbsp;</div>
+  </section>
+
+  <section class="card">
+    <h2>The year, one cell per day</h2>
+    <div id="ribbonWrap">
+      <canvas id="ribbon" width="1240" height="620"></canvas>
+      <div class="tip" id="tip"></div>
+    </div>
+    <div class="legend">
+      <span class="scale" id="scale"></span>
+      <span><i style="background:#ff8f8f"></i>fire deleted by spring forward</span>
+      <span><i style="background:#ffc46b"></i>hour happens twice</span>
+      <span><i style="background:#2a323d"></i>day does not exist</span>
+    </div>
+    <div class="stats" style="margin-top:14px" id="stats"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Next fires from now</h2>
+      <table id="nextTable">
+        <thead><tr><th>In zone</th><th>UTC</th><th>&nbsp;</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="card" id="lintCard">
+      <h2>What to know before you ship it</h2>
+      <ul class="lints" id="lints"></ul>
+    </section>
+  </div>
+
+  <section class="card">
+    <details>
+      <summary>Where the rules came from, and where the two sources disagree</summary>
+      <footer>
+        <p>Everything this page enforces was read out of a source on 2026-09-01, not recalled.</p>
+        <p><b>vixie/cron</b>, <code>crontab.5</code>: minute 0-59, hour 0-23, day of month 1-31
+           (or <code>$</code> for the last day), month 0-12 or names, day of week 0-7 where both 0
+           and 7 are Sunday. Ranges are inclusive, lists are comma separated, and a step follows a
+           range as <code>/n</code>.</p>
+        <p><b>vixie/cron</b>, <code>entry.c</code> and <code>cron.c</code>: the man page says the
+           OR rule applies when both day fields are "not <code>*</code>", but the flag is set on
+           the field's <em>first character</em>, so <code>*/2</code> in the day of month field
+           counts as a star. The match is
+           <code>(DOM_STAR|DOW_STAR) ? (dom &amp;&amp; dow) : (dom || dow)</code>. Implement the
+           sentence and you get a different program from the one it describes.</p>
+        <p><b>GitHub Actions docs</b>: five fields, minute 0-59, hour 0-23, day of month 1-31,
+           month 1-12 or JAN-DEC, day of week 0-6 or SUN-SAT. "By default, scheduled workflows run
+           in UTC." "The shortest interval you can run scheduled workflows is once every 5
+           minutes." <code>@daily</code> and friends are not supported. Scheduled workflows run
+           only on the default branch. The <code>schedule</code> event "can be delayed during
+           periods of high loads", and "High load times include the start of every hour."</p>
+        <p><b>GitHub Actions docs</b>, on the deleted hour: "during DST spring-forward transitions,
+           scheduled workflows in skipped hours advance to the next valid time. For example, a 2:30
+           AM schedule advances to 3:00 AM." A cron daemon walking wall clock times does not do
+           this; it simply misses the fire. The toggle above switches between the two.</p>
+        <p>So the portable expression is the intersection: day of week 0-6, month 1-12, no
+           <code>$</code>, no <code>@daily</code>, and never both day fields restricted unless you
+           actually meant OR.</p>
+      </footer>
+    </details>
+  </section>
+</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ *
+ * 1. Zone machinery. No library. Everything is an instant in epoch ms;
+ *    a zone is only ever consulted through Intl.
+ * ------------------------------------------------------------------ */
+
+const DAY = 86400000;
+const fmtCache = new Map();
+function zoneFmt(zone){
+  let f = fmtCache.get(zone);
+  if (!f){
+    f = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone, hour12:false,
+      year:"numeric", month:"2-digit", day:"2-digit",
+      hour:"2-digit", minute:"2-digit", second:"2-digit"
+    });
+    fmtCache.set(zone, f);
+  }
+  return f;
+}
+
+/* The local wall clock fields of an instant, in a zone. */
+function partsInZone(utcMs, zone){
+  const p = {};
+  for (const {type, value} of zoneFmt(zone).formatToParts(utcMs)){
+    if (type !== "literal") p[type] = value;
+  }
+  // Intl renders midnight as hour 24 in some engines under hour12:false. Normalise.
+  let h = +p.hour; if (h === 24) h = 0;
+  return {y:+p.year, mo:+p.month, d:+p.day, h, mi:+p.minute, s:+p.second};
+}
+
+/* The zone's UTC offset at an instant, in ms. Positive east of Greenwich. */
+function offsetMs(utcMs, zone){
+  const p = partsInZone(utcMs, zone);
+  return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - utcMs;
+}
+
+/* Wall clock -> instant. This is the function that cannot be written in one pass.
+ *
+ * A wall clock time may correspond to zero instants (the hour deleted every spring)
+ * or to two (the hour repeated every autumn). The only honest way to find out is to
+ * convert candidates back and check they land on the time that was asked for.
+ *
+ * Both plausible offsets are tried: the one in force a day earlier and the one a day
+ * later. That brackets any transition without knowing the rules of any zone.
+ * Returns {status, utcMs, altUtcMs}. status is "ok" | "skipped" | "ambiguous".
+ */
+function wallToUtc(zone, y, mo, d, h, mi){
+  const target = Date.UTC(y, mo - 1, d, h, mi, 0);
+  const probes = [offsetMs(target - DAY, zone), offsetMs(target + DAY, zone)];
+  const hits = [];
+  for (const off of probes){
+    const cand = target - off;
+    if (hits.includes(cand)) continue;
+    const back = partsInZone(cand, zone);
+    if (back.y===y && back.mo===mo && back.d===d && back.h===h && back.mi===mi) hits.push(cand);
+  }
+  hits.sort((a,b)=>a-b);
+  if (hits.length === 0) return {status:"skipped", utcMs:null, altUtcMs:null};
+  if (hits.length === 1) return {status:"ok", utcMs:hits[0], altUtcMs:null};
+  return {status:"ambiguous", utcMs:hits[0], altUtcMs:hits[1]};
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. The parser. Mirrors vixie where the two sources differ, and lints
+ *    the difference rather than quietly picking a side.
+ * ------------------------------------------------------------------ */
+
+const MONTH_NAMES = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+const DOW_NAMES   = {sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+const DOW_LABEL   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MON_LABEL   = ["","January","February","March","April","May","June","July",
+                     "August","September","October","November","December"];
+
+const SHORTHAND = {
+  "@yearly":"0 0 1 1 *", "@annually":"0 0 1 1 *", "@monthly":"0 0 1 * *",
+  "@weekly":"0 0 * * 0", "@daily":"0 0 * * *", "@midnight":"0 0 * * *",
+  "@hourly":"0 * * * *"
+};
+
+/* min/max are what "*" expands to. lo/hi are what an EXPLICIT value is allowed to be, and
+ * they are wider for the two fields where vixie's table is wider than GitHub's: month 0 and
+ * day of week 7. Collapsing those into one pair made "*" in the month field expand to 0-12,
+ * so every unrestricted expression contained month 0 and tripped the portability warning
+ * about month 0. The lint was correct about the set it was shown; the set was wrong. */
+const FIELDS = [
+  {key:"minute", min:0,  max:59, lo:0, hi:59, names:null,        label:"minute"},
+  {key:"hour",   min:0,  max:23, lo:0, hi:23, names:null,        label:"hour"},
+  {key:"dom",    min:1,  max:31, lo:1, hi:31, names:null,        label:"day of month"},
+  {key:"month",  min:1,  max:12, lo:0, hi:12, names:MONTH_NAMES, label:"month"},
+  {key:"dow",    min:0,  max:6,  lo:0, hi:7,  names:DOW_NAMES,   label:"day of week"}
+];
+
+function parseField(raw, spec, errors){
+  const set = new Set();
+  const text = raw.trim();
+  if (text === "") { errors.push(`${spec.label}: empty field`); return set; }
+
+  for (const piece of text.split(",")){
+    const part = piece.trim();
+    if (part === ""){ errors.push(`${spec.label}: empty item in list`); continue; }
+
+    let stepTxt = null, rangeTxt = part;
+    const slash = part.indexOf("/");
+    if (slash >= 0){ rangeTxt = part.slice(0, slash); stepTxt = part.slice(slash + 1); }
+
+    let step = 1;
+    if (stepTxt !== null){
+      if (!/^\d+$/.test(stepTxt) || +stepTxt === 0){
+        errors.push(`${spec.label}: "${part}" has a bad step`); continue;
+      }
+      step = +stepTxt;
+    }
+
+    const num = tok => {
+      const t = tok.trim().toLowerCase();
+      if (spec.names && Object.prototype.hasOwnProperty.call(spec.names, t)) return spec.names[t];
+      if (/^\d+$/.test(t)) return +t;
+      return NaN;
+    };
+
+    let lo, hi;
+    if (rangeTxt === "*"){
+      lo = spec.min; hi = spec.max;              // what a star means
+    } else if (rangeTxt.includes("-")){
+      // a name or number, a hyphen, a name or number. Split on the first hyphen only.
+      const cut = rangeTxt.indexOf("-");
+      lo = num(rangeTxt.slice(0, cut)); hi = num(rangeTxt.slice(cut + 1));
+    } else {
+      lo = num(rangeTxt);
+      // vixie: "n/step" runs from n through the field maximum. GitHub documents the same
+      // behaviour explicitly: "20/15 * * * * runs every 15 minutes starting from minute 20
+      // through 59 (minutes 20, 35, and 50)."
+      hi = (stepTxt !== null) ? spec.max : lo;
+    }
+
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)){
+      errors.push(`${spec.label}: "${part}" is not a number, a name or a range`); continue;
+    }
+    if (lo < spec.lo || hi > spec.hi || lo > hi){
+      errors.push(`${spec.label}: "${part}" is outside ${spec.lo}-${spec.hi}`); continue;
+    }
+    for (let v = lo; v <= hi; v += step) set.add(v);
+  }
+  return set;
+}
+
+function parse(exprRaw){
+  const out = {ok:false, expr:exprRaw, errors:[], notes:[], shorthand:null,
+               minute:null, hour:null, dom:null, month:null, dow:null,
+               domStar:false, dowStar:false, rawFields:[]};
+  let expr = String(exprRaw || "").trim().replace(/\s+/g, " ");
+  if (expr === ""){ out.errors.push("empty expression"); return out; }
+
+  const lower = expr.toLowerCase();
+  if (lower.startsWith("@")){
+    if (!SHORTHAND[lower]){ out.errors.push(`unknown shorthand "${expr}"`); return out; }
+    out.shorthand = lower;
+    expr = SHORTHAND[lower];
+  }
+
+  const f = expr.split(" ");
+  if (f.length !== 5){
+    out.errors.push(`expected 5 fields, found ${f.length}` +
+      (f.length === 6 ? ' (six fields is the Quartz/seconds dialect, not cron)' : ""));
+    return out;
+  }
+  out.rawFields = f;
+
+  FIELDS.forEach((spec, i) => { out[spec.key] = parseField(f[i], spec, out.errors); });
+
+  // vixie normalises 7 to 0 in the day of week field, and month 0 is accepted by its table.
+  if (out.dow && out.dow.has(7)){ out.dow.delete(7); out.dow.add(0); }
+
+  // THE flag, and it is set on the first character of the raw field, not on whether the
+  // field actually restricts anything. entry.c:  if (ch == '*') e->flags |= DOM_STAR;
+  out.domStar = f[2].startsWith("*");
+  out.dowStar = f[4].startsWith("*");
+
+  for (const spec of FIELDS){
+    if (out[spec.key] && out[spec.key].size === 0 && out.errors.length === 0){
+      out.errors.push(`${spec.label}: matches nothing`);
+    }
+  }
+  out.ok = out.errors.length === 0;
+  return out;
+}
+
+/* The day match, transcribed from cron.c rather than from the man page sentence. */
+function dayMatches(spec, y, mo, d){
+  const dow = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();   // a calendar fact, zone free
+  const thisDom = spec.dom.has(d);
+  const thisDow = spec.dow.has(dow);
+  return (spec.domStar || spec.dowStar) ? (thisDom && thisDow) : (thisDom || thisDow);
+}
+
+const daysInMonth = (y, mo) => new Date(Date.UTC(y, mo, 0)).getUTCDate();
+
+/* ------------------------------------------------------------------ *
+ * 3. Enumeration. Walks WALL CLOCK times, which is what a daemon does,
+ *    then resolves each one to an instant and records what happened.
+ * ------------------------------------------------------------------ */
+
+let CANDIDATES = 0;                       // instrumentation for the build's own gate
+
+function* wallSlots(spec, y0, mo0, d0, h0, mi0, yEnd){
+  const mins   = [...spec.minute].sort((a,b)=>a-b);
+  const hours  = [...spec.hour].sort((a,b)=>a-b);
+  const months = [...spec.month].filter(m=>m>=1).sort((a,b)=>a-b);
+  for (let y = y0; y <= yEnd; y++){
+    for (const mo of months){
+      if (y === y0 && mo < mo0) continue;
+      const dim = daysInMonth(y, mo);
+      for (let d = 1; d <= dim; d++){
+        if (y === y0 && mo === mo0 && d < d0) continue;
+        CANDIDATES++;
+        if (!dayMatches(spec, y, mo, d)) continue;
+        for (const h of hours){
+          if (y===y0 && mo===mo0 && d===d0 && h < h0) continue;
+          for (const mi of mins){
+            if (y===y0 && mo===mo0 && d===d0 && h===h0 && mi < mi0) continue;
+            yield {y, mo, d, h, mi};
+          }
+        }
+      }
+    }
+  }
+}
+
+/* Resolve one wall slot into zero, one or two real fires.
+ * ghRule: GitHub's documented behaviour, where a deleted slot advances to the next
+ * valid wall clock time instead of vanishing. */
+function resolveSlot(zone, slot, ghRule){
+  const r = wallToUtc(zone, slot.y, slot.mo, slot.d, slot.h, slot.mi);
+  if (r.status === "ok")        return {...slot, status:"ok",        utcMs:r.utcMs};
+  if (r.status === "ambiguous") return {...slot, status:"ambiguous", utcMs:r.utcMs, altUtcMs:r.altUtcMs};
+
+  if (!ghRule) return {...slot, status:"skipped", utcMs:null};
+
+  // Advance a minute at a time until the wall clock exists again. A deleted span is
+  // an hour or two at most, so this terminates quickly; the cap is a guard, not a limit.
+  let y=slot.y, mo=slot.mo, d=slot.d, h=slot.h, mi=slot.mi;
+  for (let i = 0; i < 300; i++){
+    mi++;
+    if (mi > 59){ mi = 0; h++; }
+    if (h > 23){ h = 0; d++; if (d > daysInMonth(y,mo)){ d = 1; mo++; if (mo > 12){ mo = 1; y++; } } }
+    const rr = wallToUtc(zone, y, mo, d, h, mi);
+    if (rr.status !== "skipped")
+      return {...slot, status:"moved", utcMs:rr.utcMs, movedTo:{y,mo,d,h,mi}};
+  }
+  return {...slot, status:"skipped", utcMs:null};
+}
+
+/* The next N fires at or after an instant. */
+function nextFires(spec, zone, fromMs, n, ghRule){
+  const p = partsInZone(fromMs, zone);
+  const out = [];
+  for (const slot of wallSlots(spec, p.y, p.mo, p.d, p.h, p.mi, p.y + 5)){
+    const r = resolveSlot(zone, slot, ghRule);
+    if (r.status === "skipped"){ out.push(r); }
+    else if (r.utcMs >= fromMs){ out.push(r); }
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+/* Every fire in a calendar year of the ZONE's wall clock, bucketed by day. */
+function yearFires(spec, zone, year, ghRule){
+  const perDay = new Map();                      // "mo-d" -> {n, skipped, ambiguous, moved, first}
+  let total = 0, skipped = 0, ambiguous = 0, moved = 0;
+  for (const slot of wallSlots(spec, year, 1, 1, 0, 0, year)){
+    if (slot.y !== year) break;
+    const r = resolveSlot(zone, slot, ghRule);
+    const key = slot.mo + "-" + slot.d;
+    let cell = perDay.get(key);
+    if (!cell){ cell = {n:0, skipped:0, ambiguous:0, moved:0, first:null}; perDay.set(key, cell); }
+    if (r.status === "skipped"){ cell.skipped++; skipped++; continue; }
+    cell.n++; total++;
+    if (r.status === "ambiguous"){ cell.ambiguous++; ambiguous++; }
+    if (r.status === "moved"){ cell.moved++; moved++; }
+    if (cell.first === null) cell.first = r;
+  }
+  return {perDay, total, skipped, ambiguous, moved, year, zone};
+}
+
+/* The distinct local wall clock times a UTC-scheduled job lands on across a year.
+ * This is the whole reason a UTC schedule needs looking at. */
+function localSpread(spec, year, displayZone){
+  const seen = new Map();
+  for (const slot of wallSlots(spec, year, 1, 1, 0, 0, year)){
+    if (slot.y !== year) break;
+    const utcMs = Date.UTC(slot.y, slot.mo - 1, slot.d, slot.h, slot.mi);
+    const p = partsInZone(utcMs, displayZone);
+    const k = pad(p.h) + ":" + pad(p.mi);
+    seen.set(k, (seen.get(k) || 0) + 1);
+  }
+  return [...seen.entries()].sort((a,b)=>b[1]-a[1]);
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. Plain English
+ * ------------------------------------------------------------------ */
+
+const pad = n => String(n).padStart(2, "0");
+
+function listPhrase(arr, fn){
+  const s = arr.map(fn);
+  if (s.length === 1) return s[0];
+  if (s.length === 2) return s[0] + " and " + s[1];
+  return s.slice(0, -1).join(", ") + " and " + s[s.length - 1];
+}
+
+function setPhrase(set, min, max, fmt, everyWord){
+  const vals = [...set].sort((a,b)=>a-b);
+  if (vals.length === max - min + 1) return null;                   // every one of them
+  if (vals.length > 1){                                            // an even step?
+    const gap = vals[1] - vals[0];
+    let even = vals[0] === min || vals.length > 3;
+    for (let i = 1; i < vals.length; i++) if (vals[i] - vals[i-1] !== gap) even = false;
+    // "from :00" is noise when the run starts at the bottom of the field
+    if (even && gap > 1 && vals.length > 3)
+      return `every ${gap} ${everyWord}` + (vals[0] === min ? "" : ` from ${fmt(vals[0])}`);
+  }
+  if (vals.length > 8) return `${vals.length} ${everyWord}`;
+  return listPhrase(vals, fmt);
+}
+
+function describe(spec){
+  if (!spec.ok) return null;
+  const bits = [];
+
+  const mi = setPhrase(spec.minute, 0, 59, v => ":" + pad(v), "minutes");
+  const hr = setPhrase(spec.hour, 0, 23, v => pad(v) + ":00", "hours");
+
+  /* A step phrase is already a sentence opener ("every 15 minutes"), so it must not be fed to
+   * the "At X past every hour" frame, which produced "At every 15 minutes from :00 past every
+   * hour". Caught by reading the rendered page, not by any assertion. */
+  const miIsStep = typeof mi === "string" && mi.startsWith("every ");
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+  if (mi === null && hr === null) bits.push("Every minute of every hour");
+  else if (mi === null)           bits.push(`Every minute, during ${hr}`);
+  else if (miIsStep)              bits.push(hr === null ? cap(mi) : `${cap(mi)}, during ${hr}`);
+  else if (hr === null)           bits.push(`At ${mi} past every hour`);
+  else {
+    const hs = [...spec.hour].sort((a,b)=>a-b), ms = [...spec.minute].sort((a,b)=>a-b);
+    bits.push(hs.length * ms.length <= 6
+      ? "At " + listPhrase(hs.flatMap(h => ms.map(m => pad(h) + ":" + pad(m))), s => s)
+      : `At ${mi} past ${hr}`);
+  }
+
+  const domAll = spec.dom.size === 31, dowAll = spec.dow.size === 7;
+  const domTxt = domAll ? null : listPhrase([...spec.dom].sort((a,b)=>a-b), v => "the " + ord(v));
+  const dowTxt = dowAll ? null : listPhrase([...spec.dow].sort((a,b)=>a-b), v => DOW_LABEL[v] + "s");
+
+  if (domAll && dowAll)      bits.push("every day");
+  else if (!domAll && !dowAll){
+    const joiner = (spec.domStar || spec.dowStar) ? " that are also " : " and on ";
+    bits.push("on " + domTxt + joiner + dowTxt);
+  }
+  else if (domTxt) bits.push("on " + domTxt);
+  else             bits.push("on " + dowTxt);
+
+  const months = [...spec.month].filter(m => m >= 1).sort((a,b)=>a-b);
+  if (months.length < 12) bits.push("in " + listPhrase(months, m => MON_LABEL[m]));
+
+  return bits.join(" ") + ".";
+}
+
+function ord(n){
+  const s = ["th","st","nd","rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. Lints. Each one names its source; a warning with no source is an opinion.
+ * ------------------------------------------------------------------ */
+
+function lint(spec, zone, year, gh){
+  const out = [];
+  const push = (level, html) => out.push({level, html});
+
+  if (!spec.ok) return out;
+
+  if (spec.shorthand && gh)
+    push("stop", `GitHub Actions does not support <code>${spec.shorthand}</code>. Their docs list ` +
+                 `<code>@yearly</code>, <code>@monthly</code>, <code>@weekly</code>, <code>@daily</code>, ` +
+                 `<code>@hourly</code> and <code>@reboot</code> as unsupported. Write it out: ` +
+                 `<code>${SHORTHAND[spec.shorthand]}</code>.`);
+
+  // The OR rule, and the trap underneath it.
+  const domRestricted = spec.dom.size < 31, dowRestricted = spec.dow.size < 7;
+  if (domRestricted && dowRestricted){
+    if (spec.domStar || spec.dowStar)
+      push("warn", `Both day fields restrict something, but one of them starts with <code>*</code>, ` +
+                   `so vixie treats it as unrestricted and the two are ANDed. The man page's ` +
+                   `"are not <code>*</code>" wording would give you OR here. This is the single ` +
+                   `most likely place for a cron expression to mean the opposite of what it looks like.`);
+    else
+      push("warn", `Day of month and day of week are both restricted and neither is a star, so ` +
+                   `they are ORed, not ANDed. This fires on the listed dates <em>plus</em> every ` +
+                   `listed weekday. If you meant "the first Monday of the month", cron cannot say it.`);
+  }
+
+  // Impossible dates.
+  const months = [...spec.month].filter(m=>m>=1);
+  /* Eight consecutive years, because a shorter sample can miss a leap year and then declare a
+   * perfectly valid 29 February schedule impossible. The first version sampled year, year+1 and
+   * year+4, which from 2026 is 2026, 2027 and 2030: no leap year among them, so "0 0 29 2 *"
+   * was reported as never firing. Any leap-aware window has to span at least four years and
+   * eight is free. */
+  let reachable = false;
+  outer:
+  for (let yy = year; yy < year + 8 && !reachable; yy++){
+    for (const mo of months){
+      const dim = daysInMonth(yy, mo);
+      for (let d = 1; d <= dim; d++)
+        if (dayMatches(spec, yy, mo, d)){ reachable = true; break outer; }
+    }
+  }
+  if (!reachable)
+    push("stop", `No day in the selected months can ever match this. It will never fire.`);
+
+  /* All three of these are about a RESTRICTED day-of-month field. Guarding on
+   * spec.dom.size < 31 matters: without it the leap-day note fired on every expression with an
+   * unrestricted day field, because "*" contains 29 and "*" contains February. A note that is
+   * always true is a note nobody reads. */
+  const domNarrow = spec.dom.size < 31;
+  if (domNarrow && [...spec.dom].every(d => d > 29) && months.length === 1 && months[0] === 2)
+    push("stop", `February never has a ${ord(Math.min(...spec.dom))}.`);
+  else if (domNarrow && spec.dom.has(31))
+    push("note", `The 31st does not exist in April, June, September or November, so a monthly ` +
+                 `job on the 31st runs 7 times a year, not 12.`);
+  else if (domNarrow && spec.dom.has(29) && months.length < 12 && months.includes(2))
+    push("note", `29 February exists only in a leap year. Check the ribbon before relying on it.`);
+
+  // GitHub's five minute floor.
+  if (gh){
+    const ms = [...spec.minute].sort((a,b)=>a-b);
+    let minGap = Infinity;
+    for (let i = 1; i < ms.length; i++) minGap = Math.min(minGap, ms[i] - ms[i-1]);
+    if (ms.length > 1) minGap = Math.min(minGap, 60 - ms[ms.length-1] + ms[0]);
+    if (spec.minute.size === 60) minGap = 1;
+    if (minGap < 5)
+      push("stop", `Fires every ${minGap} minute${minGap===1?"":"s"} at the closest point. GitHub's ` +
+                   `docs: "The shortest interval you can run scheduled workflows is once every 5 minutes."`);
+    if (spec.minute.has(0))
+      push("note", `It fires on the hour. GitHub's own advice: the <code>schedule</code> event ` +
+                   `"can be delayed during periods of high loads", and "High load times include the ` +
+                   `start of every hour. To decrease the chance of delay, schedule your workflow to ` +
+                   `run at a different time of the hour."`);
+    // a literal 7 TOKEN, not the digit 7 anywhere in the field: "17" is not a Sunday
+    if (spec.rawFields[4] && /(^|[,\-\/])7($|[,\-\/])/.test(spec.rawFields[4]))
+      push("warn", `vixie accepts <code>7</code> for Sunday; GitHub's field table documents ` +
+                   `<code>0 - 6</code>. Write <code>0</code> or <code>SUN</code> instead.`);
+    if (spec.month.has(0))
+      push("warn", `vixie's field table allows month <code>0</code>; GitHub documents ` +
+                   `<code>1 - 12</code>. Do not rely on it.`);
+    if (zone !== "UTC")
+      push("note", `GitHub evaluates cron in UTC unless the workflow sets a <code>timezone</code> ` +
+                   `key. You are looking at <code>${zone}</code>, so this is what the schedule ` +
+                   `<em>looks like</em> locally, not what you would write in the workflow.`);
+  }
+
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * 6. Rendering
+ * ------------------------------------------------------------------ */
+
+const ZONES = ["UTC","America/New_York","America/Chicago","America/Denver","America/Los_Angeles",
+               "America/Sao_Paulo","Europe/London","Europe/Berlin","Europe/Athens","Africa/Cairo",
+               "Asia/Kolkata","Asia/Shanghai","Asia/Tokyo","Australia/Sydney","Pacific/Auckland",
+               "Pacific/Honolulu"];
+
+const PRESETS = [
+  {e:"0 12 * * *",     n:"a daily job set in UTC"},
+  {e:"30 2 * * *",     n:"the fire that vanishes"},
+  {e:"30 1 * * *",     n:"the fire that doubles"},
+  {e:"30 4 1,15 * 5",  n:"the OR rule, from the man page"},
+  {e:"0 0 */2 * 5",    n:"the OR rule's trap"},
+  {e:"20/15 * * * *",  n:"a step with no range"},
+  {e:"0 0 31 * *",     n:"months that have no 31st"},
+  {e:"0 0 29 2 *",     n:"leap day only"},
+  {e:"*/3 * * * *",    n:"under GitHub's floor"},
+  {e:"@daily",         n:"shorthand GitHub refuses"}
+];
+
+const $ = s => document.querySelector(s);
+const el = {expr:$("#expr"), zone:$("#zone"), year:$("#year"), reading:$("#reading"),
+            ribbon:$("#ribbon"), tip:$("#tip"), stats:$("#stats"), lints:$("#lints"),
+            next:$("#nextTable tbody"), chips:$("#chips"), gh:$("#ghRule"),
+            ghLint:$("#ghLint"), scale:$("#scale")};
+
+const state = {spec:null, year:null, zone:"UTC", cells:[], hover:null, preview:false};
+
+function css(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+const HEAT = ["#1d2732","#25415c","#2a5f85","#2f7fae","#40a0d0","#6dc3e8","#a8e0f5"];
+
+function heatColour(n, max){
+  if (n <= 0) return null;
+  const i = max <= 1 ? HEAT.length - 1
+                     : Math.min(HEAT.length - 1, Math.floor((n - 1) / max * (HEAT.length - 1) + 0.5));
+  return HEAT[i];
+}
+
+/* A canvas has two widths and only one of them is the one a person sees. At a fixed intrinsic
+ * 1240 displayed in a 390px phone, a 15px label lands at under 5px and the month names are gone.
+ *
+ * The first attempt at this made it WORSE, and the assertion in check_cron_ui.js is the only
+ * reason that was noticed: scaling the font by (intrinsic / 1240) shrinks it once, and the
+ * browser shrinking the canvas to fit shrinks it again. 3.9px, down from 5.
+ *
+ * So the backing store is sized to the element's real CSS width times the device pixel ratio,
+ * which makes the display scale exactly 1/dpr, and the font floor is expressed in DEVICE pixels
+ * (9 * dpr) so it survives that division. Everything else on the canvas is then derived from the
+ * font size rather than from a magic constant, which is what keeps the month column wide enough
+ * for "Jan" at every width. */
+function sizeRibbon(){
+  const cv = el.ribbon;
+  state.dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (state.preview) return;                       // preview sets its own size
+  const cssW = Math.max(280, cv.clientWidth || cv.parentElement.clientWidth || 1240);
+  const w = Math.round(Math.min(1240, cssW) * state.dpr);
+  const m = ribbonMetrics(w, state.dpr);
+  const cellW = (w - m.padL - m.padR) / 31;
+  const h = Math.round(m.padT + m.padB + 12 * cellW * 1.18);   // cells come out near square
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+}
+
+function ribbonMetrics(W, dpr){
+  const fs = Math.max(9 * dpr, Math.round(W / 72));
+  return { fs, padL: Math.round(fs * 2.9), padT: Math.round(fs * 2),
+           padR: Math.round(fs * 0.7), padB: Math.round(fs * 0.9) };
+}
+
+function drawRibbon(){
+  const cv = el.ribbon, ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = css("--panel2") || "#1c232c";
+  ctx.fillRect(0, 0, W, H);
+  state.cells = [];
+
+  const m = ribbonMetrics(W, state.dpr || 1);
+  const k = m.fs / 15;                                 // stroke widths, relative to the label size
+  const { padL, padT, padR, padB } = m;
+  const cw = (W - padL - padR) / 31, chh = (H - padT - padB) / 12;
+  const inset = Math.max(1, Math.min(cw, chh) * 0.07);
+
+  ctx.font = `500 ${m.fs}px ` + (css("--mono") || "monospace");
+  ctx.textBaseline = "middle";
+
+  // column headings, every fifth day
+  ctx.fillStyle = css("--faint") || "#6b7885";
+  ctx.textAlign = "center";
+  for (let d = 1; d <= 31; d++){
+    if (d !== 1 && d % 5 !== 0) continue;
+    ctx.fillText(String(d), padL + (d - 0.5) * cw, padT - m.fs * 0.85);
+  }
+
+  const fires = state.fires;
+  let max = 1;
+  for (const c of fires.perDay.values()) max = Math.max(max, c.n);
+
+  for (let mo = 1; mo <= 12; mo++){
+    const y = padT + (mo - 1) * chh;
+    ctx.fillStyle = css("--dim") || "#9aa7b4";
+    ctx.textAlign = "right";
+    ctx.fillText(MON_LABEL[mo].slice(0, 3), padL - m.fs * 0.6, y + chh / 2);
+
+    const dim = daysInMonth(state.year, mo);
+    for (let d = 1; d <= 31; d++){
+      const x = padL + (d - 1) * cw;
+      const cell = fires.perDay.get(mo + "-" + d);
+      const exists = d <= dim;
+
+      if (!exists){
+        ctx.fillStyle = css("--line") || "#2a323d";
+        ctx.globalAlpha = 0.45;
+        ctx.fillRect(x + inset, y + inset, cw - inset*2, chh - inset*2);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+
+      const n = cell ? cell.n : 0;
+      const fill = heatColour(n, max);
+      ctx.fillStyle = fill || (css("--bg") || "#0e1116");
+      ctx.fillRect(x + inset, y + inset, cw - inset*2, chh - inset*2);
+
+      if (cell && cell.skipped){
+        ctx.strokeStyle = css("--bad") || "#ff8f8f";
+        ctx.lineWidth = Math.max(1.4 * k, inset * 1.4);
+        ctx.strokeRect(x + inset, y + inset, cw - inset*2, chh - inset*2);
+      } else if (cell && (cell.ambiguous || cell.moved)){
+        ctx.strokeStyle = cell.moved ? (css("--mag") || "#d3a4ff") : (css("--warn") || "#ffc46b");
+        ctx.lineWidth = Math.max(1.4 * k, inset * 1.4);
+        ctx.strokeRect(x + inset, y + inset, cw - inset*2, chh - inset*2);
+      }
+
+      state.cells.push({x, y, w:cw, h:chh, mo, d, cell, exists});
+    }
+  }
+  ctx.textAlign = "left";
+}
+
+function renderScale(){
+  el.scale.innerHTML = `<span class="cap" style="margin-right:4px">fewer</span>` +
+    HEAT.map(c => `<i class="sw" style="background:${c}"></i>`).join("") +
+    `<span class="cap" style="margin-left:4px">more fires that day</span>`;
+}
+
+function fmtLocal(p){ return `${p.y}-${pad(p.mo)}-${pad(p.d)} ${pad(p.h)}:${pad(p.mi)}`; }
+function fmtUtc(ms){ const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ` +
+         `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; }
+
+function renderNext(){
+  const rows = nextFires(state.spec, state.zone, Date.now(), 8, el.gh.checked);
+  el.next.innerHTML = rows.map(r => {
+    const local = fmtLocal(r.movedTo || r);
+    const tagCls = {ok:"t-ok", skipped:"t-skip", ambiguous:"t-amb", moved:"t-moved"}[r.status];
+    const tag = {
+      ok:"", skipped:"never happens",
+      ambiguous:"happens twice",
+      moved:`moved from ${pad(r.h)}:${pad(r.mi)}`
+    }[r.status];
+    const utc = r.utcMs === null ? "-" : fmtUtc(r.utcMs);
+    const alt = r.altUtcMs != null ? `<br><span style="color:var(--warn)">${fmtUtc(r.altUtcMs)}</span>` : "";
+    return `<tr><td${r.status==="skipped"?' style="text-decoration:line-through;opacity:.55"':''}>${local}</td>` +
+           `<td>${utc}${alt}</td><td class="tag ${tagCls}">${tag}</td></tr>`;
+  }).join("") || `<tr><td colspan="3" class="none">nothing in the next five years</td></tr>`;
+}
+
+function renderStats(){
+  const f = state.fires;
+  const bits = [
+    {v:f.total.toLocaleString(), k:`fires in ${state.year}`, c:""},
+    {v:new Set([...f.perDay.entries()].filter(([,c])=>c.n>0).map(([k])=>k)).size, k:"days it runs", c:""}
+  ];
+  if (f.skipped)   bits.push({v:f.skipped,   k:"deleted by spring forward", c:"cold"});
+  if (f.moved)     bits.push({v:f.moved,     k:"moved to the next valid time", c:"cold"});
+  if (f.ambiguous) bits.push({v:f.ambiguous, k:"in the repeated hour", c:"hot"});
+
+  if (state.zone === "UTC"){
+    const spread = localSpread(state.spec, state.year, browserZone());
+    if (spread.length > 1 && spread.length <= 4)
+      bits.push({v:spread.map(s=>s[0]).join(" / "), k:`local time in ${browserZone()}`, c:"hot"});
+  }
+  el.stats.innerHTML = bits.map(b =>
+    `<div class="stat ${b.c}"><b>${b.v}</b><span>${b.k}</span></div>`).join("");
+}
+
+function browserZone(){
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+  catch { return "UTC"; }
+}
+
+function renderLints(){
+  const items = lint(state.spec, state.zone, state.year, el.ghLint.checked);
+  el.lints.innerHTML = items.length
+    ? items.map(i => `<li><span class="b ${i.level}">${i.level.toUpperCase()}</span><span>${i.html}</span></li>`).join("")
+    : `<li class="none">Nothing to flag. It is portable, it is above GitHub's floor, and the day fields are unambiguous.</li>`;
+}
+
+function render(){
+  const spec = parse(el.expr.value);
+  state.spec = spec;
+  state.zone = el.zone.value;
+  state.year = +el.year.value;
+  el.expr.classList.toggle("bad", !spec.ok);
+
+  if (!spec.ok){
+    el.reading.innerHTML = `<span class="err">${spec.errors.join("\n")}</span>`;
+    el.next.innerHTML = `<tr><td colspan="3" class="none">fix the expression first</td></tr>`;
+    el.lints.innerHTML = `<li class="none">fix the expression first</li>`;
+    el.stats.innerHTML = "";
+    const ctx = el.ribbon.getContext("2d");
+    ctx.fillStyle = css("--panel2") || "#1c232c";
+    ctx.fillRect(0, 0, el.ribbon.width, el.ribbon.height);
+    state.fires = {perDay:new Map(), total:0, skipped:0, ambiguous:0, moved:0};
+    window.__cronReady = true;
+    return;
+  }
+
+  CANDIDATES = 0;
+  state.fires = yearFires(spec, state.zone, state.year, el.gh.checked);
+  state.lastCandidates = CANDIDATES;
+
+  const src = spec.shorthand ? ` <span class="lit">(${spec.shorthand} means ${SHORTHAND[spec.shorthand]})</span>` : "";
+  el.reading.innerHTML = describe(spec) + src +
+    ` <span style="color:var(--faint)">Evaluated in <span class="lit">${state.zone}</span>.</span>`;
+
+  sizeRibbon();
+  drawRibbon();
+  renderNext();
+  renderStats();
+  renderLints();
+  window.__cronReady = true;
+}
+
+/* hover on the ribbon */
+function hitTest(ev){
+  const cv = el.ribbon, r = cv.getBoundingClientRect();
+  const sx = cv.width / r.width, sy = cv.height / r.height;
+  const x = (ev.clientX - r.left) * sx, y = (ev.clientY - r.top) * sy;
+  for (const c of state.cells)
+    if (x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h) return c;
+  return null;
+}
+
+el.ribbon.addEventListener("mousemove", ev => {
+  const hit = hitTest(ev);
+  if (!hit || !hit.exists){ el.tip.classList.remove("on"); return; }
+  const cell = hit.cell;
+  const dow = DOW_LABEL[new Date(Date.UTC(state.year, hit.mo - 1, hit.d)).getUTCDay()];
+  const lines = [`${dow} ${hit.d} ${MON_LABEL[hit.mo]} ${state.year}`];
+  if (!cell || (cell.n === 0 && cell.skipped === 0)) lines.push("no fires");
+  else {
+    if (cell.n) lines.push(`${cell.n} fire${cell.n === 1 ? "" : "s"}`);
+    if (cell.first) lines.push(`first at ${pad(cell.first.h)}:${pad(cell.first.mi)} local`);
+    if (cell.skipped)   lines.push(`${cell.skipped} deleted (this hour does not exist)`);
+    if (cell.ambiguous) lines.push(`${cell.ambiguous} inside the repeated hour`);
+    if (cell.moved)     lines.push(`${cell.moved} advanced to the next valid time`);
+  }
+  el.tip.textContent = lines.join("\n");
+  el.tip.classList.add("on");
+  const wrapRect = el.ribbon.parentElement.getBoundingClientRect();
+  const tw = el.tip.offsetWidth, th = el.tip.offsetHeight;
+  let lx = ev.clientX - wrapRect.left + 14, ly = ev.clientY - wrapRect.top - th - 10;
+  if (lx + tw > wrapRect.width) lx = ev.clientX - wrapRect.left - tw - 14;
+  if (ly < 0) ly = ev.clientY - wrapRect.top + 16;
+  el.tip.style.left = lx + "px";
+  el.tip.style.top  = ly + "px";
+  state.hover = {mo:hit.mo, d:hit.d};
+});
+el.ribbon.addEventListener("mouseleave", () => el.tip.classList.remove("on"));
+
+/* ------------------------------------------------------------------ *
+ * 7. Boot
+ * ------------------------------------------------------------------ */
+
+(function boot(){
+  const params = new URLSearchParams(location.search);
+  const thisYear = new Date().getUTCFullYear();
+
+  for (const z of ZONES){
+    const o = document.createElement("option");
+    o.value = z; o.textContent = z;
+    el.zone.appendChild(o);
+  }
+  const bz = browserZone();
+  if (!ZONES.includes(bz)){
+    const o = document.createElement("option");
+    o.value = bz; o.textContent = bz + " (yours)";
+    el.zone.appendChild(o);
+  }
+
+  for (let y = thisYear - 1; y <= thisYear + 4; y++){
+    const o = document.createElement("option");
+    o.value = y; o.textContent = y;
+    el.year.appendChild(o);
+  }
+
+  el.chips.innerHTML = PRESETS.map(p =>
+    `<button class="chip" data-e="${p.e.replace(/"/g,'&quot;')}">${p.e}<b>${p.n}</b></button>`).join("");
+  el.chips.addEventListener("click", ev => {
+    const b = ev.target.closest(".chip");
+    if (!b) return;
+    el.expr.value = b.dataset.e;
+    render();
+  });
+
+  el.zone.value = params.get("zone") || browserZone();
+  el.year.value = String(params.get("year") ? +params.get("year") : thisYear);
+  if (params.get("expr")) el.expr.value = params.get("expr");
+  if (params.get("gh") === "1") el.gh.checked = true;
+
+  if (params.get("preview") !== null){
+    state.preview = true;
+    document.documentElement.classList.add("preview");
+    el.expr.value = params.get("expr") || "30 4 1,15 * 5";
+    el.zone.value = "Europe/London";
+    el.ribbon.width = 1240; el.ribbon.height = 470;
+  }
+
+  for (const node of [el.expr]) node.addEventListener("input", render);
+  for (const node of [el.zone, el.year, el.gh, el.ghLint]) node.addEventListener("change", render);
+
+  renderScale();
+  render();
+
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!state.preview && state.spec && state.spec.ok){ sizeRibbon(); drawRibbon(); }
+    }, 120);
+  });
+
+  window.__previewReady = true;
+})();
+
+/* Exposed for the checkers in ../_verify/. The suite drives the real page through
+ * real events wherever it can; this handle exists so the engine can also be tested
+ * against closed forms and independent sources without a UI in the way. */
+window.__cron = {
+  parse, dayMatches, daysInMonth, describe, lint,
+  partsInZone, offsetMs, wallToUtc,
+  wallSlots, resolveSlot, nextFires, yearFires, localSpread,
+  ribbonMetrics, sizeRibbon, drawRibbon,
+  SHORTHAND, ZONES, PRESETS,
+  state,
+  candidates: () => state.lastCandidates,
+  resetCandidates: () => { CANDIDATES = 0; },
+  readCandidates: () => CANDIDATES,
+  render
+};
+</script>
+</body>
+</html>
