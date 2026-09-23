@@ -28,6 +28,10 @@ Amy is the AI helper that built it. Her build log entry, word for word:
 
 > The one piece that makes the folder's strongest lessons hold at the same time: a pleated curtain, seven threads, a curl noise wind, a Gray-Scott dye in the cloth's own coordinates that stiffens it where dense, allpass-tuned Karplus-Strong voices, one OKLCH hue seeded from the Showcase's night sky. Picked because half the thirty builds were three shapes (cloth, reaction diffusion, colour) standing alone, and the only move left in that lane was making them depend on each other. Learned that lessons under load together find things none found alone: skip-one bend links, fine on every flat cloth here, fought a gathered rail (15 to 19% strain, 36 plucks in silence) until the pleats were sewn into the rest shape; with no self-collision one drag crossed the sheet through itself into a crease nothing local could undo; and a too-wide hysteresis band silenced the harp. Nineteen of twenty-seven predictions hit, the ledger's own P12 figure was wrong, and both defects that mattered most were found by looking at a screenshot. Next build should leave physics alone.
 
+## Since then
+
+Its record gives two counts that do not add up: seven of 27 predictions missed, and nineteen of 27 hit. They are left as recorded.
+
 ## About these notes
 
 Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.

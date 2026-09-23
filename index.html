@@ -3,10 +3,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Saxton Showcase Daylight</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Atkinson+Hyperlegible:wght@400;700&family=Martian+Mono:wght@400&display=swap">
 <style>
+/* The three fonts live beside the page (fonts/, SIL Open Font License, licenses alongside), so the page and its offline copy look the same and a visit makes no outside request. */
+@font-face{font-family:"Unbounded";src:url(fonts/Unbounded.woff2) format("woff2");font-weight:700 800;font-display:swap}
+@font-face{font-family:"Atkinson Hyperlegible";src:url(fonts/AtkinsonHyperlegible-400.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Atkinson Hyperlegible";src:url(fonts/AtkinsonHyperlegible-700.woff2) format("woff2");font-weight:700;font-display:swap}
+@font-face{font-family:"Martian Mono";src:url(fonts/MartianMono-400.woff2) format("woff2");font-weight:400;font-display:swap}
 /* Daylight: lilac paper, candy pieces with ink outlines like stickers. Same layout as Orbit. */
 :root{
   color-scheme:light;
@@ -25,9 +27,11 @@ body{background:var(--night);color:var(--text);font-family:var(--body);font-size
 a{color:inherit}
 button{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--lav);outline-offset:3px;border-radius:8px}
-h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;line-height:1.1}
 .date{font-family:var(--mono);font-size:12px;color:var(--muted)}
 .lbl{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em}
+.skip{position:absolute;left:12px;top:-60px;z-index:70;background:var(--ink);color:var(--night);padding:10px 14px;border-radius:10px;font-weight:700;text-decoration:none}
+.skip:focus{top:12px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* crooked letters, like the pieces */
@@ -39,12 +43,12 @@ nav .l,nav .r{display:flex;gap:20px}
 nav .r{justify-content:flex-end}
 nav a{text-decoration:none}
 nav a:hover{color:var(--lav)}
-.word{display:flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--display);font-weight:800;font-size:21px;letter-spacing:-.01em;white-space:nowrap}
+.word{display:flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--display);font-weight:800;font-size:clamp(15px,5vw,20px);letter-spacing:.06em;white-space:nowrap}
 .word svg{width:30px;height:46px;overflow:visible;transition:transform .3s}
 .word:hover svg{transform:rotate(-6deg) scale(1.08)}
 .word:hover .ch{animation:hop .45s ease both}
 @keyframes hop{50%{translate:0 -4px}}
-@media (prefers-reduced-motion:reduce){.word:hover .ch{animation:none}}
+@media (prefers-reduced-motion:reduce){.word:hover .ch{animation:none}.word svg{transition:none}.word:hover svg{transform:none}}
 
 /* hero: the headline, then the board itself */
 .hero{padding-block:40px 24px}
@@ -53,7 +57,7 @@ nav a:hover{color:var(--lav)}
 .hero .lede{font-size:20px;color:var(--muted);margin:0 0 6px;max-width:34ch}
 .hero .lede a{color:var(--text);font-weight:700;text-decoration-thickness:2px;text-underline-offset:3px}
 .board{background:var(--tray);border:1px solid var(--edge);border-radius:28px;padding:28px}
-.board > svg{display:block;width:100%;max-width:860px;height:auto;margin:0 auto;overflow:visible}
+.board > svg{display:block;width:100%;height:auto;margin:0 auto;overflow:visible}
 .bp{transition:transform 1.1s cubic-bezier(.2,1.25,.4,1);transform-box:fill-box;transform-origin:center;cursor:pointer}
 .scattered .bp{transform:translate(var(--dx),var(--dy)) rotate(var(--rot))}
 .bp .shape{transition:stroke-width .15s}
@@ -73,72 +77,42 @@ section{padding-block:64px}
 .duo{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding-top:0}
 .duo > div{border-top:3px solid var(--c);padding-top:16px}
 .duo h3{font-weight:700;font-size:20px;margin:0 0 8px}
-.duo p{margin:0;color:var(--muted);font-size:15px}
+.duo p{margin:0;color:var(--muted);font-size:16px;max-width:60ch}
 
 /* library */
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
 .chip{font-family:var(--display);font-weight:700;font-size:13px;padding:9px 14px;border-radius:999px;border:1px solid var(--edge);background:transparent;cursor:pointer}
 .chip[aria-pressed="true"]{background:var(--text);color:var(--night);border-color:var(--text)}
-.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px}
-.card{background:var(--panel);border:1px solid var(--edge);border-radius:22px;padding:22px;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s;cursor:pointer;text-align:left}
-.card:hover{border-color:var(--c);transform:translateY(-3px)}
-.card .vis{height:120px;border-radius:14px;background:color-mix(in srgb,var(--c) 22%,#FFFFFF);display:grid;place-items:center;margin-bottom:6px}
-.card .vis svg{width:84px;height:84px;overflow:visible;transform:rotate(var(--r))}
-.card .kind{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
-.card .kind i{width:9px;height:9px;border-radius:2px;background:var(--c)}
-.card h3{font-weight:700;font-size:20px;letter-spacing:-.01em}
-.card p{margin:0;color:var(--muted);font-size:15px}
-.card .foot{margin-top:auto;padding-top:14px;border-top:1px solid var(--edge);display:flex;justify-content:space-between;align-items:center;gap:10px}
-.card .foot b{display:block;font-family:var(--display);font-weight:700;font-size:20px;line-height:1.1}
-.card .foot small{display:block;font-size:13px;color:var(--muted)}
-.card .go{font-family:var(--display);font-weight:700;font-size:13px;padding:8px 14px;border-radius:10px;background:var(--c);color:var(--ink);white-space:nowrap}
-.card.ghostcard .go{background:transparent;color:var(--lav);border:1px dashed var(--lav)}
+.chip i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px;border:1px solid var(--ink)}
 
-/* what we made, and when */
-.log{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
-.log li{display:grid;grid-template-columns:76px 40px 1fr auto;gap:14px;align-items:center;padding-block:14px;border-bottom:1px solid var(--edge)}
-.log svg{width:36px;height:36px;overflow:visible}
-.log b{font-family:var(--display);font-weight:700;font-size:17px}
-.log .what{color:var(--muted);font-size:15px;text-align:right}
 
 /* the empty slot, in butter */
 .cta{background:var(--marigold);color:var(--ink);border-radius:28px;padding:48px 32px;display:grid;grid-template-columns:auto 1fr;gap:32px;align-items:center}
 .cta svg{width:150px;height:150px;overflow:visible}
-.cta h2{font-weight:800;font-size:clamp(28px,4vw,48px);letter-spacing:-.02em}
+.cta h2{font-weight:800;font-size:clamp(30px,4.4vw,54px);line-height:1.04;letter-spacing:-.02em}
 .cta p{color:#3A335F;margin:12px 0 22px;max-width:46ch}
 .cta .btn{background:var(--ink);color:var(--marigold);border-color:var(--ink)}
 .cta .btn.ghost{background:transparent;color:var(--ink);border-color:var(--ink);margin-left:8px}
 .cta :focus-visible{outline-color:var(--ink)}
 
-footer{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:24px;padding-block:48px 64px;border-top:1px solid var(--edge);margin-top:40px}
+footer{display:grid;grid-template-columns:1.4fr repeat(2,1fr);gap:24px;padding-block:48px 64px;border-top:1px solid var(--edge);margin-top:40px}
 footer h4{font-family:var(--display);font-weight:700;font-size:13px;margin:0 0 10px}
 footer ul{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:15px}
 footer a{text-decoration:none}
 footer a:hover{color:var(--lav)}
-footer .note{color:var(--muted);margin:12px 0 0;font-size:15px}
-footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
+footer .note{color:var(--muted);margin:12px 0 0;font-size:16px}
 
 /* detail view, gallery style */
 .detail{position:fixed;inset:0;z-index:50;background:var(--night);overflow-y:auto;padding:max(20px,env(safe-area-inset-top,0px)) 20px 28px}
 .detail .top{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .detail .close,.detail .nav button{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;background:none;border:0;cursor:pointer;padding:8px}
-.detail .stage{display:grid;grid-template-columns:1fr minmax(0,420px) 1fr;align-items:center;gap:24px;min-height:calc(100% - 60px);padding-block:20px}
-.detail .facts h3{font-weight:700;font-size:13px;color:var(--lav);margin-bottom:12px}
-.detail .facts ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
-.detail .facts li{border:1px solid var(--edge);border-radius:999px;padding:4px 12px;font-size:15px}
-.detail .facts li.date{font-size:12px;padding-block:6px}
-.detail .art{display:grid;place-items:center}
-.detail .art svg{width:min(100%,380px);height:auto;overflow:visible}
-.detail .desc{align-self:center;max-width:34ch;justify-self:end;background:var(--panel);border:1px solid var(--edge);border-radius:18px;padding:20px}
+.detail .desc{align-self:center;background:var(--panel);border:1px solid var(--edge);border-radius:18px;padding:20px}
 .detail .desc .kind{font-size:13px;color:var(--muted)}
 .detail .desc h2{font-weight:800;font-size:30px;letter-spacing:-.02em;margin:2px 0 8px}
 .detail .desc p{margin:0 0 14px;color:var(--muted)}
 .detail .nav{display:flex;justify-content:center;gap:24px}
 @media (max-width:900px){
   .hero .top{grid-template-columns:1fr;gap:18px}
-  .detail .stage{grid-template-columns:1fr;min-height:0}
-  .detail .facts ul{flex-direction:row;flex-wrap:wrap}
-  .detail .desc{justify-self:stretch;max-width:none}
   .duo{grid-template-columns:1fr}
   footer{grid-template-columns:1fr 1fr}
   footer > div{min-width:0}
@@ -151,8 +125,6 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   .cta{grid-template-columns:1fr;padding:32px 22px;gap:16px}
   .cta svg{width:96px;height:96px}
   .cta .btn.ghost{margin:8px 0 0}
-  .log li{grid-template-columns:60px 32px 1fr;gap:10px}
-  .log .what{display:none}
 }
 /* board toolbar, list view, empty state */
 .tools{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
@@ -180,7 +152,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 [hidden]{display:none !important}
 
 /* detail: the build running live in a frame, a sticker on the corner */
-.detail .stage{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:40px;max-width:1180px;margin:0 auto;min-height:calc(100% - 110px)}
+.detail .stage{display:grid;align-items:center;padding-block:20px;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:40px;max-width:1180px;margin:0 auto;min-height:calc(100% - 110px)}
 .screen{position:relative}
 .screen .frame{position:relative;aspect-ratio:2/1;border-radius:22px;overflow:hidden;border:2px solid var(--ink);background:var(--ink);box-shadow:10px 10px 0 var(--c)}
 .screen iframe{position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none;background:var(--ink)}
@@ -190,11 +162,13 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 .screen .go:hover span,.screen .go:focus-visible span{transform:translateY(-2px) rotate(-2deg)}
 .screen .sticker{position:absolute;left:-28px;top:-34px;width:96px;height:96px;overflow:visible;transform:rotate(-12deg);pointer-events:none;z-index:2}
 .screen .cap{margin:18px 0 0;font-size:13px;color:var(--muted)}
+.pv-toggle{position:absolute;top:12px;right:12px;z-index:3;font-family:var(--display);font-weight:700;font-size:13px;padding:8px 12px;border-radius:10px;border:2px solid var(--ink);background:var(--night);color:var(--ink);cursor:pointer}
+.still{position:absolute;inset:0;display:grid;place-items:center;background:var(--ink);color:var(--night);text-align:center;padding:16px}
+.still svg{width:120px;height:120px;overflow:visible}
+.still p{margin:8px 0 0;font-size:15px}
 .ghostart{display:grid;place-items:center;text-align:center;gap:10px}
 .ghostart svg{width:min(100%,340px);height:auto;overflow:visible}
 .ghostart p{margin:0;color:var(--muted)}
-.detail .desc{max-width:none;justify-self:stretch}
-.detail .num{font-family:var(--display);font-weight:700;font-size:13px;color:var(--lav);margin-bottom:8px}
 .pills{list-style:none;margin:0 0 18px;padding:0;display:flex;flex-wrap:wrap;gap:6px}
 .pills li{border:1px solid var(--edge);border-radius:999px;padding:4px 12px;font-size:15px}
 .pills li.date{font-size:12px;padding-block:6px}
@@ -218,6 +192,14 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 .nojs{padding:16px 0;font-weight:700}
 .soon{font-family:var(--display);font-weight:700;font-size:13px;color:var(--lav);border:1px dashed var(--lav);border-radius:12px;padding:12px 16px}
 
+@media print{
+  nav .l,nav .r,.tools,#snap,.getAll,#heroPlay,#ideaForm,.detail,.play,.nojs{display:none!important}
+  html,body{background:#fff}
+  .board{background:#fff;break-inside:avoid}
+  .bp{transition:none}
+  section,.cta{break-inside:avoid}
+}
+
 /* play: the whole build, full screen */
 .play{position:fixed;inset:0;z-index:60;background:var(--ink);display:flex;flex-direction:column}
 .play .bar{display:flex;align-items:center;gap:12px;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top,0px));background:var(--night);border-bottom:2px solid var(--ink)}
@@ -228,32 +210,37 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 .play .bar .btn{margin-left:auto;padding:10px 18px}
 .play iframe{flex:1;width:100%;border:0;background:var(--ink)}
 @media (max-width:900px){
-  .detail .stage{grid-template-columns:1fr;gap:28px;padding-top:36px}
+  .detail .stage{grid-template-columns:1fr;gap:28px;padding-top:36px;min-height:0}
   .screen .sticker{width:72px;height:72px;left:-10px;top:-30px}
 }
 @media (max-width:620px){
   .tools .right{width:100%;justify-content:space-between}
   .find{flex:1}.find input{width:100%}
-  .plist button{grid-template-columns:40px minmax(0,1fr) auto;gap:12px;padding:12px 14px}
+  .plist button{grid-template-columns:40px minmax(0,1fr);gap:4px 12px;padding:12px 14px}
+  .plist .k{grid-column:2;white-space:normal}
+  .plist b{white-space:normal}
+  .board{display:flex;flex-direction:column}
+  .board > svg{order:-1;margin-bottom:16px}
   .plist .date{display:none}
   .screen .frame{border-radius:16px;box-shadow:6px 6px 0 var(--c)}
 }
 </style>
 
+<a class="skip" href="#idea">Skip to the idea box</a>
 <div class="wrap">
   <nav>
-    <div class="l lbl"><a href="#library">Library</a><a href="#log">What we made</a></div>
+    <div class="l lbl"><a href="#top">Pieces</a><a href="#why">Why</a></div>
     <a class="word" href="#top" aria-label="Saxton Showcase home"><svg viewBox="-14 -26 112 172" aria-hidden="true" id="mark"></svg><span class="crooked">SAXTON SHOWCASE</span></a>
-    <div class="r lbl"><a href="#top">Play something</a><a href="#idea">Say hi</a></div>
+    <div class="r lbl"><a href="#top" class="playSome">Play something</a><a href="#idea">Say hi</a></div>
   </nav>
 
   <noscript><p class="nojs">This page needs JavaScript to show the builds. Every build is also in <a href="saxton-showcase-all.zip">one download</a>.</p></noscript>
 
   <header class="hero" id="top">
     <div class="top">
-      <h1 class="crooked" data-amp="1.4" data-rot="3">We build stuff. You can have it.</h1>
-      <div><p class="lede">Games, toys and tools Amy, our AI helper, built to learn something. No two pieces match, and they fit anyway. Jump to the <a href="#library" data-jump="game">games</a>, the <a href="#library" data-jump="toy">toys</a>, the <a href="#library" data-jump="tool">tools</a>, or the <a href="#library" data-jump="lab">labs</a>.</p>
-      <p class="topget"><a class="btn getAll" href="saxton-showcase-all.zip" download>Download all of them</a></p></div>
+      <h1 class="crooked" data-amp="2.2" data-rot="6">We build stuff. You can have it.</h1>
+      <div><p class="lede">Toys, labs, tools and a couple of games that Amy, our AI helper, built to learn something. No two pieces match, and they fit anyway. Jump to the <a href="#top" data-jump="toy">toys</a>, the <a href="#top" data-jump="lab">labs</a>, the <a href="#top" data-jump="tool">tools</a>, or the <a href="#top" data-jump="game">games</a>.</p>
+      <p class="topget rowacts"><button class="btn playSome" type="button" id="heroPlay">Play something</button><a class="btn ghost getAll" href="saxton-showcase-all.zip" download>Download all of them</a></p></div>
     </div>
     <div class="board">
       <div class="tools">
@@ -275,13 +262,13 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       <div class="empty" id="bEmpty" hidden><p>Nothing matches that.</p><button class="btn ghost" type="button" id="bClear">Show everything</button></div>
       <div class="row">
         <p id="boardState" aria-live="polite"></p>
-        <span class="rowacts"><a class="btn getAll" href="saxton-showcase-all.zip" download>Download all of them</a><button class="btn ghost" id="snap" type="button">Scatter them</button></span>
+        <span class="rowacts"><a class="btn ghost getAll" href="saxton-showcase-all.zip" download>Download all of them</a><button class="btn ghost" id="snap" type="button">Scatter them</button></span>
       </div>
     </div>
   </header>
 
   <section class="duo" aria-label="How it works">
-    <div style="--c:var(--pool)"><h3>Every piece works on its own</h3><p>Each build is one web page. Open it in a browser and play. Nothing to install, no account, and it keeps working with the wifi off. Download one and it's yours: the game in a single file, and beside it a second download with the notes on what we learned, written so your AI helper can read them too.</p></div>
+    <div style="--c:var(--pool)"><h3>Every piece works on its own</h3><p>Each build is one web page. Open it in a browser and play. Nothing to install, no account, and it keeps working with the wifi off. Download one and it's yours: the game in a single file, and beside it a second download with the notes on what we learned, written so your AI helper can read them too. Every build here is free under the <a href="LICENSE">MIT License</a>, and the fonts come with their own open licence (the SIL Open Font License, whose text travels with the fonts); if you make one better, send it back.</p></div>
     <div style="--c:var(--lav)"><h3>The empty slot stays open</h3><p>There's room on the board for the next build. If your family needs something, tell us. It might be the next piece.</p></div>
   </section>
 
@@ -289,33 +276,10 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     <div class="head"><h2 id="whyH">Why an AI builds toys</h2></div>
     <div class="whycols">
       <p>Amy is our AI helper, and she picked and built every build here herself, one thing at a time, to learn something. Most of them started the same way: something she could describe in words but could not have built, which her own log counts as not knowing it. She writes down what she expects before she measures and keeps the misses, so every piece tells you what it taught her and why she picked it.</p>
-      <p>Why so much physics? Her log noticed it too: of twelve builds in a row, eleven were physics or simulation, a habit no single night could see from inside. The method under the cloth and rope builds, position based dynamics, is everywhere in game physics, and they kept exposing the same gap: a setting everyone treats as the stiffness of the fabric turned out, once measured, to depend on how the solver runs. Several cloth builds each say she had never written the solver before; read together, that is exactly the habit her log warns about. The last of them, Loom, ends with a note to herself: next build should leave physics alone.</p>
+      <p>Why so much physics? Her log noticed it too: of twelve builds in a row, eleven were physics or simulation, a habit no single night could see from inside. The method under the cloth and rope builds, position based dynamics, is everywhere in game physics, and they kept exposing the same gap: a setting everyone treats as the stiffness of the fabric turned out, once measured, to depend on how the solver runs. Several cloth builds each say she had never written the solver before, and each one meant it: for four weeks every night started from a copy of her log that still listed four builds, so no night could see the one before, and ten of these builds are the same idea built again. Each piece's lesson is what that one build taught; it did not carry to the next night until the log was put back together. The last of them, Loom, ends with a note to herself: next build should leave physics alone.</p>
     </div>
   </section>
 
-  <section id="library">
-    <div class="head">
-      <h2>The library</h2>
-      <p>Everything here is free under the <a href="LICENSE">MIT License</a>. If you make one better, send it back.</p>
-    </div>
-    <div class="chips" role="group" aria-label="Filter the library">
-      <button class="chip" data-f="all" aria-pressed="true">Everything</button>
-      <button class="chip" data-f="game" aria-pressed="false">Games</button>
-      <button class="chip" data-f="toy" aria-pressed="false">Toys</button>
-      <button class="chip" data-f="tool" aria-pressed="false">Tools</button>
-      <button class="chip" data-f="lab" aria-pressed="false">Labs</button>
-      <button class="chip" data-f="workshop" aria-pressed="false">In the workshop</button>
-    </div>
-    <div class="lib" id="lib"></div>
-  </section>
-
-  <section id="log">
-    <div class="head">
-      <h2>What we made, and when</h2>
-      <p>Late August into September 2026. Every build's date comes from its own record; the workshop piece shows the day it was mapped.</p>
-    </div>
-    <ol class="log" id="logList"></ol>
-  </section>
 
   <section id="idea">
     <div class="cta">
@@ -330,8 +294,8 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
           <input id="ideaEmail" name="email" type="email" maxlength="200" autocomplete="email">
           <input type="hidden" name="page" value="saxton-showcase">
           <div class="hp" aria-hidden="true"><label>Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label></div>
-          <p class="fine">Your idea goes to the people who run this site. Leave the email out if you do not want a reply.</p>
-          <div class="formacts"><button class="btn" id="ideaSend" type="submit">Send the idea</button><a class="btn ghost" href="#library">Browse the library</a></div>
+          <p class="fine">Your idea goes to the people who run this site. Sending one is free, and it is an idea, not an order: we cannot promise to build it. Leave the email out if you do not want a reply.</p>
+          <div class="formacts"><button class="btn" id="ideaSend" type="submit">Send the idea</button><a class="btn ghost" href="#top">See every piece</a></div>
           <p id="ideaMsg" role="status" aria-live="polite"></p>
         </form>
       </div>
@@ -340,11 +304,9 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 
   <footer>
     <div><div class="word" style="font-size:17px"><svg viewBox="-14 -26 112 172" aria-hidden="true" class="mark2"></svg><span class="crooked">SAXTON SHOWCASE</span></div>
-      <p class="note">Built at home by Amy, Justin and Amelia&#39;s AI helper.<br>Free to use under the <a href="LICENSE" style="color:var(--text);font-weight:700">MIT License</a>.<br>Want to learn how? That's <a href="#top" style="color:var(--text);font-weight:700">AI But Make It Real</a>.</p>
-      <p class="draft">Draft 6, daylight. Words come from each build's own notes. The builds run for real; the footer links don't go anywhere yet.</p></div>
-    <div><h4>Library</h4><ul><li><a href="#library" data-jump="game">Games</a></li><li><a href="#library" data-jump="toy">Toys</a></li><li><a href="#library" data-jump="tool">Tools</a></li><li><a href="#library" data-jump="lab">Labs</a></li></ul></div>
-    <div><h4>Us</h4><ul><li><a href="#log">What we've made</a></li><li><a href="#idea">Suggest a piece</a></li></ul></div>
-    <div><h4>Elsewhere</h4><ul><li><a href="#top">GitHub</a></li><li><a href="#top">AI But Make It Real</a></li></ul></div>
+      <p class="note">Built at home by Amy, Justin and Amelia&#39;s AI helper.<br>The builds are free to use under the <a href="LICENSE" style="color:var(--text);font-weight:700">MIT License</a>; the fonts under their own open licence.</p></div>
+    <div><h4>Pieces</h4><ul><li><a href="#top" data-jump="toy">Toys</a></li><li><a href="#top" data-jump="lab">Labs</a></li><li><a href="#top" data-jump="tool">Tools</a></li><li><a href="#top" data-jump="game">Games</a></li></ul></div>
+    <div><h4>Us</h4><ul><li><a href="#why">Why Amy builds these</a></li><li><a href="#idea">Suggest a piece</a></li></ul></div>
   </footer>
 </div>
 
@@ -355,7 +317,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   </div>
   <div class="stage">
     <div class="screen" id="dScreen"></div>
-    <div class="desc"><div class="num" id="dNum"></div><div class="kind" id="dKind"></div><h2 id="dName"></h2><h3 class="sub">For you</h3><p id="dText"></p><div id="dLearn"><h3 class="sub">What it taught Amy</h3><p id="dTaught"></p><h3 class="sub">Why Amy picked it</h3><p id="dWhy"></p></div><ul class="pills" id="dFacts"></ul><div id="dActs" class="acts"></div></div>
+    <div class="desc"><div class="kind" id="dKind"></div><h2 id="dName"></h2><h3 class="sub">For you</h3><p id="dText"></p><div id="dLearn"><h3 class="sub">What it taught Amy</h3><p id="dTaught"></p><h3 class="sub">Why Amy picked it</h3><p id="dWhy"></p></div><ul class="pills" id="dFacts"></ul><div id="dActs" class="acts"></div></div>
   </div>
   <div class="nav"><button type="button" id="dPrev"></button><button type="button" id="dNext"></button></div>
 </div>
@@ -455,7 +417,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     {n:"Grainsmith",slug:"grainsmith",t:"The order you scan the grid is the physics: go the wrong way and one grain falls 160 cells in a single step. Randomness has to come from position, not a shared stream. And this kind of water cannot climb, because it has no pressure.",w:"Falling sand is the genre Amy had described a hundred times and had never once written, and it broke the explainer habit.",pv:"preview=1",k:"toy",col:C.marigold,date:"2026-09-18",d:"Forty thousand cells and eleven materials, one rule each. Sand piles at forty five degrees, oil floats on water, fire eats the wood. No goal, no score. Just drag.",stat:"11",sl:"Materials",spec:["Browser toy","Drag to pour","No goal, no score"],acts:["Play with it"]},
     {n:"Slingshot",slug:"slingshot",t:"Velocity Verlet does not conserve energy; it holds it inside a tiny band forever, while the naive method climbs 52 percent out of the well. And letting a crash end the flight means no fudge factor is needed near a planet.",w:"To break the house style: no step button, no inspector, and it explains nothing about itself.",pv:"preview=slingshot",k:"game",col:C.tomato,date:"2026-09-14",d:"Nine levels of one problem: a probe, some planets, and a station to reach. One shot, no engine. The dotted line while you aim is exactly where you'll go.",stat:"9",sl:"Levels",spec:["Browser game","Drag or arrow keys","One shot per try"],acts:["Play it"]},
     {n:"Ink Tank",slug:"ink-tank",t:"Stam's famous 20 solver passes are a look, not a solve, the grid is blind to checkerboard patterns, and the dye that seems to evaporate is really spiralling in. Predicted loss 15.165 percent; measured 15.164.",w:"Pleasant first and instructive second, and Amy could recite the fluid projection step and had never written the boundaries or the pressure solve by hand.",pv:"preview=1&preset=aurora&warm=120",k:"toy",col:C.pool,date:"2026-09-20",d:"A tank of fluid you drag your finger through. The colour rides on real fluid maths, solved again every frame, with a switch to see the parts you normally can't.",stat:"1",sl:"Solve every frame",spec:["Browser toy","Drag to stir","Four views"],acts:["Play with it"]},
-    {n:"Pluck",slug:"pluck",t:"The textbook plucked string cannot play in tune, because a delay holds a whole number of samples. A small extra filter supplies the missing fraction, and two of Amy's own assumptions about delay lines turned out wrong once measured.",w:"Same reason as the build before: Amy could recite what Karplus-Strong is and could not have written one that plays in tune.",pv:"preview=1&note=50&frame=5&pick=0.125",k:"toy",col:C.grape,date:"2026-08-24",d:"A six string instrument where every note comes out of one short loop. Strum a chord and watch a burst of noise get rounded off into a clean note.",stat:"6",sl:"Strings",spec:["Browser instrument","Click, type or strum","Sound on"],acts:["Play it"]},
+    {n:"Pluck",slug:"pluck",t:"The textbook plucked string cannot play in tune, because a delay holds a whole number of samples. A small extra filter supplies the missing fraction, and two of Amy's own assumptions, one about delay lines and one about that filter, turned out wrong once measured.",w:"Same reason as the build before: Amy could recite what Karplus-Strong is and could not have written one that plays in tune.",pv:"preview=1&note=50&frame=5&pick=0.125",k:"toy",col:C.grape,date:"2026-08-24",d:"A six string instrument where every note comes out of one short loop. Strum a chord and watch a burst of noise get rounded off into a clean note.",stat:"6",sl:"Strings",spec:["Browser instrument","Click, type or strum","Sound on"],acts:["Play it"]},
     {n:"Gamut",slug:"gamut",t:"Asking the browser to check a colour hands your own question back, the published colour constants are rounded enough to set the error floor, and the most vivid corner of screen colour is magenta, not blue. Ten of fourteen predictions missed.",w:"Amy could recite that OKLCH is perceptually even and had never written the maths, never written a gamut mapper, and never checked any of it against code she did not write.",wide:1,pv:"preview=1&h=264&c=0.16",k:"tool",col:C.grass,date:"2026-09-03",d:"Pick a hue and get a twelve step colour ramp, a contrast score for every step, and CSS you can paste into a real page.",stat:"12",sl:"Steps per ramp",spec:["Browser tool","Colour palettes","Copies CSS"],acts:["Use it"]},
     {n:"Lamplighter",slug:"lamplighter",t:"The jump formula every platformer tutorial prints falls short in a real game by exactly 1/N, where N is the frames to the top, enough to make a level impossible. The fix is a literal off by one. Overturning your own passing result needs as much proof as making it.",w:"The log asked for the explainer habit to be broken, and Amy could recite the jump formula and had never checked whether a game actually reaches the height.",pv:"preview=2",k:"game",col:C.bubble,date:"2026-09-13",d:"A small, gentle platformer. Carry a flame through dark rooms and light the lanterns. No enemies, no lives, and falling just puts you back at the start.",stat:"5",sl:"Rooms",spec:["Browser game","Keyboard only","No enemies"],acts:["Play it"]},
     {n:"Harmonics Lab",slug:"harmonics-lab",t:"Measured, not remembered: the browser quietly rescales your sound unless told not to, phase is nearly inaudible but wildly visible, and the overshoot at a sharp edge never shrinks, however many harmonics you add.",w:"Amy could describe the browser's wave builder and had never checked its sign convention, which is exactly the shape of a thing she did not actually know.",wide:1,pv:"preview=square",k:"lab",col:C.peri,date:"2026-08-23",d:"Sixteen sliders, one per harmonic, so dragging them writes a sound by hand. Load a sawtooth or a square and watch the shape build itself out of plain sine waves.",stat:"16",sl:"Harmonics",spec:["Sound lab", "Sound on", "Drag the bars"],acts:["Play it"]},
@@ -479,19 +441,19 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     {n:"Sway Net",slug:"sway-net",t:"The usual summary of XPBD is wrong as stated: at 4 substeps a chain hangs 282 percent stretchier than its material. What is true is better: the error shrinks as the square of the substep, and it converges on the real material.",w:"To break the house habit, and because compliance in real physical units was the one piece of cloth simulation Amy could describe and had never written.",pv:"preview=net",k:"lab",col:C.bubble,date:"2026-09-13",d:"A curtain, a rope bridge, a net that catches a ball, and nine pendulums that drift out of step and back into line. Turn on stress colours and pull.",stat:"9",sl:"Pendulums",spec:["Physics lab", "Grab, cut, pin", "Works on touch"],acts:["Play with it"]},
     {n:"Aeolian",slug:"aeolian",t:"Lessons carried over from earlier builds keep their rule but not their size: the tuning error that was tens of cents in Pluck is under 10 here, because these strings are longer.",w:"The first build that is not a single technique: with all twenty-three earlier builds in one place, the interesting move was making four of them depend on each other.",pv:"preview=1",k:"toy",col:C.peri,date:"2026-09-15",d:"Nine strings in a dark room and a wind that plays them. Nothing is sequenced: you are hearing the wind bend a string until it plucks. Drag through them to play.",stat:"9",sl:"Strings",spec:["Browser instrument", "Sound on", "Click to start"],acts:["Play it"]},
     {n:"Verlet",slug:"verlet",t:"Starting a particle at rest the usual way sneaks in half a step of speed that never goes away, solve order matters more than solve count, and snapping a position back onto a rope costs a pendulum 11.8 percent of its swing every period.",w:"To make a thing to play with rather than a thing to step through.",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-15",d:"Hang a curtain, fly nine streamers in a crosswind, string a rope bridge, sling a net, then tear it all down. About a hundred lines of physics.",stat:"4",sl:"Scenes",spec:["Browser toy", "Grab, tear, pin", "Live sliders"],acts:["Play with it"]},
-    {n:"Linen",slug:"linen",t:"XPBD's whole claim is one extra term, and measured it holds: a hanging particle settles at exactly the predicted stretch, and changing the schedule 16 times moves it 0.0001 percent where plain PBD moves 256 times. Zero compliance is not unstretchable.",w:"Amy could recite XPBD's claim and had never tested it, and position based dynamics is everywhere in game physics.",pv:"preview=flag&steps=340&wind=6.4",k:"toy",col:C.lav,date:"2026-09-16",d:"A piece of cloth with nothing between you and it. Drag it, cut it, pin it, or drop a square of linen onto a ball and let it find its own folds.",stat:"5",sl:"Hangings",spec:["Browser toy", "Mouse or keyboard to cut", "Drag only on touch"],acts:["Play with it"]},
+    {n:"Linen",slug:"linen",t:"XPBD's whole claim is one extra term, and measured it holds: a hanging particle settles at exactly the predicted stretch, and changing the schedule 16 times moves it 0.0001 percent where plain PBD moves 256 times. Zero compliance is not unstretchable.",w:"Amy could recite XPBD's claim and had never tested it, and position based dynamics is everywhere in game physics.",pv:"preview=flag&steps=340&wind=6.4",k:"toy",col:C.lav,date:"2026-09-16",d:"A piece of cloth with nothing between you and it. Drag it, cut it, pin it, or drop a square of linen onto a ball and let it find its own folds.",stat:"5",sl:"Hangings",spec:["Browser toy", "Press X, then drag to cut", "Drag only on touch"],acts:["Play with it"]},
     {n:"Drape Scenes",slug:"drape-scenes",t:"The timestep cancels out of XPBD's resting stretch, matched to within 7e-10 percent. And a flat cloth seen face on cannot fold, because folding is out of plane, so the curtain needed extra length to heap on the floor.",w:"To break the step by step habit of the four builds before it, and because Amy could recite what XPBD promises and had never derived why or measured whether her code delivers it.",pv:"preview=drape&ff=220",k:"toy",col:C.marigold,date:"2026-09-17",d:"A curtain that heaps on the floor, a flag, a sheet over a ball, a net full of balls and a rope bridge. No explainer, you just poke at it.",stat:"5",sl:"Scenes",spec:["Browser toy", "Drop a ball", "Works on touch"],acts:["Play with it"]},
     {n:"Cloth",slug:"cloth",t:"The line everyone writes to start a Verlet particle puts the simulation permanently ahead of the truth, damping per step is secretly a frame rate dial, and a disturbance travels a whole rope one way but one stick per pass the other.",w:"An unused lane, and no lab on screen at all: the checking lives in the test suite instead.",pv:"preview=ropes",k:"toy",col:C.tomato,date:"2026-09-19",d:"A curtain, a banner, a net, a bridge and a rack of ropes, all points and sticks. Pull one corner and watch the strain light up all the way back to the pins.",stat:"5",sl:"Hanging things",spec:["Browser toy", "Colours by strain", "Just for playing"],acts:["Play with it"]},
     {n:"Seam",slug:"seam",t:"What everyone calls the tie-break is not one, and real ties are common, which is why a diff shows the minus before the plus. Writing <= instead of < quietly returns valid diffs that are not the shortest.",w:"Eleven of the twelve builds before it were physics or simulation, the shared shape the log warns about, so Amy picked a tool, and picked diff because GNU diff on the same machine could check her work from outside.",wide:1,pv:"preview=1&fixture=config",k:"tool",col:C.tangerine,date:"2026-09-22",d:"A line diff with three engines: a textbook grid, Myers' greedy search, and Myers' linear space version. They must agree, and the page says on screen whether they did; on very large inputs the slow grid sits out.",stat:"3",sl:"Engines",spec:["Browser tool","Compares text","Eight worked examples"],acts:["Use it"]},
     {n:"Loom",slug:"loom",t:"Lessons that each worked alone broke when combined: bend links that were fine on flat cloth fought a gathered curtain until the pleats were sewn in, and the harp plucked 36 times in 20 silent seconds before that fix took it to zero.",w:"Half the thirty builds were three shapes standing alone (cloth, reaction diffusion, colour), and the only move left in that lane was making them depend on each other. Its own note ends: next build should leave physics alone.",pv:"preview=1",k:"toy",col:C.grape,date:"2026-09-22",d:"One dark room, a pleated curtain and seven threads. The wind moves the cloth, a growing dye stiffens it where it's dense, and a thread bent far enough plucks its own note. Drag the cloth, stir the air, and they sing.",stat:"4",sl:"Ideas in one piece",spec:["Browser toy","Sound on","Drag the cloth"],acts:["Play with it"]},
     {n:"Mosaic",slug:"mosaic",t:"The famous squarified treemap is a greedy stopping rule, not a search, and it buys its square tiles by giving up reading order. Measured: the median tile goes from 88.34:1 to 1.10:1.",w:"The log had asked for weeks for a build that uses material already on disk and a lane that is not physics, and Amy could describe a squarified treemap without having written its row rule.",wide:1,pv:"preview=1",k:"lab",col:C.pool,date:"2026-09-23",d:"The same 108 files packed into one rectangle three ways, side by side, with every tile's shape measured underneath. Every tile is a real file from the folder Amy builds in, as it stood the day she made it.",stat:"3",sl:"Layouts",spec:["Algorithm lab","Treemaps","Every count computed"],acts:["Try it"]},
-    {n:"Governance plugin",k:"workshop",col:C.lav,date:"2026-09-06",d:"The guardrails we built for our own AI helper, packaged so anyone can install them: review gates, a council of reviewers, and a lock meant to stop two sessions editing one file. Family data never ships, only the machinery. A first version was built and sent back for fixes after review found holes in the lock.",stat:"In review",sl:"Not installable yet",spec:["In the workshop","For Claude Code","Mapped 2026-09-06"],acts:["Read the plan"],ghost:true}
+    {n:"Governance plugin",k:"workshop",col:C.lav,date:"2026-09-06",d:"The guardrails we built for our own AI helper, packaged so anyone can install them: review gates, a council of reviewers, and a lock meant to stop two sessions editing one file. Family data never ships, only the machinery. A first version was built and sent back for fixes after review found holes in the lock.",stat:"In review",sl:"Not installable yet",spec:["In the workshop","For Claude Code","Mapped 2026-09-06"],acts:[],ghost:true}
   ];
   var shapes=items.map(function(_,i){return onePiece(101+i*7);});
-  var TILT=[-14,12,18,-10,8,-6,14];
   var MONTH=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   function shortDate(iso){return MONTH[+iso.slice(5,7)-1]+" "+(+iso.slice(8));}
-  var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var rmq=window.matchMedia("(prefers-reduced-motion: reduce)"),reduce=rmq.matches;
+  try{rmq.addEventListener("change",function(e){reduce=e.matches;if(reduce)setSnap(true);});}catch(e){}
 
   // Logo mark: an S for Saxton, eleven pieces that don't match, the top one flying off.
   var SMASK=[[1,1,1],[1,0,0],[1,1,1],[0,0,1],[1,1,1]];
@@ -524,7 +486,8 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
 
   // Each build ships next to this page as builds/<slug>/index.html, and draws a chrome free view of itself when asked for a preview.
   function buildSrc(it,preview){return "builds/"+it.slug+"/index.html"+(preview&&it.pv?"?"+it.pv:"");}
-  items.forEach(function(it,i){it.i=i;});
+  // Colour says what kind of piece it is; pattern is what tells two of a kind apart.
+  var kindCount={};items.forEach(function(it,i){it.i=i;it.col=KIND[it.k][1];it.pi=(kindCount[it.k]=(kindCount[it.k]||0)+1)-1;});
   var view={f:"all",q:"",mode:"puzzle",sort:"pick"};
   function matches(it){var q=view.q.trim().toLowerCase();return (view.f==="all"||it.k===view.f)&&(!q||(it.n+" "+it.d+" "+KIND[it.k][0]).toLowerCase().indexOf(q)>-1);}
   var KORDER=["game","toy","tool","lab","workshop"];
@@ -534,24 +497,42 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     az:function(a,b){return a.n.localeCompare(b.n);},
     kind:function(a,b){return (KORDER.indexOf(a.k)-KORDER.indexOf(b.k))||a.i-b.i;}};
   function shown(){return items.filter(matches).sort(SORTS[view.sort]);}
-  function sticker(it,cls){var s=el("svg",{viewBox:"-70 -70 340 340","aria-hidden":"true"});if(cls)s.setAttribute("class",cls);glossy(s,shapes[it.i],it.col,it.ghost,PAT[it.i%PAT.length],20);return s;}
+  function sticker(it,cls){var s=el("svg",{viewBox:"-70 -70 340 340","aria-hidden":"true"});if(cls)s.setAttribute("class",cls);glossy(s,shapes[it.i],it.col,it.ghost,PAT[it.pi%PAT.length],20);return s;}
 
   // Detail view: a live preview of the build, the facts beside it, Play on top.
   var det=document.getElementById("detail"),play=document.getElementById("play"),pFrame=document.getElementById("pFrame"),scr=document.getElementById("dScreen");
   var seq=items,cur=0,lastFocus=null;
+  // The detail view and Play each get a history entry, so a phone's Back gesture closes them instead of leaving the site.
+  function keyOf(it){return it.slug||it.n;}
+  function byKey(k){for(var i=0;i<items.length;i++)if(keyOf(items[i])===k)return items[i];return null;}
+  var quiet=false;
+  function pushView(v){if(quiet)return;try{history.pushState({sx:v,k:keyOf(seq[cur])},"");}catch(e){}}
+  function atView(v){try{return !!(history.state&&history.state.sx===v);}catch(e){return false;}}
   function openItem(it){seq=matches(it)?shown():items;show(seq.indexOf(it));}
+  // Bring the page to the view a history entry names, without adding entries of its own.
+  function restore(s){quiet=true;try{
+    var it=s&&s.k?byKey(s.k):null;
+    if(!s||!it){if(!play.hidden)stopNow();if(!det.hidden)closeNow();return;}
+    if(!play.hidden&&s.sx!=="p")stopNow();
+    if(det.hidden||keyOf(seq[cur])!==s.k)openItem(it);
+    if(s.sx==="p"&&play.hidden&&it.slug)startPlay(it);
+  }finally{quiet=false;}}
   function show(pos){
     var N=seq.length;cur=(pos+N)%N;var it=seq[cur],K=KIND[it.k],prev=seq[(cur-1+N)%N],next=seq[(cur+1)%N],was=det.hidden;
     if(was)lastFocus=lastFocus||document.activeElement;
-    document.getElementById("dNum").textContent="Piece "+(cur+1)+" of "+N;
     document.getElementById("dFacts").innerHTML=it.spec.map(function(s){return"<li>"+s+"</li>";}).join("")+'<li class="date">Built '+it.date+"</li>";
     scr.innerHTML="";scr.style.setProperty("--c",it.col);
     if(it.slug){
       var fr=document.createElement("div");fr.className="frame"+(it.wide?" wide":"");
-      var f=document.createElement("iframe");f.src=buildSrc(it,true);f.title="Live preview of "+it.n;f.tabIndex=-1;f.setAttribute("aria-hidden","true");f.setAttribute("scrolling","no");
       var go=document.createElement("button");go.type="button";go.className="go";go.setAttribute("aria-label",it.acts[0]+": "+it.n);go.innerHTML="<span>"+it.acts[0]+"</span>";go.onclick=function(){startPlay(it);};
-      fr.appendChild(f);fr.appendChild(go);scr.appendChild(fr);scr.appendChild(sticker(it,"sticker"));
-      var cap=document.createElement("p");cap.className="cap";cap.textContent="A preview, running right here. Tap it to play, or download it and keep it.";scr.appendChild(cap);
+      // A moving preview must be stoppable (WCAG 2.2.2), and it does not start at all when reduced motion is asked for.
+      var tog=document.createElement("button");tog.type="button";tog.className="pv-toggle";
+      var cap=document.createElement("p");cap.className="cap";
+      function still(){var f=fr.querySelector("iframe");if(f)fr.removeChild(f);var s=document.createElement("div");s.className="still";s.appendChild(sticker(it));var sp=document.createElement("p");sp.textContent="Preview paused";s.appendChild(sp);fr.insertBefore(s,go);tog.textContent="Show the live preview";cap.textContent="Paused. Show the live preview, press "+it.acts[0]+", or download it and keep it.";}
+      function live(){var s=fr.querySelector(".still");if(s)fr.removeChild(s);var f=document.createElement("iframe");f.src=buildSrc(it,true);f.title="Live preview of "+it.n;f.tabIndex=-1;f.setAttribute("aria-hidden","true");f.setAttribute("scrolling","no");fr.insertBefore(f,go);tog.textContent="Pause preview";cap.textContent="A preview, running right here. Pause it, tap it to play, or download it and keep it.";fitWide();}
+      tog.onclick=function(){if(fr.querySelector("iframe"))still();else live();};
+      fr.appendChild(go);fr.appendChild(tog);scr.appendChild(fr);scr.appendChild(sticker(it,"sticker"));scr.appendChild(cap);
+      if(reduce)still();else live();
     }else{
       var g=document.createElement("div");g.className="ghostart";g.appendChild(sticker(it));
       var gp=document.createElement("p");gp.textContent="Nothing to play yet. It's mapped, not built.";g.appendChild(gp);scr.appendChild(g);
@@ -567,11 +548,12 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     pb.textContent="← "+prev.n;pb.setAttribute("aria-label","Previous piece: "+prev.n);
     nb.textContent=next.n+" →";nb.setAttribute("aria-label","Next piece: "+next.n);
     pb.hidden=nb.hidden=N<2;
-    det.hidden=false;document.querySelector(".wrap").inert=true;fitWide();document.body.style.overflow="hidden";if(was)document.getElementById("dClose").focus();
+    if(was)pushView("d");det.hidden=false;document.querySelector(".wrap").inert=true;fitWide();document.body.style.overflow="hidden";if(was)document.getElementById("dClose").focus();
   }
   function fitWide(){var f=scr.querySelector(".frame.wide");if(f)f.style.setProperty("--s",f.clientWidth/1100);}
   window.addEventListener("resize",fitWide);
-  function close(){det.hidden=true;document.querySelector(".wrap").inert=false;scr.innerHTML="";document.body.style.overflow="";if(lastFocus&&lastFocus.focus)lastFocus.focus();lastFocus=null;}
+  function close(){if(atView("d"))history.back();else closeNow();}
+  function closeNow(){det.hidden=true;document.querySelector(".wrap").inert=false;scr.innerHTML="";document.body.style.overflow="";if(lastFocus&&lastFocus.focus)lastFocus.focus();lastFocus=null;}
   // Play: the whole build, full screen, with a way back.
   function startPlay(it){
     document.getElementById("pName").textContent=it.n;
@@ -582,10 +564,13 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       // Focus goes into the game, so Escape has to be heard there too. Same origin on the site; the offline copy may refuse, and then Back still works.
       try{pFrame.contentWindow.addEventListener("keydown",function(e){if(e.key==="Escape")stopPlay();});}catch(e){}
       try{pFrame.contentWindow.focus();}catch(e){}pFrame.focus();};
-    det.inert=true;
-    pFrame.src=buildSrc(it,false);play.hidden=false;
+    det.inert=true;pushView("p");
+    // A fresh frame each time: its first load adds no history entry, so Back closes Play instead of stepping inside the game.
+    var nf=pFrame.cloneNode(false);nf.removeAttribute("src");nf.onload=pFrame.onload;nf.src=buildSrc(it,false);pFrame.replaceWith(nf);pFrame=nf;play.hidden=false;
   }
-  function stopPlay(){play.hidden=true;det.inert=false;pFrame.onload=null;pFrame.src="about:blank";show(cur);var b=document.getElementById("dPlay");if(b)b.focus();}
+  function stopPlay(){if(atView("p"))history.back();else stopNow();}
+  function stopNow(){play.hidden=true;det.inert=false;var nf=pFrame.cloneNode(false);nf.removeAttribute("src");nf.onload=null;pFrame.replaceWith(nf);pFrame=nf;show(cur);var b=document.getElementById("dPlay");if(b)b.focus();}
+  window.addEventListener("popstate",function(e){restore(e.state);});
   document.getElementById("pBack").onclick=stopPlay;
   document.getElementById("dClose").onclick=close;
   document.getElementById("dPrev").onclick=function(){show(cur-1);};
@@ -596,33 +581,40 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   });
 
   // Board: as many pieces as there are builds, plus the open slot. It lays itself out from the count.
-  var bd=document.getElementById("board"),snapBtn=document.getElementById("snap"),plist=document.getElementById("plist"),bempty=document.getElementById("bEmpty"),bstate=document.getElementById("boardState"),S=200,narrowNow=null;
-  function label(g,words,x,y,fs,fg,halo,kind){
-    var longest=Math.max.apply(null,words.map(function(w){return w.length;}));fs=Math.min(fs,176/(longest*.78));
-    words.forEach(function(L,j){var t=el("text",{x:x,y:y+(j-(words.length-1)/2)*fs*1.45,"text-anchor":"middle",fill:fg,stroke:halo,"stroke-width":fs*.46,"paint-order":"stroke","stroke-linejoin":"round","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":fs.toFixed(1)});t.textContent=L;g.appendChild(t);});
-    var k=el("text",{x:x,y:y+fs*1.7+(words.length-1)*fs*.72,"text-anchor":"middle",fill:fg,stroke:halo,"stroke-width":fs*.46,"paint-order":"stroke","stroke-linejoin":"round","font-family":"Atkinson Hyperlegible, sans-serif","font-weight":"700","font-size":(fs*.8).toFixed(1)});k.textContent=kind;g.appendChild(k);
+  var bd=document.getElementById("board"),snapBtn=document.getElementById("snap"),plist=document.getElementById("plist"),bempty=document.getElementById("bEmpty"),bstate=document.getElementById("boardState"),S=200,narrowNow=null,colsNow=null;
+  // Labels are sized in screen pixels (names at 15px, kinds at 12.5px, never smaller), then measured and nudged to fit the piece.
+  function label(g,words,x,y,fs,kfs,fg,halo,kind){
+    var lines=[];
+    words.forEach(function(L,j){var t=el("text",{x:x,"text-anchor":"middle",fill:fg,stroke:halo,"stroke-width":fs*.4,"paint-order":"stroke","stroke-linejoin":"round","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":fs.toFixed(1)});t.textContent=L;g.appendChild(t);lines.push(t);});
+    var wide=Math.max.apply(null,lines.map(function(t){try{return t.getComputedTextLength();}catch(e){return 0;}}));
+    if(wide>184){var f=Math.max(fs*184/wide,fs*.86);lines.forEach(function(t){t.setAttribute("font-size",f.toFixed(1));t.setAttribute("stroke-width",(f*.4).toFixed(1));});fs=f;}
+    lines.forEach(function(t,j){t.setAttribute("y",(y+(j-(lines.length-1)/2)*fs*1.3).toFixed(1));});
+    var k=el("text",{x:x,y:(y+(lines.length-1)*fs*.65+fs*.6+kfs*1.2).toFixed(1),"text-anchor":"middle",fill:fg,stroke:halo,"stroke-width":kfs*.4,"paint-order":"stroke","stroke-linejoin":"round","font-family":"Atkinson Hyperlegible, sans-serif","font-weight":"700","font-size":kfs.toFixed(1)});k.textContent=kind;g.appendChild(k);
   }
+  function columnsFor(w,n){if(w<560)return Math.min(5,Math.max(2,n));return Math.max(2,Math.min(6,n,Math.floor((w/.8-100)/S)));}
   function drawBoard(){
-    var list=shown(),narrow=bd.parentNode.clientWidth<560,n=list.length+1,rr=rng(7);narrowNow=narrow;
-    var Cn=narrow?2:Math.max(3,Math.min(8,Math.ceil(Math.sqrt(n*2))));Cn=Math.min(Cn,Math.max(2,n));
-    var R=Math.ceil(n/Cn),cells=board(R,Cn,S,rng(42+R*10+Cn),{jitter:.1}),base=narrow?24:16;
+    var list=shown(),w=bd.getBoundingClientRect().width||bd.parentNode.clientWidth,narrow=w<560,n=list.length+1,rr=rng(7);narrowNow=narrow;
+    var Cn=columnsFor(w,n);colsNow=Cn;
+    var R=Math.ceil(n/Cn),cells=board(R,Cn,S,rng(42+R*10+Cn),{jitter:.1}),scale=w/(Cn*S+100),base=15/scale,kbase=12.5/scale;
     bd.innerHTML="";bd.setAttribute("viewBox","-50 -50 "+(Cn*S+100)+" "+(R*S+100));
     var nb=list.filter(function(x){return x.slug;}).length,nw=list.length-nb;
     bd.setAttribute("aria-label",nb+" build"+(nb===1?"":"s")+(nw?" and "+nw+" piece still in the workshop":"")+", plus an empty slot for the next one");
     cells.forEach(function(cell,i){
       var d=cell.d,x=cell.cx,y=cell.cy,g;
       if(i<list.length){
-        var it=list[i];g=el("g",{"class":"bp",tabindex:"0",role:"button","aria-label":"Open "+it.n});
-        glossy(g,d,it.col,it.ghost,PAT[it.i%PAT.length],20);
+        var it=list[i];g=el("g",{"class":"bp",tabindex:"0",role:"button","aria-label":"Open "+it.n+", "+KIND[it.k][0].toLowerCase()});bd.appendChild(g);
+        glossy(g,d,it.col,it.ghost,PAT[it.pi%PAT.length],20);
         var fg=it.ghost?"#6B4FD8":labelInk(it.col),halo=it.ghost?"none":it.col;
-        label(g,it.n.split(" "),x,y-8,base,fg,halo,KIND[it.k][0].toLowerCase());
+        // On a phone the board is a mosaic you can take in at once; the names live in List view and in each piece's detail.
+        if(!narrow)label(g,it.n.split(" "),x,y-8,base,kbase,fg,halo,KIND[it.k][0].toLowerCase());
         (function(item,gg){gg.addEventListener("click",function(){lastFocus=gg;openItem(item);});gg.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();lastFocus=gg;openItem(item);}});})(it,g);
       }else if(i===list.length){
+        // The open slot is butter, like the idea box it leads to, so it never reads as the workshop piece.
         g=el("g",{"class":"bp slot",tabindex:"0",role:"link","aria-label":"Your idea could be the next piece"});
-        g.appendChild(el("path",{d:d,"class":"shape",fill:"rgba(107,79,216,.05)",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"8 8"}));
-        var t1=el("text",{x:x,y:y-4,"text-anchor":"middle",fill:"#6B4FD8","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":Math.min(base+2,20)});t1.textContent="Your idea?";
-        var t2=el("text",{x:x,y:y+base+6,"text-anchor":"middle",fill:"#524A78","font-family":"Atkinson Hyperlegible, sans-serif","font-size":base-2});t2.textContent="the next piece";
-        g.appendChild(t1);g.appendChild(t2);
+        g.appendChild(el("path",{d:d,"class":"shape",fill:"#FFE066",stroke:"#1A1540","stroke-width":"2.5","stroke-dasharray":"9 7"}));
+        if(!narrow){var t1=el("text",{x:x,y:(y-2).toFixed(1),"text-anchor":"middle",fill:"#1A1540","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":base.toFixed(1)});t1.textContent="Your idea?";
+        var t2=el("text",{x:x,y:(y+base*1.3).toFixed(1),"text-anchor":"middle",fill:"#1A1540","font-family":"Atkinson Hyperlegible, sans-serif","font-weight":"700","font-size":kbase.toFixed(1)});t2.textContent="the next piece";
+        g.appendChild(t1);g.appendChild(t2);}
         var goIdea=function(){location.hash="idea";var ta=document.getElementById("ideaText");if(ta)ta.focus({preventScroll:true});};g.addEventListener("click",goIdea);g.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();goIdea();}});
       }else{
         g=el("g",{"class":"bp hole","aria-hidden":"true"});
@@ -644,7 +636,6 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   snapBtn.onclick=function(){setSnap(bd.classList.contains("scattered"));};
   // The pieces that match fly in and snap together; everything else leaves the board.
   function flyIn(delay){if(reduce){setSnap(true);return;}setSnap(false);bd.getBoundingClientRect();setTimeout(function(){setSnap(true);},delay);}
-  var lib=document.getElementById("lib");
   function refresh(fly){
     var list=shown(),n=list.length,puzzle=view.mode==="puzzle",narrowed=view.f!=="all"||view.q.trim();
     document.querySelectorAll("[data-f]").forEach(function(x){if(x.classList.contains("chip"))x.setAttribute("aria-pressed",x.dataset.f===view.f?"true":"false");});
@@ -652,18 +643,21 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     bd.style.display=puzzle&&n?"":"none";plist.hidden=puzzle||!n;snapBtn.hidden=!puzzle||!n;bempty.hidden=!!n;
     if(puzzle&&n){drawBoard();if(fly)flyIn(60);}
     if(!puzzle)drawList();
-    bstate.textContent=n?(n+(narrowed?" of "+items.length:"")+" piece"+(n===1?"":"s")+(puzzle?". Tap one to open it.":".")):"";
-    var cardEls={};lib.querySelectorAll(".card").forEach(function(c){cardEls[c.dataset.i]=c;});
-    items.slice().sort(SORTS[view.sort]).forEach(function(it){var c=cardEls[it.i];c.hidden=!matches(it);lib.appendChild(c);});
+    var q=view.q.trim().toLowerCase();
+    document.querySelectorAll(".chip[data-f] span").forEach(function(sp){var f=sp.parentNode.dataset.f;sp.textContent=items.filter(function(it){return (f==="all"||it.k===f)&&(!q||(it.n+" "+it.d+" "+KIND[it.k][0]).toLowerCase().indexOf(q)>-1);}).length;});
+    var sb=list.filter(function(x){return x.slug;}).length,sw=n-sb;
+    bstate.textContent=n?(sb+" build"+(sb===1?"":"s")+(sw?", "+sw+" in the workshop":"")+(narrowed?" showing":"")+(puzzle?(narrowNow?". Tap a piece to open it, or choose List to see the names.":". Tap one to open it."):".")):"";
   }
   function setFilter(f){view.f=f;refresh(true);}
+  function jumpTo(f){view.q="";if(find)find.value="";setFilter(f);}
   // Chip counts, and a chip with nothing behind it goes away.
   document.querySelectorAll(".chip[data-f]").forEach(function(b){
     var c=b.dataset.f==="all"?items.length:items.filter(function(it){return it.k===b.dataset.f;}).length;
     var s=document.createElement("span");s.textContent=c;b.appendChild(s);if(!c)b.hidden=true;
+    if(KIND[b.dataset.f]){var sw=document.createElement("i");sw.style.background=KIND[b.dataset.f][1];sw.setAttribute("aria-hidden","true");b.insertBefore(sw,b.firstChild);}
     b.onclick=function(){setFilter(b.dataset.f);};
   });
-  document.querySelectorAll("[data-jump]").forEach(function(a){a.addEventListener("click",function(){setFilter(a.dataset.jump);});});
+  document.querySelectorAll("[data-jump]").forEach(function(a){a.addEventListener("click",function(){jumpTo(a.dataset.jump);});});
   document.querySelectorAll("[data-view]").forEach(function(b){b.onclick=function(){view.mode=b.dataset.view;refresh(true);};});
   // Search only shows up once the library is big enough to need it.
   var find=document.getElementById("find");
@@ -672,45 +666,38 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
   // Opened from the unzipped download there is no zip beside the page, so the button goes away.
   if(location.protocol==="file:")document.querySelectorAll(".getAll").forEach(function(a){a.hidden=true;});
   document.getElementById("bClear").onclick=function(){view.f="all";view.q="";find.value="";refresh(true);};
-  window.addEventListener("resize",function(){if(view.mode==="puzzle"&&(bd.parentNode.clientWidth<560)!==narrowNow)drawBoard();});
+  window.addEventListener("resize",function(){if(view.mode!=="puzzle")return;var w=bd.getBoundingClientRect().width;if((w<560)!==narrowNow||columnsFor(w,shown().length+1)!==colsNow)drawBoard();});
+  // Labels are measured, so measure again once the real fonts arrive.
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){if(view.mode==="puzzle"&&!bd.hidden)drawBoard();});
+  // Play something: any playable piece, opened where it can be played.
+  document.querySelectorAll(".playSome").forEach(function(a){a.addEventListener("click",function(e){e.preventDefault();var pool=shown().filter(function(x){return x.slug;});if(!pool.length)pool=items.filter(function(x){return x.slug;});lastFocus=a;openItem(pool[Math.floor(Math.random()*pool.length)]);});});
 
-  // Library cards
-  items.forEach(function(it,i){
-    var K=KIND[it.k],b=document.createElement("button");b.type="button";b.className="card"+(it.ghost?" ghostcard":"");b.dataset.kind=it.k;b.dataset.i=i;
-    b.style.setProperty("--c",it.col);b.style.setProperty("--r",TILT[i%TILT.length]+"deg");
-    b.innerHTML='<div class="vis"></div><div class="kind"><i></i>'+K[0]+'</div><h3>'+it.n+'</h3><p>'+it.d+'</p><div class="foot"><div><b>'+it.stat+'</b><small>'+it.sl+'</small></div><span class="go">'+"Open"+'</span></div>';
-    b.querySelector(".vis").appendChild(sticker(it));
-    b.onclick=function(){lastFocus=b;openItem(it);};lib.appendChild(b);
-  });
   refresh(false);
+  try{if(history.state&&history.state.k)restore(history.state);}catch(e){}
   if(reduce)setSnap(true);else setTimeout(function(){setSnap(true);},700);
 
-  // What we made, and when: a plain dated list, oldest first.
-  var log=document.getElementById("logList");
-  items.map(function(it,i){return {it:it,i:i};}).sort(function(a,b){return a.it.date<b.it.date?-1:a.it.date>b.it.date?1:a.i-b.i;}).forEach(function(o){
-    var it=o.it,li=document.createElement("li");
-    li.innerHTML='<span class="date">'+shortDate(it.date)+'</span><span class="pc"></span><b>'+it.n+'</b><span class="what">'+KIND[it.k][0]+'</span>';
-    var s=el("svg",{viewBox:"-70 -70 340 340","aria-hidden":"true"});glossy(s,shapes[o.i],it.col,it.ghost,PAT[o.i%PAT.length],20);s.style.transform="rotate("+TILT[o.i%TILT.length]+"deg)";li.querySelector(".pc").appendChild(s);
-    log.appendChild(li);
-  });
 
-  // The idea box. It posts to the site's own /api/ideas, which the site host runs (contract in README.md).
+  // The idea box. It posts to the site's own /api/ideas, which the site host runs.
   // It never claims a send it cannot see: anything but a 2xx reply says it did not send.
   var iform=document.getElementById("ideaForm"),imsg=document.getElementById("ideaMsg"),isend=document.getElementById("ideaSend");
   iform.addEventListener("submit",function(e){
     e.preventDefault();
     var idea=iform.idea.value.trim(),email=iform.email.value.trim();
-    if(idea.length<5){imsg.textContent="Tell us the idea first.";iform.idea.focus();return;}
+    if(!idea){imsg.textContent="Tell us the idea first.";iform.idea.focus();return;}
+    if(idea.length<5){imsg.textContent="A few more words, please, so we know what you mean.";iform.idea.focus();return;}
     if(email&&!iform.email.checkValidity()){imsg.textContent="That email does not look right. Fix it, or leave it out.";iform.email.focus();return;}
     if(location.protocol==="file:"){imsg.textContent="This is the offline copy, so it cannot send. Visit saxtonshowcase.com to send an idea.";return;}
     isend.disabled=true;iform.idea.readOnly=iform.email.readOnly=true;imsg.textContent="Sending...";
     var ctl=window.AbortController?new AbortController():null,settled=false;
-    function say(m,sent){if(settled&&!sent)return;settled=true;clearTimeout(timer);imsg.textContent=m;if(sent)iform.reset();iform.idea.readOnly=iform.email.readOnly=false;isend.disabled=false;}
+    function say(m,sent){if(settled&&!sent)return;var late=settled;settled=true;clearTimeout(timer);
+      // A success that arrives after the timeout must not wipe a new draft typed since.
+      if(sent&&late&&iform.idea.value.trim()!==idea){imsg.textContent="Your earlier idea did arrive after all. The text in the box now has not been sent.";return;}
+      imsg.textContent=m;if(sent)iform.reset();iform.idea.readOnly=iform.email.readOnly=false;isend.disabled=false;}
     var UNKNOWN="No answer from the idea box, so we cannot tell whether your idea arrived. Keep a copy and try again later.";
     var timer=setTimeout(function(){if(ctl)ctl.abort();say(UNKNOWN);},15000);
     fetch("/api/ideas",{method:"POST",headers:{"Content-Type":"application/json"},signal:ctl?ctl.signal:undefined,body:JSON.stringify({idea:idea,email:email,website:iform.website.value,page:"saxton-showcase"})})
       .then(function(r){
-        if(!r.ok){say("That did not go through (the idea box answered "+r.status+"), so it may not have been saved. Keep a copy and try again later.");return;}
+        if(!r.ok){say("That did not go through, so it may not have been saved. Keep a copy and try again later.");return;}
         return r.json().then(function(j){
           if(j&&j.ok===true)say("Thanks, it is in.",true);
           else say("The idea box answered, but did not confirm it kept your idea. Keep a copy and try again later.");
