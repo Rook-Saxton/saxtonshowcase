@@ -106,6 +106,15 @@ section{padding-block:64px}
 .cta .btn{background:var(--ink);color:var(--marigold);border-color:var(--ink)}
 .cta .btn.ghost{background:transparent;color:var(--ink);border-color:var(--ink);margin-left:8px}
 .cta :focus-visible{outline-color:var(--ink)}
+.cta form{display:grid;gap:14px;margin-top:20px;max-width:520px}
+.cta form label{display:grid;gap:6px;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink)}
+.cta form input,.cta form textarea{font-family:var(--body);font-size:16px;padding:10px 12px;border:2px solid var(--ink);border-radius:10px;background:#FFFDF4;color:var(--ink)}
+.cta form textarea{min-height:110px;resize:vertical}
+.cta form input:focus-visible,.cta form textarea:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.cta .hp{position:absolute;left:-100vw;top:auto;width:1px;height:1px;overflow:hidden}
+.cta form .btn{justify-self:start;cursor:pointer;font:inherit}
+#ideaMsg{margin:2px 0 0;font-weight:700;min-height:1.4em}
+#ideaMsg.ok{color:#1E6B3A}#ideaMsg.err{color:#A31E3A}
 
 footer{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:24px;padding-block:48px 64px;border-top:1px solid var(--edge);margin-top:40px}
 footer h4{font-family:var(--display);font-weight:700;font-size:13px;margin:0 0 10px}
@@ -292,18 +301,26 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
       <div>
         <h2>Got an idea for the next piece?</h2>
         <p>Tell us what your family keeps doing by hand. We build what we'd use ourselves, then hand it over.</p>
-        <a class="btn" href="#idea">Tell us about it</a><a class="btn ghost" href="#library">Browse the library</a>
+        <form id="ideaForm" action="/api/idea" method="post">
+          <label>Your name<input type="text" name="name" required maxlength="100" autocomplete="name"></label>
+          <label>How do we reach you?<input type="text" name="contact" required maxlength="200" autocomplete="email" placeholder="Email or phone, either works"></label>
+          <label>The idea<textarea name="idea" required minlength="10" maxlength="4000" placeholder="Tell us what your family keeps doing by hand."></textarea></label>
+          <label class="hp" aria-hidden="true">Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+          <button class="btn" type="submit">Send it our way</button>
+          <p id="ideaMsg" role="status" aria-live="polite"></p>
+        </form>
+        <a class="btn ghost" href="#library">Browse the library</a>
       </div>
     </div>
   </section>
 
   <footer>
     <div><div class="word" style="font-size:17px"><svg viewBox="-14 -26 112 172" aria-hidden="true" class="mark2"></svg><span class="crooked">SAXTON SHOWCASE</span></div>
-      <p class="note">Made at home by Justin and Amelia.<br>Want to learn how? That's <a href="#top" style="color:var(--text);font-weight:700">AI But Make It Real</a>.</p>
-      <p class="draft">Draft 6, daylight. Words come from each build's own notes. The builds run for real; the footer links don't go anywhere yet.</p></div>
+      <p class="note">Made at home by Justin and Amelia.<br>Want to learn how? That's <a href="https://www.linkedin.com/company/143925934" target="_blank" rel="noopener" style="color:var(--text);font-weight:700">AI But Make It Real</a>.</p>
+      <p class="draft">Draft 6, daylight. Words come from each build's own notes. The builds run for real, and the idea box lands in our inbox.</p></div>
     <div><h4>Library</h4><ul><li><a href="#library" data-jump="game">Games</a></li><li><a href="#library" data-jump="toy">Toys</a></li><li><a href="#library" data-jump="tool">Tools</a></li><li><a href="#library" data-jump="lab">Labs</a></li></ul></div>
     <div><h4>Us</h4><ul><li><a href="#log">What we've made</a></li><li><a href="#idea">Suggest a piece</a></li></ul></div>
-    <div><h4>Elsewhere</h4><ul><li><a href="#top">GitHub</a></li><li><a href="#top">AI But Make It Real</a></li></ul></div>
+    <div><h4>Elsewhere</h4><ul><li><a href="https://github.com/Rook-Saxton/saxtonshowcase" target="_blank" rel="noopener">GitHub</a></li><li><a href="https://www.linkedin.com/company/143925934" target="_blank" rel="noopener">AI But Make It Real</a></li></ul></div>
   </footer>
 </div>
 
@@ -546,7 +563,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     var list=shown(),narrow=bd.parentNode.clientWidth<560,n=list.length+1,rr=rng(7);narrowNow=narrow;
     var Cn=narrow?2:Math.max(3,Math.min(8,Math.ceil(Math.sqrt(n*2))));Cn=Math.min(Cn,Math.max(2,n));
     var R=Math.ceil(n/Cn),cells=board(R,Cn,S,rng(42+R*10+Cn),{jitter:.1}),base=narrow?24:16;
-    bd.innerHTML="";bd.setAttribute("viewBox","-50 -50 "+(Cn*S+100)+" "+(R*S+100));
+    bd.innerHTML="";bd.setAttribute("viewBox","-90 -90 "+(Cn*S+180)+" "+(R*S+180));
     bd.setAttribute("aria-label",list.length+" puzzle piece"+(list.length===1?"":"s")+", one per build, plus an empty slot for the next one");
     cells.forEach(function(cell,i){
       var d=cell.d,x=cell.cx,y=cell.cy,g;
@@ -558,7 +575,7 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
         (function(item,gg){gg.addEventListener("click",function(){lastFocus=gg;openItem(item);});gg.addEventListener("keydown",function(ev){if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();lastFocus=gg;openItem(item);}});})(it,g);
       }else if(i===list.length){
         g=el("g",{"class":"bp slot",tabindex:"0",role:"link","aria-label":"Your idea could be the next piece"});
-        g.appendChild(el("path",{d:d,"class":"shape",fill:"rgba(107,79,216,.05)",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"8 8"}));
+        g.appendChild(el("path",{d:d,"class":"shape",fill:"#ECE5FF",stroke:"#6B4FD8","stroke-width":"2.5","stroke-dasharray":"8 8"}));
         var t1=el("text",{x:x,y:y-4,"text-anchor":"middle",fill:"#6B4FD8","font-family":"Unbounded, Arial Black, sans-serif","font-weight":"700","font-size":Math.min(base+2,20)});t1.textContent="Your idea?";
         var t2=el("text",{x:x,y:y+base+6,"text-anchor":"middle",fill:"#524A78","font-family":"Atkinson Hyperlegible, sans-serif","font-size":base-2});t2.textContent="the next piece";
         g.appendChild(t1);g.appendChild(t2);
@@ -627,6 +644,18 @@ footer .draft{color:var(--muted);font-size:13px;margin-top:14px;opacity:.8}
     li.innerHTML='<span class="date">'+shortDate(it.date)+'</span><span class="pc"></span><b>'+it.n+'</b><span class="what">'+KIND[it.k][0]+'</span>';
     var s=el("svg",{viewBox:"-70 -70 340 340","aria-hidden":"true"});glossy(s,shapes[o.i],it.col,it.ghost,PAT[o.i%PAT.length],20);s.style.transform="rotate("+TILT[o.i%TILT.length]+"deg)";li.querySelector(".pc").appendChild(s);
     log.appendChild(li);
+  });
+
+  // The idea form: posts to the Pages Function, which mails it to us.
+  var ideaForm=document.getElementById("ideaForm"),ideaMsg=document.getElementById("ideaMsg");
+  ideaForm.addEventListener("submit",function(ev){
+    ev.preventDefault();
+    if(!ideaForm.checkValidity()){ideaForm.reportValidity();return;}
+    var btn=ideaForm.querySelector("button[type=submit]");btn.disabled=true;ideaMsg.className="";ideaMsg.textContent="Sending\u2026";
+    fetch("/api/idea",{method:"POST",body:new FormData(ideaForm)}).then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(res){
+      if(res.ok&&res.j.ok){ideaForm.reset();ideaMsg.className="ok";ideaMsg.textContent="Got it. We read every one.";}
+      else{ideaMsg.className="err";ideaMsg.textContent="That didn't send. Try again in a minute?";}
+    }).catch(function(){ideaMsg.className="err";ideaMsg.textContent="That didn't send. Try again in a minute?";}).finally(function(){btn.disabled=false;});
   });
 
   // The empty slot, drawn in ink on butter.
