@@ -68,6 +68,12 @@ legend,.q{font-family:var(--display);font-weight:700;font-size:20px;letter-spaci
 
 #otherWrap{display:none;margin-top:10px}
 #otherWrap.show{display:block}
+.cmdr-only{display:none}
+.cmdr-only.show{display:block}
+#listWrap{display:none;margin-top:12px}
+#listWrap.show{display:block}
+#listWrap .hint{margin:0 0 8px}
+.sub{margin-top:22px}
 input[type=text],textarea{font:inherit;font-size:16px;width:100%;padding:10px 14px;border:2px solid var(--ink);border-radius:12px;background:var(--panel);color:var(--ink)}
 textarea{min-height:130px;resize:vertical}
 input[type=text]:focus-visible,textarea:focus-visible{outline:2px solid var(--lav);outline-offset:2px}
@@ -122,6 +128,12 @@ footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
       <div id="otherWrap"><input type="text" name="format_other" maxlength="100" placeholder="What do you play, then?"></div>
     </fieldset>
 
+    <fieldset class="cmdr-only" id="cmdrWrap">
+      <legend>Got a commander in mind?</legend>
+      <p class="hint">A name, a few you're torn between, or 'surprise me.'</p>
+      <input type="text" name="commander" maxlength="200" disabled>
+    </fieldset>
+
     <fieldset>
       <legend>Your colors</legend>
       <p class="hint">The ones you love, not the ones you tolerate. Pick any, or skip for colorless.</p>
@@ -136,6 +148,19 @@ footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
       <div class="colornames"><span>White</span><span>Blue</span><span>Black</span><span>Red</span><span>Green</span><span>Colorless</span></div>
     </fieldset>
 
+    <fieldset class="cmdr-only" id="bracketWrap">
+      <legend>What bracket does your table play?</legend>
+      <p class="hint">Honest answers only. Nobody's impressed by a 4.</p>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="bracket" value="1 - Exhibition" disabled><span>1 · Exhibition - theme over winning</span></label>
+        <label class="opt"><input type="radio" name="bracket" value="2 - Core" disabled><span>2 · Core - precon-ish, chill</span></label>
+        <label class="opt"><input type="radio" name="bracket" value="3 - Upgraded" disabled><span>3 · Upgraded - a few Game Changers</span></label>
+        <label class="opt"><input type="radio" name="bracket" value="4 - Optimized" disabled><span>4 · Optimized - no brakes</span></label>
+        <label class="opt"><input type="radio" name="bracket" value="5 - cEDH" disabled><span>5 · cEDH - tournament mode</span></label>
+        <label class="opt"><input type="radio" name="bracket" value="No idea" disabled><span>No idea</span></label>
+      </div>
+    </fieldset>
+
     <fieldset>
       <legend>Budget per deck</legend>
       <p class="hint">Total for the 99 (or 60). Lands count.</p>
@@ -148,16 +173,6 @@ footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
       </div>
     </fieldset>
 
-    <fieldset>
-      <legend>Power level</legend>
-      <p class="hint">Honest answers only. Nobody's impressed by a 7.</p>
-      <div class="opts">
-        <label class="opt"><input type="radio" name="power" value="Kitchen table (1-3)"><span>Kitchen table, 1-3</span></label>
-        <label class="opt"><input type="radio" name="power" value="Casual (4-6)"><span>Casual, 4-6</span></label>
-        <label class="opt"><input type="radio" name="power" value="High power (7-8)"><span>High power, 7-8</span></label>
-        <label class="opt"><input type="radio" name="power" value="cEDH (9-10)"><span>cEDH, 9-10</span></label>
-      </div>
-    </fieldset>
 
     <fieldset>
       <legend>How you like to win</legend>
@@ -173,6 +188,50 @@ footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
         <label class="opt"><input type="checkbox" name="win" value="Grind them out"><span>Grind them out</span></label>
         <label class="opt"><input type="checkbox" name="win" value="Weird alt win-cons"><span>Weird alt win-cons</span></label>
         <label class="opt"><input type="checkbox" name="win" value="Chaos"><span>Chaos</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Keep these out of my deck</legend>
+      <p class="hint">Pick anything that makes you groan across the table.</p>
+      <div class="opts" id="avoidOpts">
+        <label class="opt"><input type="checkbox" name="avoid" value="Infinite combos"><span>Infinite combos</span></label>
+        <label class="opt"><input type="checkbox" name="avoid" value="Stax & lockdown"><span>Stax &amp; lockdown</span></label>
+        <label class="opt"><input type="checkbox" name="avoid" value="Land destruction"><span>Land destruction</span></label>
+        <label class="opt"><input type="checkbox" name="avoid" value="Extra turns"><span>Extra turns</span></label>
+        <label class="opt"><input type="checkbox" name="avoid" value="Counter everything"><span>Counter everything</span></label>
+        <label class="opt"><input type="checkbox" name="avoid" value="Nothing's off-limits" id="avoidNone"><span>Nothing's off-limits</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Starting from scratch?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="start" value="Building from zero"><span>Building from zero</span></label>
+        <label class="opt"><input type="radio" name="start" value="Collection to raid" data-list="1"><span>I've got a collection to raid</span></label>
+        <label class="opt"><input type="radio" name="start" value="Upgrading a precon or old deck" data-list="1"><span>Upgrading a precon or old deck</span></label>
+      </div>
+      <div id="listWrap">
+        <p class="hint">Link a Moxfield/Archidekt list or just tell us what's in the box.</p>
+        <input type="text" name="deck_list" maxlength="1000" disabled>
+      </div>
+      <div class="sub">
+        <p class="q">Proxies OK?</p>
+        <div class="opts" role="radiogroup" aria-label="Proxies OK?">
+          <label class="opt"><input type="radio" name="proxies" value="Yes, print away"><span>Yes, print away</span></label>
+          <label class="opt"><input type="radio" name="proxies" value="A few for the pricey stuff"><span>A few for the pricey stuff</span></label>
+          <label class="opt"><input type="radio" name="proxies" value="Real cards only"><span>Real cards only</span></label>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Where's this deck getting played?</legend>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="platform" value="Paper"><span>Paper</span></label>
+        <label class="opt"><input type="radio" name="platform" value="Arena"><span>Arena</span></label>
+        <label class="opt"><input type="radio" name="platform" value="MTGO"><span>MTGO</span></label>
+        <label class="opt"><input type="radio" name="platform" value="Wherever"><span>Wherever</span></label>
       </div>
     </fieldset>
 
@@ -197,7 +256,7 @@ footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
 
   <div class="next">
     <h2>What happens next</h2>
-    <p>Your picks land straight in Amelia's inbox and the workbench's. The builder drafts a list around exactly what you set - your colors, your budget, your kind of win - and it comes back to you. Change your mind later? Just send the form again; the newest one wins.</p>
+    <p>Your picks land straight in Amelia's inbox and the workbench's. The builder drafts a list around exactly what you set - your colors, your budget, your bracket, your kind of win - and it comes back to you. Change your mind later? Just send the form again; the newest one wins.</p>
   </div>
 
   <footer>
@@ -226,12 +285,37 @@ footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
   });
 })();
 
-// "Something else" reveals the free-text box.
-(function(){
+// "Something else" reveals the free-text box; Commander reveals its own questions.
+function syncReveals(){
   var other=document.getElementById("fmtOther"),wrap=document.getElementById("otherWrap");
-  document.querySelectorAll('input[name="format"]').forEach(function(r){
-    r.addEventListener("change",function(){wrap.classList.toggle("show",other.checked);});
+  wrap.classList.toggle("show",other.checked);
+  var picked=document.querySelector('input[name="format"]:checked');
+  var cmdr=!!(picked&&picked.value==="Commander");
+  document.querySelectorAll(".cmdr-only").forEach(function(box){
+    box.classList.toggle("show",cmdr);
+    // Hidden questions stay out of the submission.
+    box.querySelectorAll("input").forEach(function(i){i.disabled=!cmdr;});
   });
+  var start=document.querySelector('input[name="start"]:checked');
+  var list=!!(start&&start.dataset.list);
+  var lw=document.getElementById("listWrap");
+  lw.classList.toggle("show",list);
+  lw.querySelector("input").disabled=!list;
+}
+(function(){
+  document.querySelectorAll('input[name="format"],input[name="start"]').forEach(function(r){
+    r.addEventListener("change",syncReveals);
+  });
+  // "Nothing's off-limits" and the groan list can't both be true.
+  var none=document.getElementById("avoidNone");
+  document.querySelectorAll('input[name="avoid"]').forEach(function(c){
+    c.addEventListener("change",function(){
+      if(!c.checked)return;
+      if(c===none){document.querySelectorAll('input[name="avoid"]').forEach(function(o){if(o!==none)o.checked=false;});}
+      else{none.checked=false;}
+    });
+  });
+  syncReveals();
 })();
 
 // Send without leaving the page.
@@ -241,7 +325,7 @@ footer .word{font-size:16px;margin-bottom:8px;color:var(--text)}
     ev.preventDefault();
     var btn=form.querySelector("button[type=submit]");btn.disabled=true;msg.className="";msg.textContent="Sending\u2026";
     fetch("/api/deck-preferences",{method:"POST",body:new FormData(form)}).then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});}).then(function(res){
-      if(res.ok&&res.j.ok){form.reset();document.getElementById("otherWrap").classList.remove("show");msg.className="ok";msg.textContent="Got it - that's the builder's homework. The list comes back to you.";}
+      if(res.ok&&res.j.ok){form.reset();syncReveals();msg.className="ok";msg.textContent="Got it - that's the builder's homework. The list comes back to you.";}
       else{msg.className="err";msg.textContent="That didn't send. Try again in a minute?";}
     }).catch(function(){msg.className="err";msg.textContent="That didn't send. Try again in a minute?";}).finally(function(){btn.disabled=false;});
   });

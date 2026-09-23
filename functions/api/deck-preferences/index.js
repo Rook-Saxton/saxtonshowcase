@@ -66,12 +66,20 @@ export async function onRequest(context) {
   const formatOther = one(fd.get("format_other"), 100);
   const colors = many(fd, "colors", 6, 20);
   const budget = one(fd.get("budget"), 40);
-  const power = one(fd.get("power"), 40);
+  const bracket = one(fd.get("bracket"), 40);
+  const power = one(fd.get("power"), 40); // legacy 1-10 field, kept so an old open tab still mails cleanly
+  const commander = one(fd.get("commander"), 200);
+  const avoid = many(fd, "avoid", 8, 40);
+  const start = one(fd.get("start"), 60);
+  const deckList = one(fd.get("deck_list"), 1000);
+  const proxies = one(fd.get("proxies"), 40);
+  const platform = one(fd.get("platform"), 20);
   const win = many(fd, "win", 12, 60);
   const ramble = one(fd.get("ramble"), 4000);
 
   const anything = name || contact || format || formatOther || budget || power ||
-    ramble || colors.length || win.length;
+    bracket || commander || start || deckList || proxies || platform ||
+    ramble || colors.length || win.length || avoid.length;
   if (!anything) return json({ error: "missing_fields" }, 400);
 
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
@@ -86,10 +94,16 @@ export async function onRequest(context) {
     "Name: " + (name || "(not given)"),
     "Contact: " + (contact || "(not given)"),
     "Format: " + (format === "Other" && formatOther ? "Other - " + formatOther : (format || "(not picked)")),
+    "Commander in mind: " + (commander || (format === "Commander" ? "(not given)" : "(n/a - not Commander)")),
     "Colors: " + (colors.length ? colors.join(", ") : "(not picked)"),
+    "Bracket: " + (bracket || (power ? "(old form) " + power : (format === "Commander" ? "(not picked)" : "(n/a - not Commander)"))),
     "Budget: " + (budget || "(not picked)"),
-    "Power level: " + (power || "(not picked)"),
     "Likes to win: " + (win.length ? win.join(", ") : "(not picked)"),
+    "Keep out of the deck: " + (avoid.length ? avoid.join(", ") : "(not picked)"),
+    "Starting point: " + (start || "(not picked)"),
+    "List / what's in the box: " + (deckList || "(not given)"),
+    "Proxies OK: " + (proxies || "(not picked)"),
+    "Played on: " + (platform || "(not picked)"),
     "",
     "Ramble:",
     ramble || "(nothing)",
