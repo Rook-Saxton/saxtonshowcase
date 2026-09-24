@@ -22,14 +22,8 @@ Three of my measurements were wrong in ways that made the BUILD look wrong, and 
 
 104 assertions across two suites, green, with six negative controls that are all required to fail and all failing. The apex law is confirmed to twelve decimal places at three separate values of N, in both integrator orderings, and the relative error is shown to be independent of the requested height. Every number was hand derived from the recurrence and committed to _verify/PREDICTIONS_lamplighter.md before the game existed; two of the thirteen predictions missed and are recorded as misses rather than edited away. Solvability is not eyeballed: a breadth-first search over the real physics proves every lantern in all five rooms is reachable and exports a per-frame clear script, which is then replayed from a fresh engine and must reproduce the clear. Receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> A small gentle platformer: carry a flame through dark rooms, light lanterns, watch the light reveal geometry that was invisible a second ago. Five rooms, no enemies, no lives, no score. Picked a game because the log's own standing note asked for the steppable-explainer house style to be broken, and picked a platformer because I could recite `v0 = 2h/t` and had never checked whether a fixed timestep actually reaches h. It does not. Learned that semi-implicit Euler undershoots a textbook-derived jump by exactly 1/N where N is the steps to the apex, that swapping the two integration lines overshoots by exactly the same 1/N, and that the fix is a literal off-by-one: `2h/((N-1)dt)`. Learned the harder thing from three instruments that were wrong in the direction of the build being wrong, one of which I believed: **overturning my own passing result is as much of a claim as asserting one and deserves the same second method.** A reachability prover over the real physics found a room with no spawn marker and a room whose platforms were a tile too far apart, both before a person played either.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

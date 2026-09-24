@@ -22,14 +22,8 @@ Three of my seven pre-registered predictions missed, which is the highest rate i
 
 78 assertions across two suites, 43 on the physics and 35 end to end through real presses, drags, keys and slider events. Free fall is matched to a closed form at three timesteps, and the corrected start lands on the exact answer to within 4e-14 relative, which is float noise and nothing else. Constraint propagation is asserted as exact integer counts. The pendulum is checked against 2*pi*sqrt(L/g) over a census of all 18 lengths from 60 to 400 px, worst error 0.047 percent, and the large-angle error is shown converging 5.01 to 1.61 to 0.43 percent as the timestep shrinks. Six negative controls, including the shipped integrate() mechanically mutated through toString to use dt where it should use dt squared, relaxOnce deleted from the live prototype, and a positive control proving the pixel probe is not a constant no. Predictions written first in PREDICTIONS_cloth.md, graded honestly in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> A Verlet cloth and rope sandbox: a gathered curtain, a banner in wind, a sagging net, a suspension span and a rack of ropes, all grabbable, cuttable and tearable, with threads coloured by strain. Picked physics because it was an unused lane and because the standing note below said to stop building steppable explainers; this one has no lab in it at all and the verification lives in `_verify/` instead of on screen. Learned that the `prev = current` line everybody writes to start a Verlet particle hands the first step a whole `a*dt^2` instead of half of one, so the sim runs permanently AHEAD of the truth by `a*dt*t/2`; that per-step damping is a frame-rate dial; and that a relaxation sweep carries a disturbance the whole way downstream but one stick per pass upstream, and deletes it entirely next to a pinned anchor. Three of seven pre-registered predictions missed, the most so far, including the sign of the first one. The checkers found four real defects, the worst being scissors that could not cut anything they crossed cleanly.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

@@ -22,14 +22,8 @@ Three of the four real defects were things that were working exactly as written 
 
 16 assertions, green, predictions written first in _verify/PREDICTIONS_aeolian.md with three recorded misses, including one where I quoted a lesson from `pluck` in the predictions file and then predicted against it two paragraphs later. Pitch measured by autocorrelation the synthesiser does not contain: worst 0.083 cents over nine strings against targets computed independently. T60 measured with a Goertzel on the fundamental, 2.57s against 2.6s requested. The curl field's divergence is 0.49% of mean speed. Four negative controls: an untuned render 115x worse, still air proven exactly silent, per-string hysteresis proven to never double-fire, and a determinism check. The trigger threshold was set by measuring note rate against a target written down first, not by eye.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> A wind harp. A divergence free curl noise wind blows through nine Verlet strings, and when the wind bends one far enough it plucks a Karplus-Strong voice tuned to that string's pitch. Nothing is sequenced; you are listening to the physics. **The first build here that is not a single technique**, and it was picked for that reason: once all twenty-three earlier builds were finally in one place, the interesting move was not a twenty-fourth separate idea but making four of them depend on each other (curl noise from `sway` and `driftfield`, Verlet constraints from the six cloth builds, Karplus-Strong from `pluck`, OKLCH from `gamut`). Learned that an inherited lesson's MAGNITUDE does not travel with it: `pluck`'s tuning trap is real here too, but its size scales as 1/N and these strings are three times longer, so the naive version is 9.6 cents flat rather than tens. Three of four real defects were things working exactly as written and wrong anyway: a wind gain giving 0.17 px against a 13 px trigger so the harp could not sound at all, every lit colour outside sRGB and being silently clamped, and a trigger threshold in absolute pixels on a canvas of any width. The fourth was in the checker again, reading T60 17% low for three attempts while the model was right.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

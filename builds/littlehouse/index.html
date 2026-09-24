@@ -1,0 +1,1707 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  LITTLEHOUSE
+  builds/littlehouse/index.html
+  Built 2026-09-23. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  A tiny dollhouse life sim. A cutaway two-storey house with a kitchen, a living room, two
+  bedrooms, a bathroom and a staircase, and four little residents who live in it on their own.
+  Each has five needs (hunger, energy, fun, social, hygiene) that drain over time. They pick what
+  to do by scoring every option in the house against how badly they need it and how far away it
+  is: they cook, snack, sleep, shower, watch TV, read, paint, chat, play, and sit on the sofa
+  together. Faces show mood and a thought bubble names what they want. Three of them walk out of
+  the door to work in the day and bring home pay. You spend it from a small catalogue of ten
+  pieces of furniture, placed on a grid of floor cells in the rooms, and you can move or sell
+  anything. A missing item means a need goes unmet: four people and three beds means somebody
+  naps on the floor and wakes up grumpy. A day lasts about four minutes at 1x, windows go dark at
+  night and rooms without a lamp go gloomy. Bills arrive at midnight and grow a little each day.
+  A day where the household's average mood is 60 or more counts as a happy day.
+
+  CONTROLS
+  Tap or click a resident to see their needs and queue up to three things for them to do. Tap a
+  piece of furniture to send the selected resident to use it, move it, or sell it back for half.
+  Buy tab: pick an item, then tap a spot in a room (green fits, red says why not).
+  Keys: Space pause, 1 2 3 speed, R next resident (Shift+R back), F next piece of furniture,
+  P / B / H switch the People, Buy and House tabs, arrows move the item being placed, Enter
+  places it, X cancels, V moves the selected furniture, M mute. Every panel button is a normal
+  button and works with Tab and Enter. The game pauses itself when the window loses focus.
+  Escape is left alone for the page that hosts this. House tab: save, load, export a .json file,
+  import one, or start a new house.
+
+  HOW IT WAS CHECKED
+  - Node, 146 checks on the pure logic block (LOGIC-BEGIN to LOGIC-END), all passing: need decay
+    rates awake, asleep and at work, clamping, the dark-room multiplier, bills at midnight; utility
+    choice (hungry cooks, tired sleeps, no bed means a floor nap, dirty showers, no shower is never
+    chosen, the nearer of two fridges wins, lonely seeks company, work in its window but not
+    twice and not when starving, a taken bed pushes the next sleeper to the floor, TV from the
+    sofa); pathfinding (same floor, upstairs to kitchen through the stair top then bottom with the
+    right cost, the stairwell void is unwalkable, out through the front door, all 900 cell pairs
+    connected, a resident really walks the stair diagonal); budget and placement (too poor, buy,
+    overlap, straddling a wall, door, hall, landing, void, bounds, shower only in the bathroom,
+    sell for half, move, selling mid-use frees the user, house full); five seeded two-day runs
+    (needs in range, all three workers paid both days, 9 or more activities); three beds for four
+    gives floor naps in 4 of 5 seeds, a fourth bed gives none; the furnished house averages 10+ mood
+    points above the bare one; save round trip and 9 kinds of bad save rejected.
+  - Headless Chrome through Playwright, 59 checks, all passing, zero page or console errors:
+    37 at 1280x720 with real keys and mouse (start, speeds, Space pause including after clicking a
+    button, select and queue, buy by click and by arrows and Enter, a refused spot, move, Escape
+    not prevented, sell, a worker leaves and comes home with pay, save, export download, import,
+    bad import refused, reload and continue, blur pauses, mute); 11 at 390x844 with touch (start,
+    layout, select, queue, buy by two taps, a touch drag does not scroll or zoom, text 11px or
+    more); 8 for ?preview=1 at 600x300 (no chrome, frames differ, still running after 30 s, no
+    storage writes); 3 with localStorage throwing. Screenshots looked at, and fixed where wrong.
+    Some checks jump the clock through a test hook to reach 07:50 or night quickly.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Littlehouse</title>
+<style>
+:root{--marigold:#FFE066;--tomato:#FF4F6D;--grass:#C6F432;--pool:#22D3C5;--grape:#B45CF0;--bubble:#FF7AC8;--lavender:#B9A8FF;--tangerine:#FF8A3D;--peri:#8C9BFF;--ink:#1A1540;--paper:#F7F4FF}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;cursor:pointer}
+#app{position:fixed;inset:0;display:grid;grid-template-columns:1fr 340px;grid-template-rows:auto 1fr;grid-template-areas:"bar bar" "stage panel"}
+#bar{grid-area:bar;display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--ink);color:var(--paper);min-height:50px}
+#clock{font-weight:700;min-width:118px;white-space:nowrap}
+#money{font-weight:800;background:var(--grass);color:var(--ink);border-radius:999px;padding:3px 11px;white-space:nowrap}
+#money.neg{background:var(--tomato);color:#fff}
+.sp{flex:1}
+.bb{background:#2e2766;border:2px solid #4b4394;color:var(--paper);border-radius:10px;min-width:38px;height:36px;padding:0 8px;font-weight:700}
+.bb[aria-pressed=true]{background:var(--marigold);color:var(--ink);border-color:var(--marigold)}
+.bb:focus-visible,.btn:focus-visible,.chip:focus-visible,.cat button:focus-visible,.tab:focus-visible{outline:3px solid var(--pool);outline-offset:2px}
+#stage{grid-area:stage;position:relative;min-height:0;min-width:0;overflow:hidden;background:#6FD3FF}
+#view{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#toast{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:7px 14px;border-radius:12px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none;max-width:92%;text-align:center}
+#toast.on{opacity:.94}
+#hint{position:absolute;left:8px;right:8px;top:6px;background:rgba(26,21,64,.88);color:var(--paper);padding:7px 10px;border-radius:12px;font-size:13px;display:none;align-items:center;gap:8px}
+#hint.on{display:flex}
+#hint span{flex:1}
+#panel{grid-area:panel;display:flex;flex-direction:column;min-height:0;background:#fff;border-left:3px solid var(--ink)}
+#tabs{display:flex;gap:4px;padding:8px 8px 0;background:var(--paper)}
+.tab{flex:1;border:2px solid var(--ink);border-bottom:0;background:#fff;border-radius:12px 12px 0 0;padding:7px 4px;font-weight:700}
+.tab[aria-selected=true]{background:var(--marigold)}
+#tabBody{flex:1;overflow-y:auto;padding:10px;border-top:2px solid var(--ink);overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.chips{display:flex;gap:6px;margin-bottom:8px}
+.chip{flex:1;display:flex;flex-direction:column;align-items:center;border:2px solid #ddd6ff;background:var(--paper);border-radius:14px;padding:4px 2px;font-size:13px;font-weight:700;min-width:0}
+.chip[aria-pressed=true]{border-color:var(--ink);background:#FFF6CC}
+.chip canvas{width:40px;height:40px}
+.chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.card{border:2px solid var(--ink);border-radius:14px;padding:9px;margin-bottom:10px;background:#fff}
+.card h3{margin:0 0 2px;font-size:17px}
+.muted{color:#5d5690;font-size:13px}
+.need{display:grid;grid-template-columns:64px 1fr 30px;align-items:center;gap:6px;font-size:13px;margin:3px 0}
+.bar{height:12px;border-radius:99px;background:#ece8ff;overflow:hidden;border:1.5px solid var(--ink)}
+.bar i{display:block;height:100%;width:50%;border-radius:99px}
+h4{margin:10px 0 5px;font-size:14px}
+.acts{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.btn{border:2px solid var(--ink);background:#fff;border-radius:11px;padding:6px 7px;text-align:left;font-size:13px;font-weight:600;min-height:38px}
+.btn small{display:block;font-weight:500;color:#5d5690;font-size:11.5px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.hot{background:#EFFFD0}
+.btn.go{background:var(--marigold)}
+.btn.warn{background:#FFE0E6}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.row .btn{flex:1;text-align:center}
+.q{display:flex;align-items:center;gap:6px;background:var(--paper);border-radius:10px;padding:3px 3px 3px 9px;margin:3px 0;font-size:13px;font-weight:600}
+.q span{flex:1}
+.q button{border:0;background:var(--tomato);color:#fff;border-radius:8px;width:30px;height:28px;font-weight:800}
+.cat{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.cat button{border:2px solid var(--ink);background:#fff;border-radius:12px;padding:5px;display:grid;grid-template-columns:52px 1fr;grid-template-rows:auto auto;column-gap:6px;text-align:left;align-items:center}
+.cat canvas{grid-row:span 2;width:52px;height:44px}
+.cat b{font-size:14px}
+.cat em{font-style:normal;font-weight:800;color:#157a3a;font-size:13px}
+.cat button.poor em{color:var(--tomato)}
+.cat button.poor{background:#faf8ff}
+.cat button[aria-pressed=true]{background:var(--marigold)}
+.goals{list-style:none;padding:0;margin:0}
+.goals li{padding:3px 0 3px 26px;position:relative;font-size:14px}
+.goals li:before{content:"";position:absolute;left:2px;top:5px;width:16px;height:16px;border-radius:5px;border:2px solid var(--ink);background:#fff}
+.goals li.done:before{background:var(--grass)}
+.goals li.done{color:#3b7a12}
+.small{font-size:12.5px;color:#5d5690}
+#title{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(26,21,64,.45);padding:14px;z-index:5}
+#title.off{display:none}
+.tcard{background:var(--paper);border:3px solid var(--ink);border-radius:22px;max-width:520px;width:100%;max-height:100%;overflow-y:auto;padding:18px 20px;box-shadow:0 10px 0 rgba(26,21,64,.35)}
+.tcard h1{margin:0;font-size:38px;letter-spacing:.5px;color:var(--tomato);text-shadow:2px 2px 0 var(--ink)}
+.tcard .sub{margin:0 0 8px;font-weight:700}
+.tcard ul{margin:6px 0 12px;padding-left:20px}
+.tcard li{margin:4px 0}
+.tbtns{display:flex;gap:8px;flex-wrap:wrap}
+.tbtns .btn{flex:1;text-align:center;font-size:16px;min-height:48px}
+.keys{font-size:12.5px;color:#5d5690;margin:10px 0 0}
+@media (max-width:760px),(orientation:portrait) and (max-width:900px){
+  #app{grid-template-columns:1fr;grid-template-rows:auto min(56vw,46vh) 1fr;grid-template-areas:"bar" "stage" "panel"}
+  #panel{border-left:0;border-top:3px solid var(--ink)}
+  #bar{gap:3px;padding:5px 5px;min-height:44px}
+  #clock{min-width:0;font-size:13px}
+  #money{font-size:13px;padding:2px 7px}
+  .bb{min-width:31px;height:34px;padding:0 4px;font-size:13px;border-radius:9px}
+  .tcard h1{font-size:32px}
+  .tcard{padding:14px}
+}
+html.preview #bar,html.preview #panel,html.preview #title,html.preview #toast,html.preview #hint{display:none!important}
+html.preview #app{grid-template-columns:1fr;grid-template-rows:1fr;grid-template-areas:"stage"}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="bar">
+    <span id="clock">Day 1 · 07:00</span>
+    <span id="money">$500</span>
+    <span class="sp"></span>
+    <button class="bb" id="sp0" aria-label="Pause" aria-pressed="false">II</button>
+    <button class="bb" id="sp1" aria-label="Normal speed" aria-pressed="true">1x</button>
+    <button class="bb" id="sp2" aria-label="Double speed" aria-pressed="false">2x</button>
+    <button class="bb" id="sp3" aria-label="Triple speed" aria-pressed="false">3x</button>
+    <button class="bb" id="mute" aria-label="Mute sound" aria-pressed="false">Snd</button>
+    <button class="bb" id="help" aria-label="How to play">?</button>
+  </header>
+  <div id="stage"><canvas id="view" aria-label="The house"></canvas><div id="toast" role="status"></div><div id="hint"><span id="hintText"></span><button class="bb" id="hintX">Cancel</button></div></div>
+  <aside id="panel">
+    <nav id="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="people" aria-selected="true">People</button>
+      <button class="tab" role="tab" data-tab="buy" aria-selected="false">Buy</button>
+      <button class="tab" role="tab" data-tab="house" aria-selected="false">House</button>
+    </nav>
+    <div id="tabBody"></div>
+  </aside>
+</div>
+<div id="title">
+  <div class="tcard">
+    <h1>Littlehouse</h1>
+    <p class="sub">A tiny dollhouse life sim</p>
+    <ul>
+      <li>Four residents live here on their own. Their faces show their mood and a thought bubble says what they want.</li>
+      <li>Tap someone to see their needs and queue things for them to do.</li>
+      <li>Three of them go out to work by day and bring home pay. Spend it in <b>Buy</b>: pick an item, then tap a spot in a room.</li>
+      <li>No bed means a night on the floor, grumpily. No shower means nobody gets clean.</li>
+      <li>Bills arrive at midnight. Aim for happy days: a day ending with the household's mood at 60 or more.</li>
+    </ul>
+    <div class="tbtns"><button class="btn go" id="startBtn">New household</button><button class="btn" id="contBtn">Continue saved house</button></div>
+    <p class="keys">Keys: Space pause · 1 2 3 speed · R next resident · F next furniture · P B H tabs · arrows and Enter to place · X cancel · M mute</p>
+  </div>
+</div>
+<input type="file" id="importFile" accept=".json,application/json" style="display:none">
+<script>
+// LOGIC-BEGIN
+var LH = (function () {
+  'use strict';
+  var CELL = 44, HX = 40, COLS = 16, FH = 132, WORLD_W = 784, WORLD_H = 400;
+  var FLOOR_Y = [344, 202];
+  var WALK = [[0, 15], [0, 12]];
+  var STAIR_COST = 4.5, OUT_X = HX - 70;
+  var SPEED = 20, SHIFT_H = 7, MAX_QUEUE = 3, SELL_BACK = 0.5, MAX_ITEMS = 60;
+  var NEEDS = ['hunger', 'energy', 'fun', 'social', 'hygiene'];
+  var NEED_LABEL = { hunger: 'Hunger', energy: 'Energy', fun: 'Fun', social: 'Social', hygiene: 'Hygiene' };
+  // Points lost per game hour.
+  var DECAY = {
+    awake: { hunger: 8.5, energy: 6, fun: 10, social: 7, hygiene: 6.5 },
+    asleep: { hunger: 2, energy: 0, fun: 0, social: 0.8, hygiene: 1 },
+    work: { hunger: 4.5, energy: 5, fun: 4, social: -3, hygiene: 3 }
+  };
+  var ROOMS = [
+    { id: 'kitchen', name: 'Kitchen', f: 0, c0: 0, c1: 5 },
+    { id: 'living', name: 'Living room', f: 0, c0: 6, c1: 11 },
+    { id: 'hall', name: 'Hall', f: 0, c0: 12, c1: 15, noPlace: true },
+    { id: 'sunny', name: 'Sunny bedroom', f: 1, c0: 0, c1: 4 },
+    { id: 'bath', name: 'Bathroom', f: 1, c0: 5, c1: 7 },
+    { id: 'blue', name: 'Blue bedroom', f: 1, c0: 8, c1: 11 },
+    { id: 'landing', name: 'Landing', f: 1, c0: 12, c1: 12, noPlace: true }
+  ];
+  var BLOCKED = { '0:0': 'Keep the front door clear' };
+  var BATH_OK = { shower: 1, plant: 1, lamp: 1 };
+  var CATALOGUE = {
+    bed: { name: 'Bed', price: 350, w: 2, serves: 'Energy: a proper sleep', acts: ['sleep'] },
+    fridge: { name: 'Fridge', price: 250, w: 1, serves: 'Hunger: quick snacks', acts: ['snack'] },
+    stove: { name: 'Stove', price: 300, w: 1, serves: 'Hunger: meals (needs a fridge)', acts: ['cook'] },
+    shower: { name: 'Shower', price: 280, w: 1, serves: 'Hygiene (bathroom only)', acts: ['shower'], room: 'bath' },
+    sofa: { name: 'Sofa', price: 220, w: 2, serves: 'Fun, rest, company for two', acts: ['relax'] },
+    tv: { name: 'TV', price: 320, w: 1, serves: 'Fun (comfier with a sofa)', acts: ['tv'] },
+    bookshelf: { name: 'Bookshelf', price: 140, w: 1, serves: 'Fun: a good book', acts: ['read'] },
+    easel: { name: 'Easel', price: 160, w: 1, serves: 'Fun; paintings sell for $45', acts: ['paint'] },
+    plant: { name: 'Plant', price: 45, w: 1, serves: 'Brightens its room', acts: ['water'] },
+    lamp: { name: 'Lamp', price: 70, w: 1, serves: 'Lights its room at night', acts: [] }
+  };
+  var TYPES = Object.keys(CATALOGUE);
+  var ACTS = {
+    snack: { label: 'Grab a snack', short: 'Snack', gain: { hunger: 32 }, dur: 0.35 },
+    cook: { label: 'Cook a meal', short: 'Cook', gain: { hunger: 80, fun: 6 }, dur: 1.1 },
+    sleep: { label: 'Sleep in bed', short: 'Bed', rate: 15 },
+    floorSleep: { label: 'Nap on the floor', short: 'Floor nap', rate: 9 },
+    shower: { label: 'Take a shower', short: 'Shower', gain: { hygiene: 100 }, dur: 0.45 },
+    relax: { label: 'Relax on the sofa', short: 'Sofa', gain: { fun: 14, energy: 10 }, dur: 1 },
+    tv: { label: 'Watch TV', short: 'TV', gain: { fun: 48 }, dur: 1.3 },
+    read: { label: 'Read a book', short: 'Book', gain: { fun: 36 }, dur: 1.1 },
+    paint: { label: 'Paint a picture', short: 'Paint', gain: { fun: 42 }, dur: 1.5, earn: 45 },
+    water: { label: 'Water the plant', short: 'Plant', gain: { fun: 10 }, dur: 0.25 },
+    chat: { label: 'Chat with', short: 'Chat', gain: { social: 45, fun: 3 }, dur: 0.6 },
+    play: { label: 'Play with', short: 'Play', gain: { fun: 16, social: 22 }, dur: 0.7 },
+    work: { label: 'Go to work', short: 'Work' },
+    wander: { label: 'Potter about', short: 'Potter', gain: { fun: 3 }, dur: 0.3 }
+  };
+  var INTERRUPTIBLE = { relax: 1, tv: 1, read: 1, water: 1, wander: 1, paint: 1 };
+  var WANT = { hunger: 'Food!', energy: 'Sleepy...', fun: 'Bored!', social: 'Lonely', hygiene: 'Shower!' };
+  var NAMES = ['Ada', 'Bo', 'Cleo', 'Dev', 'Esme', 'Finn', 'Gus', 'Hana', 'Ivo', 'Juno', 'Kit', 'Lena', 'Milo', 'Nia', 'Otis', 'Pia', 'Rafa', 'Sami', 'Tove', 'Uma', 'Wren', 'Yara', 'Zeb', 'Noor'];
+  var SKINS = ['#FFE0C4', '#F6C99B', '#E0A370', '#B97A4B', '#8D5524', '#603A22'];
+  var HAIRS = ['#2B1B17', '#5A3420', '#C9772B', '#E8C15A', '#1A1540', '#B45CF0', '#FF7AC8', '#8C9BFF'];
+  var SHIRTS = ['#FF4F6D', '#22D3C5', '#B45CF0', '#FF8A3D', '#8C9BFF', '#C6F432', '#FF7AC8', '#FFE066'];
+  var PANTS = ['#1A1540', '#4B3F8C', '#2F6F6A', '#6B4E3D', '#3D5A99'];
+  var STARTER = [['fridge', 0, 1], ['stove', 0, 2], ['plant', 0, 5], ['bookshelf', 0, 6], ['sofa', 0, 7], ['tv', 0, 10], ['lamp', 0, 11],
+    ['bed', 1, 0], ['lamp', 1, 2], ['bed', 1, 3], ['shower', 1, 6], ['plant', 1, 7], ['bed', 1, 8]];
+  // A new household starts in a bare house: two beds for four, a fridge but no stove, nothing fun.
+  var BASIC = [['fridge', 0, 1], ['sofa', 0, 7], ['bed', 1, 0], ['bed', 1, 3], ['shower', 1, 6]];
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function copy(o) { var r = {}; for (var k in o) r[k] = o[k]; return r; }
+  function rand(s) {
+    var t = (s.rs = (s.rs + 0x6D2B79F5) | 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  function hourOf(s) { return s.min / 60; }
+  function isNightH(h) { return h >= 21.5 || h < 6; }
+  function darkH(h) { return h >= 20.5 || h < 5.5; }
+
+  // ---------- rooms and placement ----------
+  function roomAt(f, c) {
+    for (var i = 0; i < ROOMS.length; i++) { var r = ROOMS[i]; if (r.f === f && c >= r.c0 && c <= r.c1) return r; }
+    return null;
+  }
+  function roomById(id) { for (var i = 0; i < ROOMS.length; i++) if (ROOMS[i].id === id) return ROOMS[i]; return null; }
+  function itemById(s, id) { for (var i = 0; i < s.items.length; i++) if (s.items[i].id === id) return s.items[i]; return null; }
+  function itemsIn(s, room) { return s.items.filter(function (it) { return it.f === room.f && it.c >= room.c0 && it.c <= room.c1; }); }
+  function roomHas(s, room, type) { return !!room && itemsIn(s, room).some(function (it) { return it.type === type; }); }
+  function count(s, type) { return s.items.filter(function (it) { return it.type === type; }).length; }
+  function canPlace(s, type, f, c, ignoreId) {
+    var def = CATALOGUE[type];
+    if (!def) return { ok: false, reason: 'Unknown item' };
+    if ((f !== 0 && f !== 1) || !Number.isInteger(c)) return { ok: false, reason: 'Outside the house' };
+    var c2 = c + def.w - 1;
+    if (c < 0 || c2 > COLS - 1) return { ok: false, reason: 'Outside the house' };
+    var room = roomAt(f, c);
+    if (!room) return { ok: false, reason: 'That is the open stairwell' };
+    if (roomAt(f, c2) !== room) return { ok: false, reason: 'It has to fit inside one room' };
+    if (room.noPlace) return { ok: false, reason: 'Keep the hall and stairs clear' };
+    for (var x = c; x <= c2; x++) { var b = BLOCKED[f + ':' + x]; if (b) return { ok: false, reason: b }; }
+    if (def.room && room.id !== def.room) return { ok: false, reason: 'A ' + def.name.toLowerCase() + ' goes in the ' + roomById(def.room).name.toLowerCase() };
+    if (room.id === 'bath' && !BATH_OK[type]) return { ok: false, reason: 'Only a shower, plant or lamp fits in the bathroom' };
+    for (var i = 0; i < s.items.length; i++) {
+      var it = s.items[i];
+      if (it.id === ignoreId || it.f !== f) continue;
+      var e2 = it.c + CATALOGUE[it.type].w - 1;
+      if (c <= e2 && it.c <= c2) return { ok: false, reason: 'Something is already there' };
+    }
+    return { ok: true, room: room };
+  }
+  function firstFit(s, type, ignoreId) {
+    for (var f = 0; f < 2; f++) for (var c = 0; c < COLS; c++) if (canPlace(s, type, f, c, ignoreId).ok) return { f: f, c: c };
+    return null;
+  }
+  function buy(s, type, f, c) {
+    var def = CATALOGUE[type];
+    if (!def) return { ok: false, reason: 'Unknown item' };
+    if (s.money < def.price) return { ok: false, reason: 'Not enough money: a ' + def.name.toLowerCase() + ' costs $' + def.price };
+    if (s.items.length >= MAX_ITEMS) return { ok: false, reason: 'The house is full' };
+    var p = canPlace(s, type, f, c);
+    if (!p.ok) return p;
+    var it = { id: s.nextId++, type: type, f: f, c: c };
+    s.items.push(it);
+    s.money -= def.price;
+    return { ok: true, item: it };
+  }
+  function sellValue(type) { return Math.floor(CATALOGUE[type].price * SELL_BACK); }
+  function sell(s, id) {
+    var it = itemById(s, id);
+    if (!it) return { ok: false, reason: 'Nothing to sell' };
+    releaseItem(s, id);
+    s.items.splice(s.items.indexOf(it), 1);
+    var v = sellValue(it.type);
+    s.money += v;
+    return { ok: true, refund: v };
+  }
+  function moveItem(s, id, f, c) {
+    var it = itemById(s, id);
+    if (!it) return { ok: false, reason: 'Nothing to move' };
+    var p = canPlace(s, it.type, f, c, id);
+    if (!p.ok) return p;
+    releaseItem(s, id);
+    it.f = f; it.c = c;
+    return { ok: true };
+  }
+
+  // ---------- paths ----------
+  function key(n) { return n.out ? 'out' : n.f + ':' + n.c; }
+  function walkable(n) {
+    if (!n) return false;
+    if (n.out) return true;
+    var r = WALK[n.f];
+    return !!r && Number.isInteger(n.c) && n.c >= r[0] && n.c <= r[1];
+  }
+  function neighbours(n) {
+    if (n.out) return [{ n: { f: 0, c: 0 }, cost: 1.5 }];
+    var res = [], r = WALK[n.f];
+    if (n.c > r[0]) res.push({ n: { f: n.f, c: n.c - 1 }, cost: 1 });
+    if (n.c < r[1]) res.push({ n: { f: n.f, c: n.c + 1 }, cost: 1 });
+    if (n.f === 0 && n.c === 15) res.push({ n: { f: 1, c: 12 }, cost: STAIR_COST });
+    if (n.f === 1 && n.c === 12) res.push({ n: { f: 0, c: 15 }, cost: STAIR_COST });
+    if (n.f === 0 && n.c === 0) res.push({ n: { out: true }, cost: 1.5 });
+    return res;
+  }
+  function dijkstra(a) {
+    var dist = {}, prev = {}, done = {}, nodes = {}, ka = key(a);
+    dist[ka] = 0; nodes[ka] = a;
+    for (;;) {
+      var best = null, bk = null;
+      for (var k in dist) if (!done[k] && (best === null || dist[k] < best)) { best = dist[k]; bk = k; }
+      if (bk === null) break;
+      done[bk] = true;
+      var ns = neighbours(nodes[bk]);
+      for (var i = 0; i < ns.length; i++) {
+        var k2 = key(ns[i].n), d = best + ns[i].cost;
+        if (dist[k2] === undefined || d < dist[k2] - 1e-9) { dist[k2] = d; prev[k2] = bk; nodes[k2] = ns[i].n; }
+      }
+    }
+    return { dist: dist, prev: prev, nodes: nodes };
+  }
+  function findPath(a, b) {
+    if (!walkable(a) || !walkable(b)) return null;
+    var D = dijkstra(a), kb = key(b);
+    if (D.dist[kb] === undefined) return null;
+    var list = [], k = kb;
+    while (k !== undefined) { list.unshift(D.nodes[k]); k = D.prev[k]; }
+    return { nodes: list, cost: D.dist[kb] };
+  }
+  function nodeWP(n) {
+    if (n.out) return { x: OUT_X, y: FLOOR_Y[0], f: 0, out: true, node: n };
+    return { x: HX + (n.c + 0.5) * CELL, y: FLOOR_Y[n.f], f: n.f, out: false, node: n };
+  }
+  function nodeOf(r) {
+    if (r.out) return { out: true };
+    var w = WALK[r.f];
+    return { f: r.f, c: clamp(Math.floor((r.x - HX) / CELL), w[0], w[1]) };
+  }
+  function walkStart(r) { return r.mode === 'walk' && r.path.length ? r.path[0].node : nodeOf(r); }
+
+  // ---------- needs, mood ----------
+  function decayNeeds(needs, hours, mode, mult) {
+    var rates = DECAY[mode] || DECAY.awake, out = {};
+    NEEDS.forEach(function (k) { out[k] = clamp(needs[k] - rates[k] * hours * (mult && mult[k] ? mult[k] : 1), 0, 100); });
+    return out;
+  }
+  function resRoom(r) { return r.out ? null : roomAt(r.f, Math.floor((r.x - HX) / CELL)); }
+  function isAsleep(r) { return r.mode === 'act' && r.act && (r.act.key === 'sleep' || r.act.key === 'floorSleep'); }
+  function roomDark(s, room) { return !!room && !room.noPlace && darkH(hourOf(s)) && !roomHas(s, room, 'lamp'); }
+  function mood(s, r) {
+    var w = { hunger: 1.2, energy: 1, fun: 1, social: 0.8, hygiene: 0.8 }, sum = 0, tw = 0;
+    NEEDS.forEach(function (k) { sum += r.needs[k] * w[k]; tw += w[k]; });
+    var m = sum / tw;
+    r.feelings.forEach(function (x) { m += x.v; });
+    if (r.mode !== 'away' && !isAsleep(r)) m += roomMood(s, resRoom(r));
+    return clamp(m, 0, 100);
+  }
+  // What a room adds to the mood of whoever is in it: plants, a lit lamp at night, a furnished feel.
+  function roomMood(s, room) {
+    if (!room || room.noPlace) return 0;
+    var its = itemsIn(s, room), v = 0, plants = its.filter(function (i) { return i.type === 'plant'; }).length;
+    v += Math.min(2, plants) * 4;
+    if (darkH(hourOf(s))) v += roomHas(s, room, 'lamp') ? 3 : -10;
+    if (its.length >= 3) v += 3;
+    return v;
+  }
+  function face(s, r) {
+    var m = mood(s, r);
+    var stiff = r.feelings.some(function (x) { return x.id === 'stiff'; });
+    if (stiff && m < 70) return 'grumpy';
+    return m >= 60 ? 'happy' : m >= 38 ? 'ok' : 'sad';
+  }
+  function moodWord(m) { return m >= 75 ? 'Happy' : m >= 55 ? 'Fine' : m >= 35 ? 'Low' : 'Miserable'; }
+  function usersOf(s, id, exceptId) {
+    return s.residents.filter(function (o) {
+      return o.id !== exceptId && o.act && (o.act.itemId === id || o.act.seatId === id) && o.mode !== 'away';
+    });
+  }
+  function seatsTaken(s, sofa, exceptId) {
+    var t = [];
+    usersOf(s, sofa.id, exceptId).forEach(function (o) {
+      if (o.act.key === 'relax' && o.act.itemId === sofa.id) t.push(o.act.seat);
+      if (o.act.seatId === sofa.id) t.push(o.act.seat);
+    });
+    return t;
+  }
+  function freeBeds(s, r) {
+    return s.items.filter(function (it) { return it.type === 'bed' && usersOf(s, it.id, r.id).length === 0; }).length;
+  }
+  function wantOf(s, r) {
+    var low = null;
+    NEEDS.forEach(function (k) { if (r.needs[k] < 45 && (low === null || r.needs[k] < r.needs[low])) low = k; });
+    if (!low) return null;
+    var text = WANT[low], unmet = false;
+    if (low === 'hunger' && !count(s, 'fridge')) { text = 'No fridge!'; unmet = true; }
+    if (low === 'energy' && !freeBeds(s, r)) { text = 'No bed!'; unmet = true; }
+    if (low === 'hygiene' && !count(s, 'shower')) { text = 'No shower!'; unmet = true; }
+    return { need: low, text: text, unmet: unmet };
+  }
+
+  // ---------- utility scoring ----------
+  function distress(v) { var d = (100 - clamp(v, 0, 100)) / 100; return d * d * 100 + (v < 15 ? (15 - v) * 2 : 0); }
+  function gainValue(needs, gain) {
+    var s = 0;
+    for (var k in gain) { var v = needs[k]; s += distress(v) - distress(Math.min(100, v + gain[k])); }
+    return s;
+  }
+  function scoreAd(needs, ad) {
+    if (!ad.ok || !isFinite(ad.dist)) return 0;
+    if (ad.flat !== undefined) return ad.flat;
+    return gainValue(needs, ad.gain) * (ad.mult || 1) / (1 + ad.dist / 12) + (ad.bonus || 0);
+  }
+  function resById(s, id) { for (var i = 0; i < s.residents.length; i++) if (s.residents[i].id === id) return s.residents[i]; return null; }
+  function partnerBusy(o) {
+    if (o.mode === 'away' || o.out) return 'Out at work';
+    if (isAsleep(o)) return 'Asleep';
+    if (o.mode === 'idle' && !o.path.length) return '';
+    if (o.mode === 'act' && o.act && INTERRUPTIBLE[o.act.key]) return '';
+    return 'Busy';
+  }
+  function workState(s, r) {
+    if (r.workStart === null || r.workStart === undefined) return { ok: false, why: 'Stays home' };
+    if (r.workedDay === s.day) return { ok: false, why: 'Already worked today' };
+    var h = hourOf(s);
+    if (h < 6 || h > 16) return { ok: false, why: 'Work is 6:00 to 16:00' };
+    return { ok: true, inWindow: h >= r.workStart - 1 && h <= r.workStart + 1.5 };
+  }
+  function listAds(s, r, rng) {
+    var ads = [], from = walkStart(r), D = dijkstra(from), h = hourOf(s), night = isNightH(h);
+    var needs = r.needs;
+    var sleepMult = night ? 1.6 : (needs.energy < 30 ? 1 : 0.3);
+    var hasFridge = count(s, 'fridge') > 0;
+    function dist(n) { var d = D.dist[key(n)]; return d === undefined ? Infinity : d; }
+    function used(it) { return usersOf(s, it.id, r.id).length; }
+    s.items.forEach(function (it) {
+      var def = CATALOGUE[it.type], room = roomAt(it.f, it.c);
+      def.acts.forEach(function (k) {
+        var A = ACTS[k];
+        var ad = { key: k, label: A.label, short: A.short, itemId: it.id, gain: copy(A.gain || {}), dur: A.dur, ok: true, why: '', spot: { f: it.f, c: it.c } };
+        if (k === 'sleep') {
+          ad.gain = { energy: 100 - needs.energy }; ad.mult = sleepMult;
+          if (used(it)) { ad.ok = false; ad.why = 'Someone is in it'; }
+        } else if (k === 'relax') {
+          var taken = seatsTaken(s, it, r.id), seat = taken.indexOf(0) < 0 ? 0 : taken.indexOf(1) < 0 ? 1 : -1;
+          if (seat < 0) { ad.ok = false; ad.why = 'The sofa is full'; }
+          else {
+            ad.seat = seat; ad.spot = { f: it.f, c: it.c + seat };
+            if (taken.length) { ad.gain.social = 30; ad.label = 'Sit together on the sofa'; ad.together = true; }
+          }
+        } else if (k === 'tv') {
+          var sofa = null, sseat = -1;
+          itemsIn(s, room).forEach(function (o) {
+            if (o.type !== 'sofa' || sofa) return;
+            var tk = seatsTaken(s, o, r.id), st = tk.indexOf(0) < 0 ? 0 : tk.indexOf(1) < 0 ? 1 : -1;
+            if (st >= 0) { sofa = o; sseat = st; }
+          });
+          if (sofa) {
+            ad.seatId = sofa.id; ad.seat = sseat; ad.spot = { f: sofa.f, c: sofa.c + sseat };
+            ad.gain.energy = 6; ad.gain.fun = 54; ad.label = 'Watch TV from the sofa';
+          } else {
+            var sc = it.c + 1;
+            if (sc > room.c1 || BLOCKED[it.f + ':' + sc]) sc = it.c - 1;
+            if (sc < room.c0 || BLOCKED[it.f + ':' + sc]) sc = it.c;
+            ad.spot = { f: it.f, c: sc };
+          }
+          if (used(it) >= 2) { ad.ok = false; ad.why = 'Two are watching already'; }
+        } else {
+          if (k === 'cook' && !hasFridge) { ad.ok = false; ad.why = 'Needs a fridge'; }
+          else if (used(it)) { ad.ok = false; ad.why = 'In use'; }
+        }
+        if (k === 'shower' || k === 'cook') ad.dur = A.dur;
+        ads.push(ad);
+      });
+    });
+    if (!from.out) {
+      var fb = freeBeds(s, r);
+      ads.push({ key: 'floorSleep', label: 'Nap on the floor', short: 'Floor nap', gain: { energy: 100 - needs.energy }, mult: sleepMult * 0.45, ok: !fb, why: fb ? 'A bed is free' : '', spot: from });
+    }
+    s.residents.forEach(function (o) {
+      if (o.id === r.id) return;
+      var busy = partnerBusy(o), spot = null;
+      if (!busy) {
+        var p = nodeOf(o), w = WALK[p.f], cands = [p.c - 1, p.c + 1].filter(function (c) { return c >= w[0] && c <= w[1]; });
+        cands.forEach(function (c) { var n = { f: p.f, c: c }; if (!spot || dist(n) < dist(spot)) spot = n; });
+      }
+      ['chat', 'play'].forEach(function (k) {
+        var A = ACTS[k], ad = { key: k, label: A.label + ' ' + o.name, short: A.short, partnerId: o.id, gain: copy(A.gain), dur: A.dur, ok: !busy, why: busy, spot: spot || { f: 0, c: 1 } };
+        if (ad.ok && k === 'play' && (needs.energy < 30 || o.needs.energy < 30)) { ad.ok = false; ad.why = 'Too tired to play'; }
+        if (ad.ok) ad.bonus = gainValue(o.needs, A.gain) * 0.3;
+        ads.push(ad);
+      });
+    });
+    if (r.workStart !== null && r.workStart !== undefined) {
+      var ws = workState(s, r);
+      var wad = { key: 'work', label: 'Go to work (+$' + r.pay + ')', short: 'Work', gain: {}, ok: ws.ok, why: ws.why || '', spot: { out: true } };
+      if (ws.ok) wad.flat = ws.inWindow ? (needs.hunger < 12 || needs.energy < 12 ? 15 : 90) : 4;
+      ads.push(wad);
+    }
+    if (!from.out) {
+      var wr = WALK[from.f], room = roomAt(from.f, from.c), lo = room ? Math.max(room.c0, wr[0]) : from.c, hi = room ? Math.min(room.c1, wr[1]) : from.c;
+      var wc = rng ? lo + Math.floor(rng() * (hi - lo + 1)) : from.c;
+      ads.push({ key: 'wander', label: 'Potter about', short: 'Potter', gain: { fun: 3 }, dur: 0.3, ok: true, why: '', spot: { f: from.f, c: wc }, flat: 1.2 });
+    }
+    ads.forEach(function (ad) {
+      ad.dist = ad.spot ? dist(ad.spot) : Infinity;
+      if (!isFinite(ad.dist) && ad.ok) { ad.ok = false; ad.why = 'Cannot get there'; }
+      ad.score = scoreAd(needs, ad);
+      if (ad.key === r.lastKey && ad.key !== 'sleep' && ad.key !== 'work') ad.score *= 0.6;
+    });
+    return ads;
+  }
+  function chooseAction(s, r, rng) {
+    var ads = listAds(s, r, rng).filter(function (a) { return a.ok && a.score > 0.5; });
+    ads.sort(function (a, b) { return b.score - a.score; });
+    if (!ads.length) return null;
+    if (!rng) return ads[0];
+    var top = ads.slice(0, 3).filter(function (a) { return a.score >= ads[0].score * 0.6; });
+    var tot = 0; top.forEach(function (a) { tot += a.score * a.score; });
+    var x = rng() * tot;
+    for (var i = 0; i < top.length; i++) { x -= top[i].score * top[i].score; if (x <= 0) return top[i]; }
+    return top[0];
+  }
+
+  // ---------- acting ----------
+  function ev(s, e) { s.events.push(e); if (s.events.length > 200) s.events.shift(); }
+  function startAct(s, r, ad, auto) {
+    var from = walkStart(r), p = findPath(from, ad.spot);
+    if (!p) return false;
+    var wps = p.nodes.map(nodeWP);
+    if (r.mode === 'walk' && r.path.length) wps[0] = r.path[0];
+    r.path = wps;
+    r.act = { key: ad.key, label: ad.label, short: ad.short, itemId: ad.itemId, seatId: ad.seatId, seat: ad.seat, partnerId: ad.partnerId, gain: ad.gain, dur: ad.dur, t: 0, auto: !!auto };
+    r.mode = 'walk';
+    if (ad.partnerId) {
+      var o = resById(s, ad.partnerId);
+      if (o.mode === 'act') cancelAct(s, o);
+      o.mode = 'wait'; o.waitFor = r.id; o.waitLeft = 1.2; o.path = [];
+      o.act = { key: 'wait', label: 'Waiting for ' + r.name, short: '...', auto: true };
+    }
+    ev(s, { type: 'choose', id: r.id, key: ad.key });
+    return true;
+  }
+  function cancelAct(s, r) {
+    var a = r.act;
+    if (a && a.partnerId) {
+      var p = resById(s, a.partnerId);
+      if (p && p.mode === 'act' && p.act && p.act.partnerId === r.id) { p.act = null; p.mode = 'idle'; p.think = 0.05; }
+      if (p && p.mode === 'wait' && p.waitFor === r.id) { p.act = null; p.mode = 'idle'; p.think = 0.05; }
+    }
+    r.act = null;
+    if (r.mode === 'walk' && r.path.length) r.path = r.path.slice(0, 1);
+    else if (r.mode !== 'away') { r.mode = 'idle'; r.path = []; r.think = 0.02; }
+  }
+  function releaseItem(s, id) {
+    s.residents.forEach(function (o) { if (o.act && (o.act.itemId === id || o.act.seatId === id) && o.mode !== 'away') cancelAct(s, o); });
+  }
+  function queueAction(s, r, ad) {
+    if (!ad || !ad.ok || r.queue.length >= MAX_QUEUE) return false;
+    r.queue.push({ key: ad.key, itemId: ad.itemId, partnerId: ad.partnerId, label: ad.label });
+    return true;
+  }
+  function startQueued(s, r) {
+    var q = r.queue.shift();
+    var ad = listAds(s, r).filter(function (a) { return a.key === q.key && a.itemId === q.itemId && a.partnerId === q.partnerId; })[0];
+    if (!ad || !ad.ok || !startAct(s, r, ad, false)) {
+      ev(s, { type: 'fail', id: r.id, text: r.name + ' can\'t ' + q.label.charAt(0).toLowerCase() + q.label.slice(1) + (ad && ad.why ? ': ' + ad.why.toLowerCase() : ' right now') });
+      r.think = 0.02;
+    }
+  }
+  function arrive(s, r) {
+    var a = r.act;
+    if (!a) { r.mode = 'idle'; r.think = 0.03; return; }
+    if (a.key === 'work') {
+      r.mode = 'away'; r.awayLeft = SHIFT_H; r.path = [];
+      ev(s, { type: 'leave', id: r.id });
+      return;
+    }
+    if (a.partnerId) {
+      var p = resById(s, a.partnerId);
+      if (p && p.mode === 'wait' && p.waitFor === r.id) {
+        a.t = a.dur; r.mode = 'act';
+        p.mode = 'act'; p.act = { key: a.key, label: ACTS[a.key].label + ' ' + r.name, short: a.short, partnerId: r.id, gain: a.gain, dur: a.dur, t: a.dur, auto: true };
+        r.dir = p.x > r.x ? 1 : -1; p.dir = -r.dir;
+        ev(s, { type: 'chat', id: r.id, key: a.key });
+      } else { r.act = null; r.mode = 'idle'; r.think = 0.03; }
+      return;
+    }
+    if (a.itemId && !itemById(s, a.itemId)) { r.act = null; r.mode = 'idle'; return; }
+    r.mode = 'act';
+    a.t = a.dur || 0;
+    if (a.itemId) { var it = itemById(s, a.itemId); if (it) r.dir = (HX + (it.c + CATALOGUE[it.type].w / 2) * CELL) >= r.x ? 1 : -1; }
+  }
+  function finish(s, r) {
+    var a = r.act;
+    if (a.key === 'paint') {
+      s.money += ACTS.paint.earn; s.paintings++;
+      ev(s, { type: 'earn', id: r.id, amount: ACTS.paint.earn, x: r.x, y: r.y });
+    }
+    if (a.key === 'floorSleep') addFeeling(r, 'stiff', 'Slept on the floor', -18, 8);
+    if (a.key === 'sleep') r.feelings = r.feelings.filter(function (m) { return m.id !== 'stiff'; });
+    if (a.key === 'shower') addFeeling(r, 'fresh', 'Fresh and clean', 8, 3);
+    if (a.key === 'cook') addFeeling(r, 'meal', 'A good meal', 6, 3);
+    if (a.key === 'play' || a.key === 'chat') addFeeling(r, 'chat', 'Nice company', 5, 2);
+    r.lastKey = a.key;
+    r.act = null; r.mode = 'idle'; r.think = 0.03 + rand(s) * 0.07;
+  }
+  function addFeeling(r, id, label, v, h) {
+    r.feelings = r.feelings.filter(function (m) { return m.id !== id; });
+    r.feelings.push({ id: id, label: label, v: v, h: h });
+  }
+  function moveAlong(r, dist) {
+    while (dist > 0 && r.path.length) {
+      var wp = r.path[0], dx = wp.x - r.x, dy = wp.y - r.y, d = Math.sqrt(dx * dx + dy * dy);
+      if (Math.abs(dx) > 0.01) r.dir = dx > 0 ? 1 : -1;
+      if (d <= dist) { r.x = wp.x; r.y = wp.y; r.f = wp.f; r.out = wp.out; r.path.shift(); dist -= d; r.phase += d; }
+      else { r.x += dx / d * dist; r.y += dy / d * dist; r.phase += dist; dist = 0; }
+    }
+    return r.path.length === 0;
+  }
+  function tickRes(s, r, hrs, dm) {
+    var mode = r.mode === 'away' ? 'work' : isAsleep(r) ? 'asleep' : 'awake';
+    var mult = null;
+    if (mode === 'awake' && roomDark(s, resRoom(r))) mult = { fun: 1.35 };
+    r.needs = decayNeeds(r.needs, hrs, mode, mult);
+    if (mode === 'awake' && roomHas(s, resRoom(r), 'plant')) r.needs.fun = Math.min(100, r.needs.fun + 1.5 * hrs);
+    r.feelings = r.feelings.filter(function (m) { m.h -= hrs; return m.h > 0; });
+    if (r.queue.length && r.act && r.act.auto && (r.mode === 'act' || r.mode === 'walk' || r.mode === 'wait')) cancelAct(s, r);
+    if (r.mode === 'away') {
+      r.awayLeft -= hrs;
+      if (r.awayLeft <= 0) {
+        r.workedDay = s.day; r.mode = 'walk'; r.act = null; r.out = true; r.x = OUT_X; r.y = FLOOR_Y[0]; r.f = 0;
+        r.path = findPath({ out: true }, { f: 0, c: 1 }).nodes.map(nodeWP);
+        s.money += r.pay; s.earned += r.pay;
+        ev(s, { type: 'pay', id: r.id, amount: r.pay, x: HX + 20, y: FLOOR_Y[0] });
+      }
+    } else if (r.mode === 'wait') {
+      r.waitLeft -= hrs;
+      if (r.waitLeft <= 0) { r.mode = 'idle'; r.act = null; r.think = 0.02; }
+    } else if (r.mode === 'walk') {
+      if (moveAlong(r, SPEED * dm)) arrive(s, r);
+    } else if (r.mode === 'act') {
+      var a = r.act;
+      if (a.key === 'sleep' || a.key === 'floorSleep') {
+        r.needs.energy = Math.min(100, r.needs.energy + ACTS[a.key].rate * hrs);
+        if (r.needs.energy >= 99 || (r.needs.hunger < 8 && r.needs.energy > 50)) finish(s, r);
+      } else {
+        for (var k in a.gain) r.needs[k] = clamp(r.needs[k] + a.gain[k] / a.dur * hrs, 0, 100);
+        var sofaId = a.key === 'relax' ? a.itemId : a.seatId;
+        if (sofaId && usersOf(s, sofaId, r.id).some(function (o) { return o.mode === 'act'; })) r.needs.social = Math.min(100, r.needs.social + 25 * hrs);
+        a.t -= hrs;
+        if (a.t <= 0) finish(s, r);
+      }
+    } else {
+      if (r.queue.length) { startQueued(s, r); return; }
+      r.think -= hrs;
+      if (r.think <= 0) {
+        var ad = chooseAction(s, r, function () { return rand(s); });
+        if (!ad || !startAct(s, r, ad, true)) r.think = 0.1;
+      }
+    }
+  }
+  function billFor(day) { return Math.min(200, 40 + 10 * (day - 1)); }
+  function householdMood(s) {
+    var t = 0; s.residents.forEach(function (r) { t += mood(s, r); });
+    return s.residents.length ? t / s.residents.length : 0;
+  }
+  function midnight(s) {
+    var bill = billFor(s.day - 1);
+    s.money -= bill;
+    var hm = householdMood(s), happy = hm >= 60;
+    if (happy) s.happyDays++;
+    ev(s, { type: 'midnight', bill: bill, happy: happy, mood: Math.round(hm), day: s.day });
+  }
+  function tick(s, dm) {
+    var before = Math.floor(s.min / 60);
+    s.min += dm;
+    if (s.min >= 1440) { s.min -= 1440; s.day++; midnight(s); }
+    var after = Math.floor(s.min / 60);
+    if (after !== before) ev(s, { type: 'hour', h: after });
+    var hrs = dm / 60;
+    for (var i = 0; i < s.residents.length; i++) tickRes(s, s.residents[i], hrs, dm);
+    if (s.money > s.maxMoney) s.maxMoney = s.money;
+  }
+  function step(s, dtMin) {
+    while (dtMin > 1e-9) { var d = Math.min(dtMin, 2); tick(s, d); dtMin -= d; }
+  }
+
+  // ---------- setup, goals, save ----------
+  function makeRes(s, id, name, spot, job) {
+    var wp = nodeWP(spot);
+    return {
+      id: id, name: name,
+      look: { skin: SKINS[Math.floor(rand(s) * SKINS.length)], hair: HAIRS[Math.floor(rand(s) * HAIRS.length)], style: Math.floor(rand(s) * 4), shirt: SHIRTS[(id * 3 + Math.floor(rand(s) * 2)) % SHIRTS.length], pants: PANTS[Math.floor(rand(s) * PANTS.length)] },
+      needs: { hunger: 55 + rand(s) * 35, energy: 70 + rand(s) * 25, fun: 50 + rand(s) * 40, social: 50 + rand(s) * 40, hygiene: 55 + rand(s) * 40 },
+      f: spot.f, x: wp.x, y: wp.y, dir: 1, out: false, mode: 'idle', act: null, path: [], queue: [], feelings: [],
+      workStart: job.ws, pay: job.pay, workedDay: 0, awayLeft: 0, think: rand(s) * 0.1, phase: 0, lastKey: '', waitFor: 0, waitLeft: 0
+    };
+  }
+  function blank(seed) {
+    return { v: 1, seed: seed >>> 0, rs: seed | 0, day: 1, min: 7 * 60, money: 500, maxMoney: 500, earned: 0, items: [], nextId: 1, residents: [], happyDays: 0, paintings: 0, events: [] };
+  }
+  function newGame(seed, kit) {
+    var s = blank(seed === undefined ? 1 : seed);
+    if (kit === 'basic') s.money = s.maxMoney = 600;
+    (kit === 'basic' ? BASIC : STARTER).forEach(function (a) { s.items.push({ id: s.nextId++, type: a[0], f: a[1], c: a[2] }); });
+    var pool = NAMES.slice(), names = [];
+    for (var i = 0; i < 4; i++) names.push(pool.splice(Math.floor(rand(s) * pool.length), 1)[0]);
+    var spots = [{ f: 0, c: 3 }, { f: 0, c: 9 }, { f: 1, c: 2 }, { f: 1, c: 10 }];
+    var jobs = [{ ws: 8, pay: 160 }, { ws: 9, pay: 150 }, { ws: 12, pay: 140 }, { ws: null, pay: 0 }];
+    for (var j = 0; j < 4; j++) s.residents.push(makeRes(s, j + 1, names[j], spots[j], jobs[j]));
+    return s;
+  }
+  function goals(s) {
+    var bedrooms = ['sunny', 'blue'].map(roomById), rooms = ROOMS.filter(function (r) { return !r.noPlace; });
+    var tvSofa = s.items.some(function (t) { return t.type === 'tv' && roomHas(s, roomAt(t.f, t.c), 'sofa'); });
+    return [
+      { label: 'A bed for everyone', done: count(s, 'bed') >= s.residents.length },
+      { label: 'A lamp in both bedrooms', done: bedrooms.every(function (r) { return roomHas(s, r, 'lamp'); }) },
+      { label: 'Sell a painting', done: s.paintings > 0 },
+      { label: 'A TV and a sofa in one room', done: tvSofa },
+      { label: 'Have $1,500 at once', done: s.maxMoney >= 1500 },
+      { label: 'Three happy days', done: s.happyDays >= 3 },
+      { label: 'A lamp in every room', done: rooms.every(function (r) { return roomHas(s, r, 'lamp'); }) }
+    ];
+  }
+  function serialize(s) {
+    return {
+      game: 'littlehouse', v: 1, seed: s.seed, rs: s.rs, day: s.day, min: s.min, money: s.money, maxMoney: s.maxMoney, earned: s.earned,
+      happyDays: s.happyDays, paintings: s.paintings, nextId: s.nextId,
+      items: s.items.map(function (it) { return { id: it.id, type: it.type, f: it.f, c: it.c }; }),
+      residents: s.residents.map(function (r) {
+        return { id: r.id, name: r.name, look: copy(r.look), needs: copy(r.needs), f: r.out ? 0 : r.f, c: nodeOf(r).out ? 1 : nodeOf(r).c, workStart: r.workStart, pay: r.pay, workedDay: r.workedDay, feelings: r.feelings.map(copy) };
+      })
+    };
+  }
+  function num(v, lo, hi, d) { return typeof v === 'number' && isFinite(v) ? clamp(v, lo, hi) : d; }
+  function hex(v, d) { return typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v) ? v : d; }
+  function deserialize(o) {
+    if (!o || typeof o !== 'object' || o.game !== 'littlehouse') throw new Error('That is not a Littlehouse save file');
+    if (o.v !== 1) throw new Error('Unknown save version');
+    if (!Array.isArray(o.items) || !Array.isArray(o.residents)) throw new Error('The save is missing its house or household');
+    if (o.residents.length < 1 || o.residents.length > 4) throw new Error('A house holds one to four residents');
+    if (o.items.length > MAX_ITEMS) throw new Error('Too much furniture');
+    var s = blank(num(o.seed, 0, 4294967295, 1));
+    s.rs = num(o.rs, -2147483648, 2147483647, 1) | 0;
+    s.day = Math.floor(num(o.day, 1, 100000, 1)); s.min = num(o.min, 0, 1439.99, 420);
+    s.money = Math.round(num(o.money, -1e6, 1e7, 500)); s.maxMoney = Math.max(s.money, num(o.maxMoney, -1e6, 1e7, 0));
+    s.earned = num(o.earned, 0, 1e9, 0); s.happyDays = Math.floor(num(o.happyDays, 0, 1e6, 0)); s.paintings = Math.floor(num(o.paintings, 0, 1e6, 0));
+    o.items.forEach(function (it) {
+      if (!it || !CATALOGUE[it.type]) throw new Error('Unknown furniture in the save');
+      var p = canPlace(s, it.type, it.f, it.c);
+      if (!p.ok) throw new Error('Furniture in the save does not fit: ' + p.reason.toLowerCase());
+      s.items.push({ id: s.nextId++, type: it.type, f: it.f, c: it.c });
+    });
+    var used = {};
+    o.residents.forEach(function (x, i) {
+      if (!x || typeof x !== 'object') throw new Error('A resident in the save is broken');
+      var name = typeof x.name === 'string' && x.name.trim() ? x.name.trim().slice(0, 14) : 'Guest ' + (i + 1);
+      var f = x.f === 1 ? 1 : 0, w = WALK[f], c = Math.floor(num(x.c, w[0], w[1], 1));
+      var ws = x.workStart === null ? null : num(x.workStart, 6, 15, null);
+      var r = makeRes(s, i + 1, name, { f: f, c: c }, { ws: ws, pay: Math.round(num(x.pay, 0, 1000, 0)) });
+      var L = x.look || {};
+      r.look = { skin: hex(L.skin, r.look.skin), hair: hex(L.hair, r.look.hair), style: Math.floor(num(L.style, 0, 3, 0)), shirt: hex(L.shirt, r.look.shirt), pants: hex(L.pants, r.look.pants) };
+      var n = x.needs || {};
+      NEEDS.forEach(function (k) { r.needs[k] = num(n[k], 0, 100, 70); });
+      r.workedDay = Math.floor(num(x.workedDay, 0, 1e6, 0));
+      r.feelings = Array.isArray(x.feelings) ? x.feelings.filter(function (m) { return m && typeof m.id === 'string' && typeof m.label === 'string'; }).slice(0, 6).map(function (m) { return { id: m.id.slice(0, 12), label: m.label.slice(0, 40), v: num(m.v, -30, 30, 0), h: num(m.h, 0, 24, 1) }; }) : [];
+      used[r.id] = 1;
+      s.residents.push(r);
+    });
+    return s;
+  }
+
+  return {
+    CELL: CELL, HX: HX, COLS: COLS, FH: FH, WORLD_W: WORLD_W, WORLD_H: WORLD_H, FLOOR_Y: FLOOR_Y, WALK: WALK, OUT_X: OUT_X, SPEED: SPEED, SHIFT_H: SHIFT_H, MAX_QUEUE: MAX_QUEUE,
+    NEEDS: NEEDS, NEED_LABEL: NEED_LABEL, DECAY: DECAY, ROOMS: ROOMS, CATALOGUE: CATALOGUE, TYPES: TYPES, ACTS: ACTS,
+    clamp: clamp, rand: rand, hourOf: hourOf, isNightH: isNightH, darkH: darkH, roomAt: roomAt, roomById: roomById, itemById: itemById, itemsIn: itemsIn, roomHas: roomHas,
+    canPlace: canPlace, firstFit: firstFit, buy: buy, sell: sell, sellValue: sellValue, moveItem: moveItem,
+    findPath: findPath, nodeOf: nodeOf, nodeWP: nodeWP, walkable: walkable,
+    decayNeeds: decayNeeds, mood: mood, face: face, moodWord: moodWord, wantOf: wantOf, usersOf: usersOf, isAsleep: isAsleep, resRoom: resRoom, roomDark: roomDark, roomMood: roomMood,
+    distress: distress, gainValue: gainValue, listAds: listAds, chooseAction: chooseAction, startAct: startAct, cancelAct: cancelAct, queueAction: queueAction,
+    step: step, billFor: billFor, householdMood: householdMood, newGame: newGame, goals: goals, serialize: serialize, deserialize: deserialize, resById: resById, workState: workState
+  };
+})();
+// LOGIC-END
+
+(function () {
+  'use strict';
+  var qs = new URLSearchParams(location.search);
+  var PREVIEW = qs.get('preview') === '1';
+  if (PREVIEW) { document.documentElement.classList.add('preview'); document.body.classList.add('preview'); }
+  var RM = false; try { RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { RM = false; }
+  var $ = function (id) { return document.getElementById(id); };
+  var view = $('view'), ctx = view.getContext('2d'), stage = $('stage'), tabBody = $('tabBody');
+  var INK = '#1A1540', PAPER = '#F7F4FF';
+  var CELL = LH.CELL, HX = LH.HX, FY = LH.FLOOR_Y, FH = LH.FH, CAT = LH.CATALOGUE;
+  var VIEW = { x: 12, y: 0, w: 760, h: 400 };
+
+  // ---------- storage (every access wrapped) ----------
+  var SAVE_KEY = 'littlehouse.save', BEST_KEY = 'littlehouse.best', MUTE_KEY = 'littlehouse.mute';
+  var Store = {
+    get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { if (PREVIEW) return false; try { window.localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+  };
+
+  // ---------- sound ----------
+  var AC = null, muted = Store.get(MUTE_KEY) === '1', heard = false;
+  function unlock() {
+    if (PREVIEW || heard) return;
+    heard = true;
+    try { var C = window.AudioContext || window.webkitAudioContext; if (C) AC = new C(); } catch (e) { AC = null; }
+  }
+  function tone(f, d, type, vol, delay, f2) {
+    if (!AC || muted || PREVIEW) return;
+    try {
+      var t0 = AC.currentTime + (delay || 0), o = AC.createOscillator(), g = AC.createGain();
+      o.type = type || 'sine'; o.frequency.setValueAtTime(f, t0);
+      if (f2) o.frequency.exponentialRampToValueAtTime(f2, t0 + d);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol || 0.08, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+      o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0 + d + 0.03);
+    } catch (e) { /* audio is optional */ }
+  }
+  var SFX = {
+    click: function () { tone(700, 0.05, 'triangle', 0.04); },
+    buy: function () { tone(523, 0.1, 'triangle', 0.08); tone(784, 0.18, 'triangle', 0.08, 0.08); tone(1047, 0.2, 'sine', 0.05, 0.16); },
+    sell: function () { tone(660, 0.1, 'triangle', 0.07); tone(440, 0.18, 'triangle', 0.07, 0.08); },
+    coin: function () { tone(988, 0.08, 'square', 0.035); tone(1319, 0.22, 'square', 0.035, 0.07); },
+    bad: function () { tone(200, 0.16, 'sawtooth', 0.04, 0, 150); },
+    bills: function () { tone(262, 0.18, 'triangle', 0.07); tone(196, 0.3, 'triangle', 0.07, 0.14); },
+    chat: function () { for (var i = 0; i < 4; i++) tone(420 + Math.random() * 380, 0.06, 'sine', 0.03, i * 0.075, 380 + Math.random() * 500); },
+    morning: function () { [523, 659, 784].forEach(function (f, i) { tone(f, 0.25, 'sine', 0.05, i * 0.12); }); },
+    happy: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.22, 'triangle', 0.06, i * 0.1); }); }
+  };
+
+  // ---------- state ----------
+  var state, demo = true, paused = false, speed = 1;
+  var ui = { tab: 'people', res: null, item: null, placing: null, sig: '', ads: [], confirmNew: 0 };
+  var floats = [], parts = [], best = parseInt(Store.get(BEST_KEY) || '0', 10) || 0;
+  var lastSave = 0, toastTimer = 0;
+
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.classList.add('on');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove('on'); }, 2600);
+  }
+  function setSpeed(n) {
+    if (n === 0) { paused = !paused; } else { speed = n; paused = false; }
+    syncBar();
+  }
+  function syncBar() {
+    $('sp0').setAttribute('aria-pressed', paused ? 'true' : 'false');
+    for (var i = 1; i <= 3; i++) $('sp' + i).setAttribute('aria-pressed', !paused && speed === i ? 'true' : 'false');
+    $('mute').setAttribute('aria-pressed', muted ? 'true' : 'false');
+    $('mute').textContent = muted ? 'Muted' : 'Snd';
+  }
+  function fmtTime(min) { var h = Math.floor(min / 60), m = Math.floor(min % 60); return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m; }
+  function money(v) { return (v < 0 ? '-$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US'); }
+
+  function newHousehold() {
+    state = LH.newGame((Math.random() * 4294967295) >>> 0, 'basic');
+    demo = false; paused = false; speed = 1;
+    ui.res = state.residents[0].id; ui.item = null; ui.placing = null; ui.sig = '';
+    floats = []; parts = [];
+    $('title').classList.add('off');
+    setTab('people'); syncBar();
+    toast('Welcome home. ' + state.residents.map(function (r) { return r.name; }).join(', ') + ' just moved in.');
+  }
+  function loadSaved(quiet) {
+    var raw = Store.get(SAVE_KEY);
+    if (!raw) { if (!quiet) toast('No saved house yet'); return false; }
+    try { state = LH.deserialize(JSON.parse(raw)); }
+    catch (e) { toast('Could not load: ' + e.message); return false; }
+    demo = false; paused = false; ui.res = state.residents[0].id; ui.item = null; ui.placing = null; ui.sig = '';
+    $('title').classList.add('off'); syncBar();
+    toast('Loaded day ' + state.day + ', ' + fmtTime(state.min));
+    return true;
+  }
+  function save(quiet) {
+    if (demo || PREVIEW) return false;
+    var ok = Store.set(SAVE_KEY, JSON.stringify(LH.serialize(state)));
+    if (!quiet) toast(ok ? 'Saved' : 'Saving is blocked in this browser. Use Export instead.');
+    return ok;
+  }
+  function exportJSON() {
+    try {
+      var blob = new Blob([JSON.stringify(LH.serialize(state), null, 1)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'littlehouse-day' + state.day + '.json';
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+      toast('Exported ' + a.download);
+    } catch (e) { toast('Export failed: ' + e.message); }
+  }
+  function importJSON(file) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      try {
+        state = LH.deserialize(JSON.parse(String(fr.result)));
+        demo = false; paused = false; ui.res = state.residents[0].id; ui.item = null; ui.placing = null; ui.sig = '';
+        $('title').classList.add('off'); syncBar(); toast('Imported day ' + state.day);
+      } catch (e) { toast('Could not import: ' + e.message); }
+    };
+    fr.onerror = function () { toast('Could not read that file'); };
+    fr.readAsText(file);
+  }
+
+  // ---------- layout / canvas ----------
+  var dpr = 1, cw = 1, ch = 1, scale = 1, offX = 0, offY = 0;
+  function resize() {
+    var r = stage.getBoundingClientRect();
+    cw = Math.max(1, r.width); ch = Math.max(1, r.height);
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    view.width = Math.round(cw * dpr); view.height = Math.round(ch * dpr);
+    scale = Math.min(cw / VIEW.w, ch / VIEW.h);
+    offX = (cw - VIEW.w * scale) / 2; offY = (ch - VIEW.h * scale) / 2;
+    if (ch > VIEW.h * scale + 4) offY = Math.min(offY, (ch - VIEW.h * scale) * 0.35);
+  }
+  function toWorld(cx, cy) { return { x: (cx - offX) / scale + VIEW.x, y: (cy - offY) / scale + VIEW.y }; }
+
+  // ---------- colour helpers ----------
+  function hexRgb(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+  function mix(a, b, t) { var A = hexRgb(a), B = hexRgb(b); return 'rgb(' + Math.round(A[0] + (B[0] - A[0]) * t) + ',' + Math.round(A[1] + (B[1] - A[1]) * t) + ',' + Math.round(A[2] + (B[2] - A[2]) * t) + ')'; }
+  function mixHex(a, b, t) { var A = hexRgb(a), B = hexRgb(b), s = '#'; for (var i = 0; i < 3; i++) { var v = Math.round(A[i] + (B[i] - A[i]) * t); s += (v < 16 ? '0' : '') + v.toString(16); } return s; }
+  function darkness(h) { if (h >= 7 && h <= 18.5) return 0; if (h >= 20.5 || h < 5.5) return 1; if (h < 7) return (7 - h) / 1.5; return (h - 18.5) / 2; }
+  function rr(c, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+  function fs(c, fill) { c.fillStyle = fill; c.fill(); c.stroke(); }
+  function circ(c, x, y, r) { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); }
+
+  // ---------- furniture drawing ----------
+  var ITEM_H = { bed: 48, fridge: 90, stove: 54, shower: 114, sofa: 46, tv: 58, bookshelf: 96, easel: 84, plant: 54, lamp: 88 };
+  var BOOKS = ['#FF4F6D', '#22D3C5', '#FFE066', '#B45CF0', '#FF8A3D', '#8C9BFF', '#C6F432', '#FF7AC8'];
+  function drawItem(c, type, x, y, st, t) {
+    var w = CAT[type].w * CELL;
+    c.lineWidth = 1.8; c.strokeStyle = INK; c.lineJoin = 'round';
+    if (type === 'bed') {
+      rr(c, x + 3, y - 46, 11, 46, 4); fs(c, '#B8733F');
+      rr(c, x + w - 12, y - 30, 9, 30, 3); fs(c, '#B8733F');
+      rr(c, x + 5, y - 20, w - 10, 11, 3); fs(c, '#99592F');
+      rr(c, x + 12, y - 31, w - 22, 12, 5); fs(c, '#FFFFFF');
+      rr(c, x + 15, y - 37, 22, 10, 5); fs(c, '#FFFFFF');
+      rr(c, x + 38, y - 33, w - 48, 16, 6); fs(c, st.blanket || '#B9A8FF');
+      c.beginPath(); c.moveTo(x + 44, y - 26); c.lineTo(x + w - 14, y - 26); c.stroke();
+    } else if (type === 'fridge') {
+      rr(c, x + 5, y - 88, 34, 88, 7); fs(c, '#E6FBF9');
+      c.beginPath(); c.moveTo(x + 5, y - 58); c.lineTo(x + 39, y - 58); c.stroke();
+      rr(c, x + 30, y - 80, 4, 16, 2); fs(c, '#8C9BFF'); rr(c, x + 30, y - 50, 4, 22, 2); fs(c, '#8C9BFF');
+      c.fillStyle = '#FF4F6D'; circ(c, x + 14, y - 74, 3); c.fill(); c.fillStyle = '#FFE066'; circ(c, x + 20, y - 68, 3); c.fill(); c.fillStyle = '#22D3C5'; rr(c, x + 11, y - 46, 8, 10, 1); c.fill();
+    } else if (type === 'stove') {
+      rr(c, x + 3, y - 46, 38, 46, 4); fs(c, '#FFFFFF');
+      rr(c, x + 2, y - 52, 40, 7, 3); fs(c, '#4B4394');
+      rr(c, x + 9, y - 36, 26, 18, 3); fs(c, st.on ? '#FF8A3D' : '#2E2766');
+      c.fillStyle = INK; [12, 22, 32].forEach(function (k) { circ(c, x + k, y - 41, 1.8); c.fill(); });
+      if (st.on) {
+        rr(c, x + 10, y - 64, 24, 12, 3); fs(c, '#8C9BFF');
+        c.strokeStyle = 'rgba(255,255,255,0.8)'; c.lineWidth = 2;
+        for (var i = 0; i < 3; i++) { var sy = y - 70 - ((t * 18 + i * 9) % 26); c.beginPath(); c.moveTo(x + 15 + i * 7, sy); c.quadraticCurveTo(x + 19 + i * 7, sy - 5, x + 15 + i * 7, sy - 10); c.stroke(); }
+        c.strokeStyle = INK; c.lineWidth = 1.8;
+      }
+    } else if (type === 'shower') {
+      c.beginPath(); c.moveTo(x + 34, y - 6); c.lineTo(x + 34, y - 110); c.lineTo(x + 18, y - 110); c.lineWidth = 3; c.stroke(); c.lineWidth = 1.8;
+      rr(c, x + 10, y - 108, 14, 6, 3); fs(c, '#C9D2FF');
+      rr(c, x + 1, y - 7, 42, 7, 3); fs(c, '#FFFFFF');
+    } else if (type === 'sofa') {
+      rr(c, x + 5, y - 44, w - 10, 24, 9); fs(c, st.color || '#FF4F6D');
+      rr(c, x + 3, y - 26, w - 6, 16, 6); fs(c, '#FF7A92');
+      rr(c, x, y - 34, 12, 26, 6); fs(c, st.color || '#FF4F6D'); rr(c, x + w - 12, y - 34, 12, 26, 6); fs(c, st.color || '#FF4F6D');
+      c.beginPath(); c.moveTo(x + w / 2, y - 25); c.lineTo(x + w / 2, y - 11); c.stroke();
+      c.fillStyle = INK; c.fillRect(x + 8, y - 10, 5, 10); c.fillRect(x + w - 13, y - 10, 5, 10);
+    } else if (type === 'tv') {
+      rr(c, x + 2, y - 22, 40, 22, 3); fs(c, '#B8733F');
+      c.beginPath(); c.moveTo(x + 22, y - 22); c.lineTo(x + 22, y - 28); c.stroke();
+      rr(c, x + 3, y - 58, 38, 30, 4); fs(c, INK);
+      if (st.on) {
+        var g = c.createLinearGradient(x + 6, y - 55, x + 38, y - 31);
+        var hue = (t * 40) % 360;
+        g.addColorStop(0, 'hsl(' + hue + ',90%,65%)'); g.addColorStop(1, 'hsl(' + ((hue + 120) % 360) + ',90%,60%)');
+        c.fillStyle = g; rr(c, x + 6, y - 55, 32, 24, 3); c.fill();
+        c.fillStyle = 'rgba(255,255,255,0.8)'; circ(c, x + 16 + Math.sin(t * 3) * 6, y - 44, 4); c.fill();
+      } else { c.fillStyle = 'rgba(255,255,255,0.14)'; c.beginPath(); c.moveTo(x + 8, y - 54); c.lineTo(x + 18, y - 54); c.lineTo(x + 8, y - 40); c.fill(); }
+    } else if (type === 'bookshelf') {
+      rr(c, x + 4, y - 94, 36, 94, 3); fs(c, '#B8733F');
+      for (var sh = 0; sh < 3; sh++) {
+        var by = y - 88 + sh * 29;
+        c.fillStyle = '#7A4A26'; c.fillRect(x + 7, by, 30, 25);
+        for (var b = 0; b < 5; b++) { var bh = 16 + ((b * 7 + sh * 3) % 8); c.fillStyle = BOOKS[(b + sh * 3) % BOOKS.length]; c.fillRect(x + 8 + b * 6, by + 25 - bh, 5, bh); }
+      }
+    } else if (type === 'easel') {
+      c.lineWidth = 3; c.beginPath(); c.moveTo(x + 22, y - 84); c.lineTo(x + 8, y); c.moveTo(x + 22, y - 84); c.lineTo(x + 36, y); c.moveTo(x + 22, y - 70); c.lineTo(x + 26, y); c.stroke(); c.lineWidth = 1.8;
+      rr(c, x + 6, y - 78, 32, 36, 2); fs(c, '#FFFFFF');
+      var p = st.paint || 0.35;
+      c.fillStyle = '#6FD3FF'; c.fillRect(x + 8, y - 76, 28, 16 * Math.min(1, p * 2));
+      if (p > 0.3) { c.fillStyle = '#C6F432'; c.fillRect(x + 8, y - 54, 28, 10); }
+      if (p > 0.5) { c.fillStyle = '#FFE066'; circ(c, x + 29, y - 69, 4); c.fill(); }
+      if (p > 0.7) { c.fillStyle = '#FF4F6D'; c.beginPath(); c.moveTo(x + 12, y - 52); c.lineTo(x + 19, y - 62); c.lineTo(x + 26, y - 52); c.fill(); }
+      rr(c, x + 4, y - 44, 36, 4, 2); fs(c, '#B8733F');
+    } else if (type === 'plant') {
+      c.fillStyle = '#5DBB2E';
+      [[-12, -34, -0.7], [0, -44, 0], [12, -34, 0.7], [-6, -40, -0.3], [7, -40, 0.35]].forEach(function (l) {
+        c.save(); c.translate(x + 22, y - 18); c.rotate(l[2] + Math.sin(t * 1.3 + l[0]) * 0.04);
+        c.beginPath(); c.ellipse(0, (l[1] + 18) / 1.3, 6, 15, 0, 0, Math.PI * 2); fs(c, l[0] === 0 ? '#C6F432' : '#7ED957'); c.restore();
+      });
+      c.beginPath(); c.moveTo(x + 10, y - 22); c.lineTo(x + 34, y - 22); c.lineTo(x + 30, y); c.lineTo(x + 14, y); c.closePath(); fs(c, '#FF8A3D');
+    } else if (type === 'lamp') {
+      c.beginPath(); c.ellipse(x + 22, y - 3, 11, 4, 0, 0, Math.PI * 2); fs(c, INK);
+      c.lineWidth = 3; c.beginPath(); c.moveTo(x + 22, y - 4); c.lineTo(x + 22, y - 66); c.stroke(); c.lineWidth = 1.8;
+      c.beginPath(); c.moveTo(x + 12, y - 64); c.lineTo(x + 32, y - 64); c.lineTo(x + 27, y - 86); c.lineTo(x + 17, y - 86); c.closePath(); fs(c, st.lit ? '#FFF3A8' : '#FFE066');
+    }
+  }
+  function drawShowerGlass(c, x, y, on, t) {
+    c.save();
+    c.fillStyle = 'rgba(34,211,197,0.2)'; c.strokeStyle = 'rgba(26,21,64,0.55)'; c.lineWidth = 1.5;
+    rr(c, x + 3, y - 100, 38, 93, 4); c.fill(); c.stroke();
+    if (on) {
+      c.strokeStyle = 'rgba(111,211,255,0.85)'; c.lineWidth = 1.6;
+      for (var i = 0; i < 7; i++) { var dx = x + 11 + i * 2, off = (t * 90 + i * 13) % 20; for (var k = 0; k < 5; k++) { var yy = y - 100 + off + k * 20; if (yy < y - 10) { c.beginPath(); c.moveTo(dx, yy); c.lineTo(dx - 1, yy + 7); c.stroke(); } } }
+      c.fillStyle = 'rgba(255,255,255,0.55)';
+      for (var j = 0; j < 4; j++) { circ(c, x + 10 + j * 8, y - 88 - ((t * 10 + j * 7) % 18), 4 + (j % 2) * 2); c.fill(); }
+    }
+    c.restore();
+  }
+
+  // ---------- people drawing ----------
+  function drawHair(c, L, hx, hy, dir, back) {
+    c.fillStyle = L.hair;
+    if (back) {
+      if (L.style === 1) { rr(c, hx - 14, hy - 8, 28, 20, 8); c.fill(); c.stroke(); }
+      if (L.style === 2) { circ(c, hx - dir * 3, hy - 15, 6.5); c.fill(); c.stroke(); }
+      return;
+    }
+    c.beginPath(); c.arc(hx, hy, 13.6, Math.PI * 1.02, Math.PI * 1.98); c.closePath(); c.fill(); c.stroke();
+    if (L.style === 0) { c.beginPath(); c.moveTo(hx + dir * 4, hy - 9); c.quadraticCurveTo(hx + dir * 12, hy - 8, hx + dir * 13, hy - 1); c.lineTo(hx + dir * 10, hy - 4); c.closePath(); c.fill(); }
+    if (L.style === 3) { for (var i = -2; i <= 2; i++) { circ(c, hx + i * 5.5, hy - 12 + Math.abs(i) * 2, 5); c.fill(); } }
+  }
+  function drawFace(c, hx, hy, dir, fc, t, seed, asleep) {
+    c.strokeStyle = INK; c.fillStyle = INK; c.lineWidth = 1.5;
+    var ex = hx + dir * 3, blink = ((t * 0.6 + seed * 0.37) % 4) < 0.1;
+    if (asleep || blink) {
+      c.beginPath(); c.moveTo(ex - 6, hy - 1); c.quadraticCurveTo(ex - 4, hy + 1, ex - 2, hy - 1); c.moveTo(ex + 2, hy - 1); c.quadraticCurveTo(ex + 4, hy + 1, ex + 6, hy - 1); c.stroke();
+    } else { circ(c, ex - 4.2, hy - 1, 1.9); c.fill(); circ(c, ex + 4.2, hy - 1, 1.9); c.fill(); }
+    if (fc === 'grumpy') { c.beginPath(); c.moveTo(ex - 7, hy - 7); c.lineTo(ex - 2, hy - 5); c.moveTo(ex + 7, hy - 7); c.lineTo(ex + 2, hy - 5); c.stroke(); }
+    c.beginPath();
+    if (asleep) { circ(c, ex, hy + 6, 1.6); c.stroke(); }
+    else if (fc === 'happy') { c.arc(ex, hy + 3, 4.2, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke(); }
+    else if (fc === 'ok') { c.moveTo(ex - 3, hy + 6); c.lineTo(ex + 3, hy + 6); c.stroke(); }
+    else { c.arc(ex, hy + 9.5, 4, 1.15 * Math.PI, 1.85 * Math.PI); c.stroke(); }
+    if (fc === 'happy' && !asleep) { c.fillStyle = 'rgba(255,122,200,0.5)'; circ(c, ex - 8, hy + 3, 2.6); c.fill(); circ(c, ex + 8, hy + 3, 2.6); c.fill(); }
+    if (fc === 'sad' && !asleep && ((t + seed) % 3) < 1.6) { c.fillStyle = '#6FD3FF'; c.beginPath(); c.ellipse(ex - 6, hy + 4 + ((t * 8) % 5), 1.5, 2.4, 0, 0, Math.PI * 2); c.fill(); }
+  }
+  function drawHead(c, L, hx, hy, dir, fc, t, seed, asleep) {
+    c.lineWidth = 1.6; c.strokeStyle = INK;
+    drawHair(c, L, hx, hy, dir, true);
+    circ(c, hx, hy, 13); fs(c, L.skin);
+    drawHair(c, L, hx, hy, dir, false);
+    drawFace(c, hx, hy, dir, fc, t, seed, asleep);
+  }
+  function drawPerson(c, r, x, y, pose, fc, t) {
+    var L = r.look, dir = r.dir || 1, bob = 0, sw = 0;
+    if (pose === 'walk') { sw = Math.sin(r.phase * 0.32) * 5; bob = -Math.abs(Math.sin(r.phase * 0.32)) * 2; }
+    if (pose === 'hop') bob = -Math.abs(Math.sin(t * 7 + r.id)) * 9;
+    if (pose === 'talk') bob = -Math.abs(Math.sin(t * 5 + r.id)) * 1.5;
+    c.save(); c.translate(x, y + bob); c.lineWidth = 1.6; c.strokeStyle = INK; c.lineJoin = 'round';
+    var sit = pose === 'sit', drop = sit ? 12 : 0;
+    if (sit) {
+      rr(c, dir > 0 ? -6 : -14, -24, 20, 9, 4); fs(c, L.pants);
+      rr(c, dir > 0 ? 8 : -14, -21, 7, 17, 3); fs(c, L.pants);
+      c.fillStyle = INK; c.beginPath(); c.ellipse(dir > 0 ? 13 : -11, -3, 5, 3, 0, 0, Math.PI * 2); c.fill();
+    } else {
+      rr(c, -8 + sw, -17, 7, 16, 3); fs(c, L.pants);
+      rr(c, 1 - sw, -17, 7, 16, 3); fs(c, L.pants);
+      c.fillStyle = INK; c.beginPath(); c.ellipse(-4 + sw + dir, -1.5, 5, 3, 0, 0, Math.PI * 2); c.fill(); c.beginPath(); c.ellipse(5 - sw + dir, -1.5, 5, 3, 0, 0, Math.PI * 2); c.fill();
+    }
+    rr(c, -11, -41 + drop, 22, 27, 9); fs(c, L.shirt);
+    var arm = pose === 'use' ? Math.sin(t * 9 + r.id) * 0.5 - 0.9 : pose === 'hop' ? -2.2 : pose === 'talk' ? Math.sin(t * 4 + r.id) * 0.4 - 0.5 : sw * 0.05;
+    c.save(); c.translate(dir * 6, -36 + drop); c.rotate(dir * -arm); rr(c, -3, 0, 6, 15, 3); fs(c, L.shirt); circ(c, 0, 16, 3); fs(c, L.skin); c.restore();
+    drawHead(c, L, 0, -53 + drop, dir, fc, t, r.id, false);
+    c.restore();
+  }
+  function drawSleeper(c, r, x, y, fc, t, onFloor, blanket) {
+    var L = r.look;
+    c.save(); c.lineWidth = 1.6; c.strokeStyle = INK;
+    if (onFloor) {
+      rr(c, x - 6, y - 14, 30, 13, 6); fs(c, L.shirt);
+      rr(c, x + 20, y - 11, 18, 10, 4); fs(c, L.pants);
+      c.save(); c.translate(x - 18, y - 12); c.rotate(-0.25); drawHead(c, L, 0, 0, -1, fc, t, r.id, true); c.restore();
+    } else {
+      c.save(); c.translate(x, y); c.rotate(-0.12); drawHead(c, L, 0, 0, 1, fc, t, r.id, true); c.restore();
+      rr(c, x + 12, y - 3, 46, 17, 7); fs(c, blanket || '#B9A8FF');
+      c.beginPath(); c.moveTo(x + 18, y + 5); c.lineTo(x + 52, y + 5); c.stroke();
+    }
+    c.fillStyle = INK; c.font = 'bold 12px system-ui,sans-serif';
+    var k = (t * 0.8 + r.id * 0.3) % 1;
+    c.globalAlpha = 1 - k; c.fillText('z', x + 6 + k * 10, y - 18 - k * 18); c.globalAlpha = Math.max(0, 1 - ((k + 0.5) % 1)); c.fillText('Z', x + 12 + ((k + 0.5) % 1) * 10, y - 18 - ((k + 0.5) % 1) * 18);
+    c.restore();
+  }
+
+  // ---------- scene ----------
+  var STARS = []; for (var si = 0; si < 40; si++) STARS.push([(si * 97.3) % 760 + 12, (si * 53.7) % 120 + 4, (si % 3) + 1]);
+  var PAPER_C = { kitchen: '#FFF1C2', living: '#E6FACB', hall: '#ECE8FF', sunny: '#FFE4F2', bath: '#D3F6F3', blue: '#E0E5FF', landing: '#ECE8FF' };
+  function itemState(it, t, dk) {
+    var st = {}, users = LH.usersOf(state, it.id, -1).filter(function (o) { return o.mode === 'act'; });
+    if (it.type === 'tv') st.on = users.some(function (o) { return o.act.itemId === it.id; });
+    if (it.type === 'stove') st.on = users.length > 0;
+    if (it.type === 'lamp') st.lit = dk > 0.2;
+    if (it.type === 'easel') { var p = users[0]; st.paint = p ? 1 - p.act.t / p.act.dur : 0.35 + (it.id % 3) * 0.25; }
+    if (it.type === 'bed') st.blanket = ['#B9A8FF', '#8C9BFF', '#FF7AC8', '#22D3C5'][it.id % 4];
+    if (it.type === 'sofa') st.color = ['#FF4F6D', '#B45CF0', '#22D3C5'][it.id % 3];
+    return st;
+  }
+  function roomRect(r) { return { x: HX + r.c0 * CELL, y: FY[r.f] - FH, w: (r.c1 - r.c0 + 1) * CELL, h: FH }; }
+  function pose(r) {
+    if (r.mode === 'walk') return 'walk';
+    if (r.mode === 'act' && r.act) {
+      var k = r.act.key;
+      if ((k === 'relax') || (k === 'tv' && r.act.seatId)) return 'sit';
+      if (k === 'play') return 'hop';
+      if (k === 'chat') return 'talk';
+      if (k === 'cook' || k === 'snack' || k === 'paint' || k === 'water' || k === 'read' || k === 'shower') return 'use';
+    }
+    return 'stand';
+  }
+  function render(t) {
+    var h = LH.hourOf(state), dk = darkness(h), duskW = 1 - Math.abs(dk * 2 - 1);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    var top = mix(mixHex('#6FD3FF', '#1A1540', dk), '#FF8A3D', duskW * 0.35), bot = mix(mixHex('#D8F7FF', '#3B2F80', dk), '#FF7AC8', duskW * 0.45);
+    var g = ctx.createLinearGradient(0, 0, 0, view.height); g.addColorStop(0, top); g.addColorStop(0.6, bot); ctx.fillStyle = g; ctx.fillRect(0, 0, view.width, view.height);
+    var k = dpr * scale;
+    ctx.setTransform(k, 0, 0, k, dpr * (offX - VIEW.x * scale), dpr * (offY - VIEW.y * scale));
+    var wx0 = VIEW.x - offX / scale, wx1 = wx0 + cw / scale, wy1 = VIEW.y - offY / scale + ch / scale;
+    var c = ctx;
+    // stars, sun, moon, clouds
+    if (dk > 0.05) { c.fillStyle = 'rgba(255,255,255,' + (dk * 0.9) + ')'; STARS.forEach(function (s) { var tw = 0.6 + 0.4 * Math.sin(t * 2 + s[0]); c.globalAlpha = dk * tw; c.fillRect(s[0], s[1], s[2], s[2]); }); c.globalAlpha = 1; }
+    if (h > 5.5 && h < 20) { var p = (h - 5.5) / 14.5, sx = 40 + p * 700, sy = 90 - Math.sin(p * Math.PI) * 78; c.fillStyle = '#FFE066'; circ(c, sx, sy, 17); c.fill(); c.fillStyle = 'rgba(255,224,102,0.3)'; circ(c, sx, sy, 26); c.fill(); }
+    if (dk > 0.3) { var mp = ((h + 24 - 19.5) % 24) / 11, mx = 60 + mp * 660, my = 80 - Math.sin(Math.min(1, mp) * Math.PI) * 64; c.globalAlpha = Math.min(1, (dk - 0.3) * 2); c.fillStyle = '#FFF6D6'; circ(c, mx, my, 13); c.fill(); c.fillStyle = mix('#6FD3FF', '#1A1540', dk); circ(c, mx + 6, my - 4, 11); c.fill(); c.globalAlpha = 1; }
+    if (dk < 0.9) { c.fillStyle = 'rgba(255,255,255,' + (0.85 * (1 - dk)) + ')'; for (var ci = 0; ci < 3; ci++) { var cx = ((t * (6 + ci * 3) + ci * 290) % 1000) - 120, cy = 22 + ci * 16; c.beginPath(); c.ellipse(cx, cy, 34, 10, 0, 0, 7); c.ellipse(cx + 20, cy - 6, 20, 10, 0, 0, 7); c.ellipse(cx - 18, cy - 3, 16, 8, 0, 0, 7); c.fill(); } }
+    // ground
+    c.fillStyle = mix('#C6F432', '#2F4A2A', dk * 0.8); c.fillRect(wx0 - 5, 350, wx1 - wx0 + 10, wy1 - 350 + 5);
+    c.fillStyle = mix('#9ACD32', '#233820', dk * 0.8); c.fillRect(wx0 - 5, 368, wx1 - wx0 + 10, wy1 - 368 + 5);
+    c.fillStyle = mix('#E7D9C3', '#4A4466', dk * 0.8); rr(c, HX - 90, 343, 84, 10, 3); c.fill();
+    drawHouse(c, t, dk);
+    // furniture
+    var shower = [];
+    state.items.forEach(function (it) {
+      var st = itemState(it, t, dk);
+      drawItem(c, it.type, HX + it.c * CELL, FY[it.f], st, t);
+      if (it.type === 'shower') shower.push(it);
+    });
+    // people
+    var bubbles = [];
+    state.residents.forEach(function (r) {
+      if (r.mode === 'away') return;
+      var fc = LH.face(state, r), a = r.act;
+      var alpha = r.x < HX - 8 ? Math.max(0, 1 - (HX - 8 - r.x) / 55) : 1;
+      if (alpha <= 0) return;
+      c.globalAlpha = alpha;
+      if (ui.res === r.id && !PREVIEW) { c.strokeStyle = '#FFE066'; c.lineWidth = 4; c.beginPath(); c.ellipse(r.x, r.y - 1, 17, 5, 0, 0, 7); c.stroke(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(); }
+      if (r.mode === 'act' && a && a.key === 'sleep') {
+        var bed = LH.itemById(state, a.itemId);
+        if (bed) { drawSleeper(c, r, HX + bed.c * CELL + 26, FY[bed.f] - 38, fc, t, false, itemState(bed, t, dk).blanket); bubbles.push({ r: r, x: HX + bed.c * CELL + 44, y: FY[bed.f] - 60, sleep: true }); }
+      } else if (r.mode === 'act' && a && a.key === 'floorSleep') {
+        drawSleeper(c, r, r.x, r.y, fc, t, true); bubbles.push({ r: r, x: r.x, y: r.y - 40, sleep: true });
+      } else {
+        var ps = pose(r), dy = 0;
+        if (ps === 'sit') dy = -8;
+        drawPerson(c, r, r.x, r.y + dy, ps, fc, t);
+        bubbles.push({ r: r, x: r.x, y: r.y + dy - (ps === 'sit' ? 66 : 76) });
+      }
+      c.globalAlpha = 1;
+    });
+    shower.forEach(function (it) {
+      var on = LH.usersOf(state, it.id, -1).some(function (o) { return o.mode === 'act'; });
+      drawShowerGlass(c, HX + it.c * CELL, FY[it.f], on, t);
+    });
+    drawNight(c, t, dk);
+    drawBuild(c, t);
+    drawBubbles(c, bubbles, t);
+    drawFx(c);
+    if (paused && !PREVIEW && !demo) {
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.fillStyle = 'rgba(26,21,64,0.8)'; rr(c, 10, 10, 86, 30, 10); c.fill(); c.fillStyle = PAPER; c.font = 'bold 15px system-ui,sans-serif'; c.fillText('Paused', 25, 30);
+    }
+  }
+  function drawHouse(c, t, dk) {
+    var W = LH.COLS * CELL, L = HX - 10, R = HX + W + 10;
+    // roof and chimney
+    c.lineWidth = 2; c.strokeStyle = INK;
+    rr(c, HX + 520, 10, 30, 50, 3); fs(c, '#C8663B');
+    c.beginPath(); c.moveTo(L - 22, 72); c.lineTo(HX + W / 2, 6); c.lineTo(R + 22, 72); c.closePath(); fs(c, '#FF4F6D');
+    c.save(); c.clip(); c.strokeStyle = 'rgba(26,21,64,0.18)'; c.lineWidth = 1.5; for (var ry = 22; ry < 72; ry += 12) { c.beginPath(); c.moveTo(0, ry); c.lineTo(800, ry); c.stroke(); } c.restore();
+    c.fillStyle = '#FFE066'; circ(c, HX + W / 2, 44, 11); c.fill(); c.stroke();
+    c.fillStyle = mix('#8FE3FF', '#241D55', dk); circ(c, HX + W / 2, 44, 7); c.fill();
+    // outer frame
+    rr(c, L, 66, R - L, 292, 4); fs(c, '#C8663B');
+    // rooms
+    LH.ROOMS.forEach(function (rm) {
+      var q = roomRect(rm);
+      if (rm.id === 'hall') { q = { x: HX + 12 * CELL, y: FY[1] - FH, w: 4 * CELL, h: FY[0] - FY[1] + FH }; }
+      if (rm.id === 'landing') return;
+      c.fillStyle = PAPER_C[rm.id]; c.fillRect(q.x, q.y, q.w, q.h);
+      c.fillStyle = 'rgba(26,21,64,0.045)';
+      for (var sx = q.x + 11; sx < q.x + q.w; sx += 22) c.fillRect(sx, q.y, 7, q.h);
+    });
+    // windows (one per room), dark at night
+    var sky = mix('#8FE3FF', '#1E1850', dk), sky2 = mix('#D8F7FF', '#352C78', dk);
+    [['kitchen', 3.5], ['living', 9.2], ['sunny', 2.5], ['bath', 5.9], ['blue', 10.4], ['hall', 14]].forEach(function (wd) {
+      var rm = LH.roomById(wd[0]), f = rm.f, cx = HX + wd[1] * CELL, wy = FY[f] - 108, ww = 46, wh = 44;
+      if (wd[0] === 'hall') { f = 1; wy = FY[1] - 100; wh = 70; ww = 40; }
+      var gg = c.createLinearGradient(0, wy, 0, wy + wh); gg.addColorStop(0, sky); gg.addColorStop(1, sky2);
+      rr(c, cx - ww / 2, wy, ww, wh, 5); c.fillStyle = gg; c.fill(); c.lineWidth = 3; c.strokeStyle = '#FFFFFF'; c.stroke(); c.lineWidth = 1.5; c.strokeStyle = INK; c.stroke();
+      c.beginPath(); c.moveTo(cx, wy); c.lineTo(cx, wy + wh); c.moveTo(cx - ww / 2, wy + wh / 2); c.lineTo(cx + ww / 2, wy + wh / 2); c.strokeStyle = '#FFFFFF'; c.lineWidth = 2.5; c.stroke();
+      if (dk > 0.5) { c.fillStyle = 'rgba(255,255,255,' + (dk - 0.5) + ')'; c.fillRect(cx - ww / 2 + 6, wy + 6, 1.6, 1.6); c.fillRect(cx + 8, wy + 10, 1.6, 1.6); }
+      c.strokeStyle = INK; c.lineWidth = 1.5;
+      c.fillStyle = ['#FF7AC8', '#FFE066', '#B9A8FF', '#22D3C5', '#8C9BFF', '#FF8A3D'][(wd[1] | 0) % 6];
+      if (wd[0] !== 'hall') { c.fillRect(cx - ww / 2 - 6, wy - 5, 8, wh + 12); c.fillRect(cx + ww / 2 - 2, wy - 5, 8, wh + 12); }
+    });
+    // pictures on walls for charm
+    c.lineWidth = 1.5; c.strokeStyle = INK;
+    rr(c, HX + 7.2 * CELL, FY[0] - 110, 26, 20, 2); fs(c, '#FFE066'); c.fillStyle = '#FF4F6D'; circ(c, HX + 7.2 * CELL + 13, FY[0] - 100, 5); c.fill();
+    rr(c, HX + 0.6 * CELL, FY[1] - 108, 22, 26, 2); fs(c, '#B9A8FF'); c.fillStyle = '#C6F432'; c.fillRect(HX + 0.6 * CELL + 4, FY[1] - 92, 14, 6);
+    // skirting
+    c.fillStyle = 'rgba(26,21,64,0.12)'; c.fillRect(HX, FY[0] - 6, 12 * CELL, 6); c.fillRect(HX, FY[1] - 6, 12 * CELL, 6);
+    // stairs
+    var x0 = HX + 15.5 * CELL, y0 = FY[0], x1 = HX + 12.5 * CELL, y1 = FY[1], n = 9;
+    c.beginPath(); c.moveTo(x0 + 8, y0);
+    for (var i = 0; i < n; i++) { var ax = x0 + 8 + (x1 - x0) * i / n, ay = y0 + (y1 - y0) * (i + 1) / n; c.lineTo(ax, ay); c.lineTo(ax + (x1 - x0) / n, ay); }
+    c.lineTo(x1 - 6, y1 + 16); c.lineTo(x0 - 26, y0); c.closePath(); c.lineWidth = 1.8; fs(c, '#D9925A');
+    c.strokeStyle = '#8B5A33'; c.lineWidth = 3; c.beginPath(); c.moveTo(x0 + 4, y0 - 44); c.lineTo(x1 + 4, y1 - 44); c.stroke();
+    for (var pi = 0; pi <= 3; pi++) { var px = x0 + 4 + (x1 - x0) * pi / 3, py = y0 - 44 + (y1 - y0) * pi / 3; c.beginPath(); c.moveTo(px, py); c.lineTo(px, py + 42); c.stroke(); }
+    c.strokeStyle = INK;
+    // slabs
+    c.lineWidth = 1.8;
+    rr(c, L, FY[0], R - L, 12, 2); fs(c, '#B8733F');
+    rr(c, L, FY[1], HX + 13 * CELL - L, 10, 2); fs(c, '#B8733F');
+    c.fillStyle = '#FFE066'; c.fillRect(HX, FY[1] + 1.5, 13 * CELL, 2.5);
+    // interior walls with doorways
+    [[0, 6], [0, 12], [1, 5], [1, 8], [1, 12]].forEach(function (wv) {
+      var x = HX + wv[1] * CELL, f = wv[0], top = FY[f] - FH;
+      c.fillStyle = '#E9D8FF'; c.fillRect(x - 5, top, 10, FH - 90); c.strokeRect(x - 5, top, 10, FH - 90);
+      c.strokeStyle = '#8B5A33'; c.lineWidth = 3; c.beginPath(); c.moveTo(x - 4, FY[f]); c.lineTo(x - 4, top + FH - 90); c.moveTo(x + 4, FY[f]); c.lineTo(x + 4, top + FH - 90); c.stroke(); c.strokeStyle = INK; c.lineWidth = 1.8;
+    });
+    // front door on the left wall
+    var near = state.residents.some(function (r) { return r.mode !== 'away' && Math.abs(r.x - (HX - 4)) < 34 && r.f === 0; });
+    c.fillStyle = '#2E2766'; c.fillRect(L, FY[0] - 90, 10, 90);
+    if (near) { c.beginPath(); c.moveTo(L, FY[0] - 90); c.lineTo(L - 26, FY[0] - 84); c.lineTo(L - 26, FY[0] - 4); c.lineTo(L, FY[0]); c.closePath(); fs(c, '#22D3C5'); }
+    else { rr(c, L - 3, FY[0] - 90, 14, 90, 3); fs(c, '#22D3C5'); c.fillStyle = '#FFE066'; circ(c, L + 7, FY[0] - 44, 2.5); c.fill(); }
+  }
+  function drawNight(c, t, dk) {
+    if (dk <= 0.01) return;
+    LH.ROOMS.forEach(function (rm) {
+      if (rm.id === 'landing') return;
+      var q = rm.id === 'hall' ? { x: HX + 12 * CELL, y: FY[1] - FH, w: 4 * CELL, h: FY[0] - FY[1] + FH } : roomRect(rm);
+      var lamp = LH.itemsIn(state, rm).filter(function (i) { return i.type === 'lamp'; })[0];
+      c.fillStyle = 'rgba(20,15,53,' + (dk * (lamp ? 0.12 : 0.5)) + ')'; c.fillRect(q.x, q.y, q.w, q.h);
+      if (lamp) {
+        var lx = HX + lamp.c * CELL + 22, ly = FY[lamp.f] - 76;
+        c.save(); c.beginPath(); c.rect(q.x, q.y, q.w, q.h); c.clip();
+        var g = c.createRadialGradient(lx, ly, 4, lx, ly, 170); g.addColorStop(0, 'rgba(255,224,102,' + (0.5 * dk) + ')'); g.addColorStop(1, 'rgba(255,224,102,0)');
+        c.fillStyle = g; c.fillRect(q.x, q.y, q.w, q.h); c.restore();
+      }
+    });
+    state.items.forEach(function (it) {
+      if (it.type !== 'tv') return;
+      if (!LH.usersOf(state, it.id, -1).some(function (o) { return o.mode === 'act' && o.act.itemId === it.id; })) return;
+      var x = HX + it.c * CELL + 22, y = FY[it.f] - 44, g = c.createRadialGradient(x, y, 2, x, y, 90);
+      g.addColorStop(0, 'rgba(140,155,255,' + (0.35 * dk) + ')'); g.addColorStop(1, 'rgba(140,155,255,0)'); c.fillStyle = g; c.fillRect(x - 90, y - 90, 180, 180);
+    });
+  }
+  function ghostCell() { return ui.placing ? { f: ui.placing.f, c: ui.placing.c } : null; }
+  function drawBuild(c, t) {
+    if (PREVIEW || demo || (ui.tab !== 'buy' && !ui.placing)) return;
+    c.save(); c.setLineDash([3, 4]); c.strokeStyle = 'rgba(26,21,64,0.28)'; c.lineWidth = 1;
+    for (var f = 0; f < 2; f++) for (var col = 0; col < LH.COLS; col++) { var rm = LH.roomAt(f, col); if (!rm || rm.noPlace || (f === 0 && col === 0)) continue; c.strokeRect(HX + col * CELL + 2, FY[f] - 30, CELL - 4, 28); }
+    c.restore();
+    if (ui.item && !ui.placing) {
+      var it = LH.itemById(state, ui.item);
+      if (it) { c.strokeStyle = '#FFE066'; c.lineWidth = 4; c.setLineDash([6, 4]); c.strokeRect(HX + it.c * CELL - 2, FY[it.f] - ITEM_H[it.type] - 4, CAT[it.type].w * CELL + 4, ITEM_H[it.type] + 6); c.setLineDash([]); }
+    }
+    var gc = ghostCell();
+    if (gc) {
+      var type = ui.placing.type, v = LH.canPlace(state, type, gc.f, gc.c, ui.placing.moveId), x = HX + gc.c * CELL, y = FY[gc.f], w = CAT[type].w * CELL;
+      c.fillStyle = v.ok ? 'rgba(198,244,50,0.45)' : 'rgba(255,79,109,0.4)'; c.fillRect(x, y - ITEM_H[type] - 4, w, ITEM_H[type] + 4);
+      c.globalAlpha = 0.75; drawItem(c, type, x, y, {}, t); c.globalAlpha = 1;
+      c.strokeStyle = v.ok ? '#3b7a12' : '#FF4F6D'; c.lineWidth = 3; c.strokeRect(x, y - ITEM_H[type] - 4, w, ITEM_H[type] + 4);
+    }
+  }
+  var NEED_COL = { hunger: '#FF8A3D', energy: '#8C9BFF', fun: '#B45CF0', social: '#FF7AC8', hygiene: '#22D3C5' };
+  function bubble(c, x, y, text, col, unmet, thought) {
+    c.font = 'bold 12px system-ui,sans-serif';
+    var w = c.measureText(text).width + 14, bx = Math.max(VIEW.x + 2, Math.min(VIEW.x + VIEW.w - w - 2, x - w / 2)), by = y - 22;
+    c.lineWidth = 1.6; c.strokeStyle = unmet ? '#FF4F6D' : INK;
+    rr(c, bx, by, w, 19, 9); fs(c, '#FFFFFF');
+    if (thought) { circ(c, x + 2, by + 23, 3); fs(c, '#FFFFFF'); circ(c, x - 1, by + 29, 1.8); fs(c, '#FFFFFF'); }
+    else { c.beginPath(); c.moveTo(x - 4, by + 19); c.lineTo(x, by + 25); c.lineTo(x + 4, by + 19); c.fillStyle = '#fff'; c.fill(); }
+    c.fillStyle = col; c.fillRect(bx + 4, by + 5, 3, 9);
+    c.fillStyle = unmet ? '#D6123A' : INK; c.fillText(text, bx + 10, by + 14);
+  }
+  function drawBubbles(c, list, t) {
+    list.forEach(function (b) {
+      var r = b.r;
+      if (b.sleep) return;
+      if (r.mode === 'act' && r.act && (r.act.key === 'chat' || r.act.key === 'play')) {
+        if (((t * 1.4 + (r.id % 2) * 0.5) % 1) < 0.5) {
+          var sy = b.y - 4; c.lineWidth = 1.5; c.strokeStyle = INK; rr(c, b.x - 15, sy - 16, 30, 16, 8); fs(c, '#fff');
+          if (r.act.key === 'play') { c.fillStyle = '#B45CF0'; circ(c, b.x - 5, sy - 8, 3.5); c.fill(); c.fillStyle = '#FFE066'; c.fillRect(b.x + 2, sy - 12, 8, 8); }
+          else { c.fillStyle = '#FF4F6D'; c.beginPath(); c.arc(b.x - 3, sy - 10, 2.6, Math.PI, 0); c.arc(b.x + 2, sy - 10, 2.6, Math.PI, 0); c.lineTo(b.x - 0.5, sy - 4); c.closePath(); c.fill(); c.fillStyle = INK; circ(c, b.x + 8, sy - 8, 1.4); c.fill(); }
+        }
+        return;
+      }
+      var w = LH.wantOf(state, r);
+      if (w) bubble(c, b.x, b.y, w.text, NEED_COL[w.need], w.unmet, true);
+      else if (r.mode === 'walk' && r.act && r.act.short) { c.globalAlpha = 0.85; bubble(c, b.x, b.y, r.act.short, '#C6F432', false, true); c.globalAlpha = 1; }
+      if (ui.res === r.id && !PREVIEW) { c.font = 'bold 11px system-ui,sans-serif'; var tw = c.measureText(r.name).width; c.fillStyle = 'rgba(26,21,64,0.85)'; rr(c, r.x - tw / 2 - 5, r.y + 3, tw + 10, 15, 6); c.fill(); c.fillStyle = '#FFE066'; c.fillText(r.name, r.x - tw / 2, r.y + 14); }
+    });
+  }
+  function addFloat(text, x, y, col) { floats.push({ text: text, x: x, y: y, col: col, life: 1.8 }); }
+  function burst(x, y, cols, n) {
+    for (var i = 0; i < n; i++) { var a = Math.random() * Math.PI * 2, v = 40 + Math.random() * 80; parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 0.7 + Math.random() * 0.5, col: cols[i % cols.length], s: 2 + Math.random() * 3 }); }
+  }
+  var lastFx = 0;
+  function drawFx(c) {
+    var now = performance.now() / 1000, dt = Math.min(0.1, now - (lastFx || now)); lastFx = now;
+    floats = floats.filter(function (f) { f.life -= dt; f.y -= 22 * dt; return f.life > 0; });
+    parts = parts.filter(function (p) { p.life -= dt; p.vy += 220 * dt; p.x += p.vx * dt; p.y += p.vy * dt; return p.life > 0; });
+    parts.forEach(function (p) { c.globalAlpha = Math.min(1, p.life * 2); c.fillStyle = p.col; c.fillRect(p.x - p.s / 2, p.y - p.s / 2, p.s, p.s); });
+    c.font = 'bold 15px system-ui,sans-serif'; c.lineWidth = 3; c.strokeStyle = '#fff';
+    floats.forEach(function (f) { c.globalAlpha = Math.min(1, f.life); var w = c.measureText(f.text).width; c.strokeText(f.text, f.x - w / 2, f.y); c.fillStyle = f.col; c.fillText(f.text, f.x - w / 2, f.y); });
+    c.globalAlpha = 1;
+  }
+
+  // ---------- events from the sim ----------
+  function drain() {
+    var evs = state.events; state.events = [];
+    evs.forEach(function (e) {
+      var r = e.id ? LH.resById(state, e.id) : null;
+      if (e.type === 'pay') { addFloat('+' + money(e.amount), e.x + 30, e.y - 104, '#157a3a'); burst(e.x + 30, e.y - 96, ['#FFE066', '#C6F432'], 14); if (!demo) { SFX.coin(); toast(r.name + ' is home from work: +' + money(e.amount)); } }
+      else if (e.type === 'earn') { addFloat('+' + money(e.amount), e.x, e.y - 80, '#157a3a'); burst(e.x, e.y - 70, ['#FF7AC8', '#FFE066', '#22D3C5'], 12); if (!demo) { SFX.coin(); toast(r.name + ' sold a painting: +' + money(e.amount)); } }
+      else if (e.type === 'leave') { if (!demo) toast(r.name + ' heads off to work'); }
+      else if (e.type === 'chat') { if (!demo) SFX.chat(); }
+      else if (e.type === 'midnight') {
+        if (!demo && !PREVIEW) {
+          SFX.bills();
+          toast('Day ' + (e.day - 1) + ' done. Bills -' + money(e.bill) + '. ' + (e.happy ? 'A happy day! (mood ' + e.mood + ')' : 'Mood was ' + e.mood + ', not quite happy.'));
+          if (e.happy) { SFX.happy(); if (state.happyDays > best) { best = state.happyDays; Store.set(BEST_KEY, String(best)); } }
+        }
+      }
+      else if (e.type === 'hour') { if (!demo && !PREVIEW) { if (e.h === 7) SFX.morning(); save(true); } }
+      else if (e.type === 'fail') { if (!demo) { toast(e.text); SFX.bad(); } }
+    });
+  }
+
+  // ---------- panel ----------
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]; }); }
+  function setTab(tab) {
+    ui.tab = tab; ui.sig = '';
+    Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.setAttribute('aria-selected', b.getAttribute('data-tab') === tab ? 'true' : 'false'); });
+    updatePanel();
+  }
+  function doing(r) {
+    if (r.mode === 'away') { var back = (state.min + r.awayLeft * 60) % 1440; return 'At work, back about ' + fmtTime(back); }
+    if (r.mode === 'wait') return r.act ? r.act.label : 'Waiting';
+    if (r.mode === 'walk') return r.act ? 'On the way: ' + r.act.label : 'Walking';
+    if (r.mode === 'act' && r.act) return r.act.label;
+    return 'Deciding what to do';
+  }
+  function gainText(ad) {
+    var parts2 = [];
+    for (var k in ad.gain) if (ad.gain[k] > 0) parts2.push(LH.NEED_LABEL[k] + ' +' + Math.round(ad.gain[k]));
+    return parts2.slice(0, 2).join(', ');
+  }
+  function peopleSig() {
+    var r = LH.resById(state, ui.res);
+    if (!r) return 'people|none|' + state.residents.length;
+    var ads = LH.listAds(state, r).filter(function (a) { return a.key !== 'wander'; });
+    ads.sort(function (a, b) { return (b.ok - a.ok) || (b.score - a.score); });
+    ui.ads = ads;
+    return 'people|' + r.id + '|' + r.queue.map(function (q) { return q.label; }).join(',') + '|' + ads.map(function (a) { return a.label + a.ok + a.why; }).join(',');
+  }
+  function buildPeople() {
+    var h = '<div class="chips">';
+    state.residents.forEach(function (r) { h += '<button class="chip" data-cmd="selres" data-id="' + r.id + '" aria-pressed="' + (ui.res === r.id) + '"><canvas width="80" height="80" data-face="' + r.id + '"></canvas><span>' + esc(r.name) + '</span></button>'; });
+    h += '</div>';
+    var r = LH.resById(state, ui.res);
+    if (!r) return h + '<p class="muted">Tap a resident in the house, or press R.</p>';
+    h += '<div class="card"><h3>' + esc(r.name) + ' <span class="muted" data-bind="mood"></span></h3><div class="muted" data-bind="doing"></div>';
+    LH.NEEDS.forEach(function (k) { h += '<div class="need"><span>' + LH.NEED_LABEL[k] + '</span><div class="bar"><i data-bind="n-' + k + '" style="background:' + NEED_COL[k] + '"></i></div><b data-bind="v-' + k + '"></b></div>'; });
+    h += '<div class="small" data-bind="feelings"></div>';
+    h += '<div class="small">' + (r.workStart === null ? 'Stays home and keeps house.' : 'Works from about ' + fmtTime(r.workStart * 60) + ' for ' + LH.SHIFT_H + ' hours, pays ' + money(r.pay) + '.') + '</div></div>';
+    h += '<h4>Queue (' + r.queue.length + '/' + LH.MAX_QUEUE + ')</h4>';
+    if (!r.queue.length) h += '<div class="small">Empty. ' + esc(r.name) + ' decides alone.</div>';
+    r.queue.forEach(function (q, i) { h += '<div class="q"><span>' + (i + 1) + '. ' + esc(q.label) + '</span><button data-cmd="unqueue" data-i="' + i + '" aria-label="Remove ' + esc(q.label) + '">×</button></div>'; });
+    h += '<h4>Tell ' + esc(r.name) + ' to</h4><div class="acts">';
+    ui.ads.forEach(function (a, i) {
+      h += '<button class="btn' + (a.ok && i < 2 ? ' hot' : '') + '" data-cmd="queue" data-i="' + i + '"' + (a.ok && r.queue.length < LH.MAX_QUEUE ? '' : ' disabled') + '>' + esc(a.label) + '<small>' + esc(a.ok ? gainText(a) || ' ' : a.why) + '</small></button>';
+    });
+    return h + '</div>';
+  }
+  function buySig() {
+    var aff = LH.TYPES.map(function (k) { return state.money >= CAT[k].price ? 1 : 0; }).join('');
+    var it = ui.item ? LH.itemById(state, ui.item) : null;
+    return 'buy|' + aff + '|' + (it ? it.id + ':' + it.f + ':' + it.c : '') + '|' + (ui.placing ? ui.placing.type + ui.placing.moveId : '') + '|' + ui.res;
+  }
+  function buildBuy() {
+    var h = '', it = ui.item ? LH.itemById(state, ui.item) : null;
+    if (ui.placing) {
+      var d = CAT[ui.placing.type];
+      h += '<div class="card"><h3>' + (ui.placing.moveId ? 'Moving' : 'Placing') + ' ' + d.name + '</h3><div class="muted">Tap a spot in a room. Green fits. Arrows and Enter work too.</div><div class="row" style="margin-top:6px"><button class="btn" data-cmd="cancelplace">Cancel</button></div></div>';
+    } else if (it) {
+      var d2 = CAT[it.type], rm = LH.roomAt(it.f, it.c), r = LH.resById(state, ui.res);
+      h += '<div class="card"><h3>' + d2.name + '</h3><div class="muted">' + rm.name + ' · ' + esc(d2.serves) + '</div><div class="small" data-bind="users"></div><div class="row" style="margin-top:6px">';
+      if (r && d2.acts.length) h += '<button class="btn go" data-cmd="senditem">Send ' + esc(r.name) + '</button>';
+      h += '<button class="btn" data-cmd="move">Move</button><button class="btn warn" data-cmd="sell">Sell +' + money(LH.sellValue(it.type)) + '</button></div></div>';
+    } else {
+      h += '<p class="small" style="margin-top:0">Pick something to buy, then tap a spot in the house. Tap placed furniture to move or sell it (half price back).</p>';
+    }
+    h += '<div class="cat">';
+    LH.TYPES.forEach(function (k) {
+      var d = CAT[k], poor = state.money < d.price;
+      h += '<button class="' + (poor ? 'poor' : '') + '" data-cmd="buy" data-type="' + k + '" aria-pressed="' + (!!ui.placing && ui.placing.type === k && !ui.placing.moveId) + '"><canvas width="104" height="88" data-icon="' + k + '"></canvas><b>' + d.name + ' <em>' + money(d.price) + '</em></b><span class="small">' + esc(d.serves) + '</span></button>';
+    });
+    return h + '</div>';
+  }
+  function houseSig() { return 'house|' + state.day + '|' + state.happyDays + '|' + LH.goals(state).map(function (g) { return g.done ? 1 : 0; }).join('') + '|' + best + '|' + ui.confirmNew; }
+  function buildHouse() {
+    var h = '<div class="card"><h3>Day ' + state.day + '</h3><div class="muted">Happy days: <b>' + state.happyDays + '</b> · Best: <b>' + Math.max(best, demo ? 0 : state.happyDays) + '</b> · Paintings sold: ' + state.paintings + '</div><div class="small" data-bind="hm"></div><div class="small">Tonight\'s bills: ' + money(LH.billFor(state.day)) + ' (a little more each day)</div></div>';
+    h += '<h4>Goals</h4><ul class="goals">';
+    LH.goals(state).forEach(function (g) { h += '<li class="' + (g.done ? 'done' : '') + '">' + esc(g.label) + '</li>'; });
+    h += '</ul><h4>Save</h4><div class="row"><button class="btn" data-cmd="save">Save</button><button class="btn" data-cmd="load">Load</button></div><div class="row" style="margin-top:6px"><button class="btn" data-cmd="export">Export .json</button><button class="btn" data-cmd="import">Import .json</button></div>';
+    h += '<div class="row" style="margin-top:6px"><button class="btn warn" data-cmd="new">' + (ui.confirmNew ? 'Tap again to start over' : 'New house') + '</button></div>';
+    h += '<p class="small">The house also saves itself every game hour.</p>';
+    return h;
+  }
+  function updatePanel() {
+    if (PREVIEW) return;
+    var sig = ui.tab === 'people' ? peopleSig() : ui.tab === 'buy' ? buySig() : houseSig();
+    if (sig !== ui.sig) {
+      var focusKey = document.activeElement && tabBody.contains(document.activeElement) ? (document.activeElement.getAttribute('data-cmd') || '') + '|' + (document.activeElement.getAttribute('data-i') || document.activeElement.getAttribute('data-type') || document.activeElement.getAttribute('data-id') || '') : null;
+      tabBody.innerHTML = ui.tab === 'people' ? buildPeople() : ui.tab === 'buy' ? buildBuy() : buildHouse();
+      ui.sig = sig;
+      Array.prototype.forEach.call(tabBody.querySelectorAll('canvas[data-icon]'), function (cv) { var k2 = cv.getAttribute('data-icon'), c2 = cv.getContext('2d'), w = CAT[k2].w; c2.setTransform(1, 0, 0, 1, 0, 0); c2.clearRect(0, 0, 104, 88); var sc = Math.min(96 / (w * CELL), 80 / ITEM_H[k2]); c2.setTransform(sc, 0, 0, sc, (104 - w * CELL * sc) / 2, 84 - 0 * sc); drawItem(c2, k2, 0, 0, { lit: false, paint: 0.9 }, 0); });
+      if (focusKey) { var el = Array.prototype.filter.call(tabBody.querySelectorAll('button'), function (b) { return (b.getAttribute('data-cmd') || '') + '|' + (b.getAttribute('data-i') || b.getAttribute('data-type') || b.getAttribute('data-id') || '') === focusKey; })[0]; if (el && !el.disabled) el.focus(); }
+    }
+    // live values
+    var r = LH.resById(state, ui.res), t = performance.now() / 1000;
+    if (ui.tab === 'people' && r) {
+      var m = LH.mood(state, r);
+      bind('mood', LH.moodWord(m) + ' (' + Math.round(m) + ')'); bind('doing', doing(r));
+      LH.NEEDS.forEach(function (k) { var el = tabBody.querySelector('[data-bind="n-' + k + '"]'); if (el) el.style.width = Math.round(r.needs[k]) + '%'; bind('v-' + k, Math.round(r.needs[k])); });
+      bind('feelings', r.feelings.map(function (x) { return x.label + ' (' + (x.v > 0 ? '+' : '') + x.v + ')'; }).join(' · '));
+    }
+    if (ui.tab === 'people') Array.prototype.forEach.call(tabBody.querySelectorAll('canvas[data-face]'), function (cv) {
+      var rr2 = LH.resById(state, +cv.getAttribute('data-face')); if (!rr2) return; var c2 = cv.getContext('2d');
+      c2.setTransform(1, 0, 0, 1, 0, 0); c2.clearRect(0, 0, 80, 80); c2.setTransform(2.2, 0, 0, 2.2, 40, 44);
+      if (rr2.mode === 'away') c2.globalAlpha = 0.4; drawHead(c2, rr2.look, 0, 0, 1, LH.face(state, rr2), t, rr2.id, LH.isAsleep(rr2)); c2.globalAlpha = 1;
+    });
+    if (ui.tab === 'buy' && ui.item) { var it = LH.itemById(state, ui.item); if (it) { var us = LH.usersOf(state, it.id, -1); bind('users', us.length ? 'Used by ' + us.map(function (o) { return o.name; }).join(', ') : 'Free right now'); } }
+    if (ui.tab === 'house') bind('hm', 'Household mood now: ' + Math.round(LH.householdMood(state)) + ' (60 or more at midnight makes a happy day)');
+  }
+  function bind(k, v) { var el = tabBody.querySelector('[data-bind="' + k + '"]'); if (el && el.textContent !== String(v)) el.textContent = v; }
+  function updateBar() {
+    var h = LH.hourOf(state);
+    var txt = 'Day ' + state.day + ' · ' + fmtTime(state.min) + (darkness(h) > 0.5 ? ' ☾' : ' ☀');
+    if ($('clock').textContent !== txt) $('clock').textContent = txt;
+    var mt = money(state.money); if ($('money').textContent !== mt) $('money').textContent = mt;
+    $('money').classList.toggle('neg', state.money < 0);
+  }
+
+  // ---------- commands ----------
+  function selectRes(id) { ui.res = id; ui.sig = ''; if (ui.tab !== 'buy') setTab('people'); else updatePanel(); }
+  function selectItem(id) { ui.item = id; ui.placing = null; setHint(); setTab('buy'); }
+  function startPlacing(type, moveId) {
+    var def = CAT[type];
+    if (!moveId && state.money < def.price) { toast('Not enough money: ' + def.name + ' costs ' + money(def.price)); SFX.bad(); return; }
+    var spot = LH.firstFit(state, type, moveId);
+    if (!spot) { toast('There is no room left for a ' + def.name.toLowerCase()); SFX.bad(); return; }
+    if (moveId) { var it = LH.itemById(state, moveId); spot = { f: it.f, c: it.c }; }
+    ui.placing = { type: type, moveId: moveId || null, f: spot.f, c: spot.c };
+    if (ui.tab !== 'buy') setTab('buy'); else { ui.sig = ''; updatePanel(); }
+    setHint();
+  }
+  function setHint() {
+    var hEl = $('hint');
+    if (ui.placing) { $('hintText').textContent = (ui.placing.moveId ? 'Moving ' : 'Placing ') + CAT[ui.placing.type].name + ': tap a spot (green fits). Arrows + Enter work too.'; hEl.classList.add('on'); }
+    else hEl.classList.remove('on');
+  }
+  function cancelPlacing() { ui.placing = null; ui.sig = ''; setHint(); updatePanel(); }
+  function tryPlace(f, c) {
+    var p = ui.placing; if (!p) return;
+    var res = p.moveId ? LH.moveItem(state, p.moveId, f, c) : LH.buy(state, p.type, f, c);
+    if (!res.ok) { p.f = f; p.c = c; toast(res.reason); SFX.bad(); return; }
+    var x = HX + (c + CAT[p.type].w / 2) * CELL, y = FY[f] - 40;
+    burst(x, y, ['#FFE066', '#FF7AC8', '#22D3C5', '#C6F432'], 18);
+    if (p.moveId) { SFX.click(); toast(CAT[p.type].name + ' moved'); ui.item = p.moveId; }
+    else { SFX.buy(); addFloat('-' + money(CAT[p.type].price), x, y - 30, '#D6123A'); toast(CAT[p.type].name + ' placed in the ' + LH.roomAt(f, c).name.toLowerCase()); ui.item = res.item.id; }
+    ui.placing = null; ui.sig = ''; setHint(); updatePanel();
+  }
+  function sellSelected() {
+    if (!ui.item) return;
+    var it = LH.itemById(state, ui.item); if (!it) return;
+    var res = LH.sell(state, ui.item);
+    if (res.ok) { SFX.sell(); addFloat('+' + money(res.refund), HX + (it.c + 1) * CELL, FY[it.f] - 60, '#157a3a'); toast(CAT[it.type].name + ' sold for ' + money(res.refund)); }
+    ui.item = null; ui.sig = ''; updatePanel();
+  }
+  function queueFor(r, ad) {
+    if (!r || !ad) return;
+    if (!ad.ok) { toast(ad.why || 'Not possible right now'); SFX.bad(); return; }
+    if (LH.queueAction(state, r, ad)) { SFX.click(); toast(r.name + ': ' + ad.label); ui.sig = ''; updatePanel(); }
+    else { toast(r.name + '\'s queue is full'); SFX.bad(); }
+  }
+  tabBody.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b || b.disabled) return;
+    var cmd = b.getAttribute('data-cmd'), r = LH.resById(state, ui.res);
+    if (demo && cmd !== 'import' && cmd !== 'load') { toast('Start a household first'); return; }
+    if (cmd === 'selres') { selectRes(+b.getAttribute('data-id')); SFX.click(); }
+    else if (cmd === 'queue') queueFor(r, ui.ads[+b.getAttribute('data-i')]);
+    else if (cmd === 'unqueue') { if (r) { r.queue.splice(+b.getAttribute('data-i'), 1); ui.sig = ''; updatePanel(); SFX.click(); } }
+    else if (cmd === 'buy') startPlacing(b.getAttribute('data-type'));
+    else if (cmd === 'cancelplace') cancelPlacing();
+    else if (cmd === 'move') { var it = LH.itemById(state, ui.item); if (it) startPlacing(it.type, it.id); }
+    else if (cmd === 'sell') sellSelected();
+    else if (cmd === 'senditem') { var ad = r && LH.listAds(state, r).filter(function (a) { return a.itemId === ui.item; })[0]; queueFor(r, ad); }
+    else if (cmd === 'save') save(false);
+    else if (cmd === 'load') loadSaved(false);
+    else if (cmd === 'export') exportJSON();
+    else if (cmd === 'import') $('importFile').click();
+    else if (cmd === 'new') { if (ui.confirmNew) { ui.confirmNew = 0; newHousehold(); } else { ui.confirmNew = 1; ui.sig = ''; updatePanel(); setTimeout(function () { ui.confirmNew = 0; ui.sig = ''; }, 3000); } }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.addEventListener('click', function () { setTab(b.getAttribute('data-tab')); }); });
+  $('importFile').addEventListener('change', function (e) { var f = e.target.files && e.target.files[0]; if (f) importJSON(f); e.target.value = ''; });
+  [0, 1, 2, 3].forEach(function (n) { $('sp' + n).addEventListener('click', function () { setSpeed(n); SFX.click(); }); });
+  $('mute').addEventListener('click', function () { muted = !muted; Store.set(MUTE_KEY, muted ? '1' : '0'); syncBar(); });
+  $('help').addEventListener('click', function () { $('title').classList.remove('off'); $('startBtn').textContent = demo ? 'New household' : 'Back to the house'; $('contBtn').disabled = !Store.get(SAVE_KEY); $('startBtn').focus(); });
+  $('hintX').addEventListener('click', cancelPlacing);
+  $('startBtn').addEventListener('click', function () { if (!demo) { $('title').classList.add('off'); return; } newHousehold(); });
+  $('contBtn').addEventListener('click', function () { loadSaved(false); });
+
+  // ---------- canvas input ----------
+  function hitRes(w) {
+    for (var i = state.residents.length - 1; i >= 0; i--) {
+      var r = state.residents[i];
+      if (r.mode === 'away' || r.x < HX - 30) continue;
+      if (r.mode === 'act' && r.act && r.act.key === 'sleep') { var bed = LH.itemById(state, r.act.itemId); if (bed && w.x >= HX + bed.c * CELL && w.x <= HX + (bed.c + 2) * CELL && w.y >= FY[bed.f] - 50 && w.y <= FY[bed.f]) return r; continue; }
+      if (Math.abs(w.x - r.x) < 18 && w.y > r.y - 70 && w.y < r.y + 6) return r;
+    }
+    return null;
+  }
+  function hitItem(w) {
+    for (var i = state.items.length - 1; i >= 0; i--) {
+      var it = state.items[i], x = HX + it.c * CELL;
+      if (w.x >= x && w.x <= x + CAT[it.type].w * CELL && w.y >= FY[it.f] - ITEM_H[it.type] && w.y <= FY[it.f] + 4) return it;
+    }
+    return null;
+  }
+  function cellAt(w, type) {
+    var f = w.y > FY[1] + 14 ? 0 : 1;
+    var c = Math.round((w.x - HX) / CELL - CAT[type].w / 2);
+    return { f: f, c: c };
+  }
+  view.addEventListener('pointermove', function (e) {
+    if (!ui.placing || e.pointerType !== 'mouse') return;
+    var rect = view.getBoundingClientRect(), w = toWorld(e.clientX - rect.left, e.clientY - rect.top), cc = cellAt(w, ui.placing.type);
+    ui.placing.f = cc.f; ui.placing.c = cc.c;
+  });
+  view.addEventListener('pointerdown', function (e) {
+    unlock();
+    if (PREVIEW || demo) return;
+    e.preventDefault();
+    var rect = view.getBoundingClientRect(), w = toWorld(e.clientX - rect.left, e.clientY - rect.top);
+    if (ui.placing) { var cc = cellAt(w, ui.placing.type); tryPlace(cc.f, cc.c); return; }
+    var r = hitRes(w);
+    if (r) { selectRes(r.id); SFX.click(); return; }
+    var it = hitItem(w);
+    if (it) { selectItem(it.id); SFX.click(); return; }
+    if (ui.item) { ui.item = null; ui.sig = ''; updatePanel(); }
+  });
+
+  // ---------- keyboard ----------
+  window.addEventListener('keydown', function (e) {
+    unlock();
+    if (e.key === 'Escape') { if (ui.placing) cancelPlacing(); return; } // never prevented or stopped
+    if (PREVIEW) return;
+    var k = e.key, tag = e.target && e.target.tagName;
+    if (k === ' ' || e.code === 'Space') { e.preventDefault(); if (demo) newHousehold(); else if (!$('title').classList.contains('off')) $('title').classList.add('off'); else setSpeed(0); return; }
+    if (demo) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (ui.placing && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown')) {
+      e.preventDefault();
+      if (k === 'ArrowLeft') ui.placing.c = Math.max(0, ui.placing.c - 1);
+      if (k === 'ArrowRight') ui.placing.c = Math.min(LH.COLS - 1, ui.placing.c + 1);
+      if (k === 'ArrowUp') ui.placing.f = 1;
+      if (k === 'ArrowDown') ui.placing.f = 0;
+      return;
+    }
+    if (ui.placing && k === 'Enter') { e.preventDefault(); tryPlace(ui.placing.f, ui.placing.c); return; }
+    var lk = k.toLowerCase();
+    if (lk === 'x' && ui.placing) { cancelPlacing(); return; }
+    if (k === '1' || k === '2' || k === '3') { setSpeed(+k); return; }
+    if (lk === 'm') { muted = !muted; Store.set(MUTE_KEY, muted ? '1' : '0'); syncBar(); return; }
+    if (lk === 'r') { var n = state.residents.length, i = state.residents.findIndex(function (x) { return x.id === ui.res; }); i = (i + (e.shiftKey ? n - 1 : 1) + n) % n; if (i < 0) i = 0; selectRes(state.residents[i].id); return; }
+    if (lk === 'f') { var m2 = state.items.length; if (!m2) return; var j = state.items.findIndex(function (x) { return x.id === ui.item; }); j = (j + (e.shiftKey ? m2 - 1 : 1) + m2) % m2; selectItem(state.items[j].id); return; }
+    if (lk === 'v' && ui.item && !ui.placing) { var it = LH.itemById(state, ui.item); if (it) startPlacing(it.type, it.id); return; }
+    if (lk === 'p') { setTab('people'); return; }
+    if (lk === 'b') { setTab('buy'); return; }
+    if (lk === 'h') { setTab('house'); return; }
+    if (tag === 'INPUT') return;
+  });
+  window.addEventListener('keyup', function (e) { if (e.key === ' ' || e.code === 'Space') e.preventDefault(); });
+  function autoPause() { if (!PREVIEW && !demo && !paused) { paused = true; syncBar(); } }
+  window.addEventListener('blur', autoPause);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) autoPause(); });
+  document.addEventListener('pointerdown', unlock, true);
+
+  // ---------- boot ----------
+  window.addEventListener('resize', resize);
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+  if (PREVIEW) {
+    state = LH.newGame(20260923); state.min = 17 * 60 + 40; speed = 3;
+    state.residents.forEach(function (r) { r.workedDay = 1; });
+  } else {
+    state = LH.newGame((Math.random() * 4294967295) >>> 0); speed = 2; demo = true;
+    $('contBtn').disabled = !Store.get(SAVE_KEY);
+    setTimeout(function () { try { $('startBtn').focus(); } catch (e) { /* ignore */ } }, 0);
+  }
+  resize(); syncBar();
+  var last = performance.now(), panelT = 0;
+  function frame(now) {
+    var dt = Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
+    if (!paused) LH.step(state, dt * speed * 6);
+    drain();
+    render(now / 1000);
+    if (!PREVIEW) { updateBar(); panelT += dt; if (panelT > 0.25) { panelT = 0; updatePanel(); } }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__littlehouse = { get state() { return state; }, get demo() { return demo; }, get paused() { return paused; }, get speed() { return speed; }, get ui() { return ui; }, LH: LH, VIEW: VIEW, toScreen: function (x, y) { var r = view.getBoundingClientRect(); return { x: r.left + offX + (x - VIEW.x) * scale, y: r.top + offY + (y - VIEW.y) * scale }; } };
+})();
+</script>
+</body>
+</html>

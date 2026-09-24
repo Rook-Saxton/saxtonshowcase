@@ -1,0 +1,29 @@
+# Roomy, a cosy room decorating puzzle
+
+Notes from the Saxton Showcase, written for an AI helper as much as for a person. Hand this file to your agent along with `roomy.html`, the game itself, and it gets what we learned without having to rebuild it to find out.
+
+- Built: 2026-09-23
+- Tags: game, puzzle, decorating, cosy, canvas, touch, keyboard, web audio
+- The game: one self contained HTML file. Open it in a current browser; it needs no install, no account and no internet, though some builds need WebGL2 or sound.
+
+## What it is
+
+A single-file room decorating puzzle. Each of 12 rooms has a brief (a plant lover's reading nook, a tiny studio with a place for two to eat, dinner for four, a whole flat in one room) and a tray of pieces drawn in code: beds, sofas, chairs, stools, tables, desks, a TV stand, lamps, plants, bookshelves, wardrobes, a fridge, counters and rugs. You drag pieces in, rotate them, and repaint them from an 11-colour palette. A live judge scores the room out of 100 and shows its working in six rows: the brief is met; a breadth-first walkway search from the door reaches every piece; every seat looks straight at a table, desk, counter or TV within its range; a lamp or window lights every seat, with bookshelves, wardrobes and fridges casting shadows; the accent colours all come from one of four colour families (some briefs name the family); and nothing blocks the door and no tall piece blocks a window. Stars start once everything the brief asks for is in the room: 50 gives one star and unlocks the next room, 80 gives two, and a perfect 100 gives three. Pieces with a problem get a badge, and selecting a piece draws its walkway and says in words what is wrong. Free build gives a small, medium or large empty room with every piece, saves rooms in localStorage and exports or imports them as .json. ?preview=1 runs an autopilot that places each room's stored 3-star layout piece by piece and pops the stars.
+
+## What we learned building it
+
+Once every rule lived in one pure block, the same block could run a small simulated annealing search in node that finds a 3-star layout for each room from its own tray in about a second. That turned level design into measurement: the first version of the scoring let a single bed in room 1 score 52 and earn a star, because rooms with no seats got the facing and light points for free. The fix was to hold back stars until the brief is complete. I stored one polished search result per room. The autopilot plays those, and the UI check plays all 12 of them with real key presses. A half turn never changes a piece's footprint, so a separate pass can turn TVs and desks to face their seats and beds to back onto a wall without touching the score. The tests check that too.
+
+## The gotcha
+
+Mixing mouse and keyboard broke quietly. After you clicked Rotate or a tray piece, that button kept focus, so the next Enter meant to put a piece down clicked the button again. The fix was to preventDefault on mousedown for the game's own buttons: clicks don't take focus, but Tab focus still works. A smaller one: in the phone tray, which scrolls sideways with touch-action pan-x, a sideways drag belongs to the browser and fires pointercancel. So only a mostly upward drag lifts a piece, and a tap arms the piece so the next tap in the room places it. A real touch drag through Chrome DevTools touch events confirmed this works.
+
+## How we checked it
+
+node test_logic.js: 195 passed, 0 failed. Covers walkway BFS distances, a furniture wall cutting the room, rugs being walkable, detours, a blocked door, facing range, lanes, targets and blockers, lamp radius, window reach and tall-piece shadows, collision and rotation, colours, door and windows, star thresholds including the brief gate, and .json import validation. For each of the 12 rooms the stored layout fits, uses only tray pieces and scores 100 with 3 stars; removing one asked-for piece drops to 0 stars; turning a seat breaks facing; and a seeded search independently finds a 3-star layout (12 of 12, about 1.2 s). node check_ui.js (Playwright, system Chrome): 44 passed, 0 failed, with zero page or console errors in every run. At 1280x720 it covered: mouse drag from the tray places a bed and the score moves; R rotates; a swatch repaints; dragging a placed piece moves it; a click selects without moving; dragging onto the tray removes it; Z undoes; N picks a piece; Escape drops it and is never preventDefault-ed; M toggles sound. All 12 rooms were then played to 3 stars with key presses only, the win card showed each time, room 1's stars unlocked room 2 but not room 3, and the stars were saved. Free build Save wrote to localStorage, Export downloaded roomy-test-lounge.json, and Import loaded a file and dropped an unknown piece. At 390x844 with touch, room 1 reached 3 stars by taps alone (tap piece, tap Rotate, tap swatch, tap spot), with 55 px squares. A real touch drag from the tray placed an armchair, tap and Rotate and To tray worked, and the page never scrolled. With a localStorage that throws, the game still started and placed a piece. Preview at 600x300: two frames 3 s apart differ, the app and overlays are display:none, after 30 s it had moved from room 1 to room 3 (a puzzle has no game over; the demo finishes a room, shows its stars and starts the next), and localStorage stayed empty. I looked at the screenshots and fixed three things: the score header overflowing on desktop, the preview's '/ 100' overlapping the score, and the TV screen facing away from the sofa.
+
+## About these notes
+
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
+
+Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

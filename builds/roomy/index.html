@@ -1,0 +1,1791 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  ROOMY
+  a cosy room decorating puzzle
+  Built 2026-09-23. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  Twelve rooms, each with a brief ("a reading nook for someone who loves plants", "a tiny
+  studio that fits a bed, a desk and a place for two to eat") and a tray of furniture. Drag the
+  pieces into the room, turn them, repaint them. A live judge scores the room out of 100 and
+  shows its working: the brief is met; a real breadth-first walkway search from the door
+  reaches every piece; every seat looks straight at a table, desk, counter or TV; light from a
+  lamp or a window reaches every seat (tall pieces cast shadows); the accent colours all come
+  from one colour family; nothing blocks the door and no tall piece blocks a window.
+  50 points is one star and unlocks the next room, 80 is two, a perfect 100 is three.
+  Free build gives you an empty room of any of three sizes and every piece, and lets you save
+  rooms in this browser and export or import them as .json files.
+
+  CONTROLS
+  Mouse or touch: drag a piece from the tray into the room, or tap it and then tap a spot.
+  Drag placed pieces to move them; drop one back on the tray to put it away. Tap a piece to
+  select it, then Rotate, a colour swatch, or To tray.
+  Keyboard: N / B pick the next or previous piece from the tray, arrows or WASD move it (or
+  the cursor), Enter puts it down or picks up the piece under the cursor, R rotates, C cycles
+  its colour (1 to 9 and 0 pick a swatch), Delete puts it back in the tray, Z undoes, L opens
+  the rooms list, M mutes. Escape drops what you are holding.
+
+  HOW IT WAS CHECKED
+    node test_logic.js (WORK folder, runs the logic block cut out of this file): 195 assertions,
+  0 failures. Walkway search (distances, walls of furniture, rugs, detours, blocked door),
+  facing (range, lanes, targets, blockers), light (lamp radius, window reach, tall-piece
+  shadows), collision and rotation, colours, door and windows, star thresholds, import, and per
+  level: the stored layout fits, uses only tray pieces and scores 100 with 3 stars; taking one
+  asked-for piece away or turning a seat loses stars; and a seeded search finds its own 3-star
+  layout for all 12 rooms (about 1.2 s).
+  node check_ui.js (Playwright, system Chrome): 44 checks, 0 failures, zero page or console
+  errors. 1280x720: mouse drag from tray, move, click-select, drag back to tray, undo, R, swatch,
+  Escape not preventDefault-ed, M; all 12 rooms solved to 3 stars with key presses only; unlock
+  and saved stars; free build save, export download, import. 390x844 touch: room 1 to 3 stars by
+  taps, a real touch drag from the tray, rotate and to-tray by tap, no page scroll. Storage that
+  throws still plays. ?preview=1 at 600x300: frames differ, no chrome, still cycling rooms after
+  30 s, nothing written to storage.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Roomy</title>
+<style>
+:root{--marigold:#FFE066;--tomato:#FF4F6D;--grass:#C6F432;--pool:#22D3C5;--grape:#B45CF0;--bubble:#FF7AC8;--lavender:#B9A8FF;--tangerine:#FF8A3D;--peri:#8C9BFF;--ink:#1A1540;--paper:#F7F4FF;--line:#E4DDF8;--muted:#6C6690}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font:14px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;cursor:pointer;border:2px solid var(--line);background:#fff;border-radius:12px;padding:6px 10px;touch-action:manipulation}
+button:hover{border-color:var(--lavender)}
+button:focus-visible{outline:3px solid var(--grape);outline-offset:1px}
+button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:700}
+button.primary:disabled{background:#8d88aa;border-color:#8d88aa}
+kbd{font:600 11px/1 ui-monospace,Consolas,monospace;background:var(--paper);border:1px solid var(--line);border-radius:5px;padding:2px 4px;color:var(--muted)}
+#app{position:fixed;inset:0;display:grid;grid-template-columns:300px minmax(0,1fr) 290px;grid-template-rows:54px minmax(0,1fr);grid-template-areas:"top top top" "left stage right"}
+#top{grid-area:top;display:flex;align-items:center;gap:8px;padding:0 12px;background:#fff;border-bottom:2px solid var(--line);min-width:0}
+.logo{font-weight:900;font-size:22px;letter-spacing:-.5px}
+.logo span:nth-child(1){color:var(--tomato)}.logo span:nth-child(2){color:var(--tangerine)}.logo span:nth-child(3){color:#e0b800}.logo span:nth-child(4){color:var(--pool)}.logo span:nth-child(5){color:var(--grape)}
+#lvlName{flex:1;min-width:0;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px}
+#lvlName small{font-weight:500;color:var(--muted)}
+.ib{display:inline-flex;align-items:center;gap:6px;padding:6px 9px}
+.ib svg{width:18px;height:18px;flex:none}
+#left,#right{overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0}
+#left{grid-area:left}#right{grid-area:right}
+#stage{grid-area:stage;position:relative;min-height:0;min-width:0}
+#room{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.card{background:#fff;border:2px solid var(--line);border-radius:16px;padding:10px 12px}
+.hd{font-weight:800;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+#brief{margin:0 0 8px}
+#chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:12px;border-radius:99px;padding:2px 9px;background:var(--paper);border:1.5px solid var(--line);white-space:nowrap}
+.chip.ok{background:#EFFFC2;border-color:#B7DD4A}
+.chip.mood{background:#fff;border-style:dashed}
+.scoreHead{display:flex;align-items:center;gap:8px}
+#total{font-size:34px;font-weight:900;min-width:58px;font-variant-numeric:tabular-nums}
+.stars{display:flex;gap:2px;font-size:25px;line-height:1}
+.stars b{color:#DDD6F2;transition:transform .2s;display:inline-block}
+.stars b.on{color:#FFC21A;text-shadow:0 1px 0 #d59a00}
+.stars b.pop{animation:pop .5s}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.5) rotate(-12deg)}100%{transform:scale(1)}}
+#bNext{margin-left:auto;white-space:nowrap}
+#starHint{font-size:12px;color:var(--muted);margin-top:2px}
+#rows{display:grid;gap:5px;margin-top:8px}
+.row{display:grid;grid-template-columns:1fr auto;gap:0 8px;font-size:13px;align-items:center}
+.row .bar{grid-column:1/3;height:5px;background:var(--paper);border-radius:9px;overflow:hidden}
+.row .bar i{display:block;height:100%;background:var(--grass);border-radius:9px;transition:width .3s}
+.row.part .bar i{background:var(--tangerine)}
+.row.zero .bar i{background:var(--tomato)}
+.row .pts{font-weight:800;font-variant-numeric:tabular-nums}
+.row .det{grid-column:1/3;font-size:11.5px;color:var(--muted)}
+.muted{color:var(--muted);font-size:12.5px}
+.toolsRow{display:flex;gap:6px;flex-wrap:wrap}
+#palette{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 6px}
+.sw{width:28px;height:28px;border-radius:50%;padding:0;border:2px solid rgba(26,21,64,.25);position:relative}
+.sw.on{outline:3px solid var(--ink);outline-offset:1px}
+.sw.fam::after{content:"";position:absolute;right:-3px;top:-3px;width:9px;height:9px;border-radius:50%;background:var(--ink);border:2px solid #fff}
+#fams{font-size:11.5px;color:var(--muted);line-height:1.6}
+#fams i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:1px;vertical-align:-1px;border:1px solid rgba(26,21,64,.2)}
+#selInfo{min-height:34px}
+#selInfo .bad{color:#d8274a;font-weight:600}
+#freeRow{display:none;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+#freeRow input{flex:1;min-width:110px;font:inherit;border:2px solid var(--line);border-radius:10px;padding:6px 8px}
+body.free #freeRow{display:flex}
+body.free #bNext,body.free .lvOnly{display:none}
+#tray{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.ti{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px 4px;border-radius:12px;touch-action:pan-x;user-select:none;-webkit-user-select:none}
+.ti canvas{width:64px;height:40px;pointer-events:none}
+.ti span{font-size:11.5px;line-height:1.1;text-align:center;pointer-events:none}
+.ti em{position:absolute;top:3px;right:5px;font-style:normal;font-size:11px;font-weight:800;background:var(--ink);color:#fff;border-radius:99px;padding:0 6px;pointer-events:none}
+.ti.need::before{content:"";position:absolute;top:6px;left:6px;width:7px;height:7px;border-radius:50%;background:var(--grape)}
+.ti.armed{border-color:var(--ink);background:#FFF7CC}
+.ti.empty{opacity:.35}
+#fly{position:fixed;left:0;top:0;pointer-events:none;display:none;z-index:40}
+#fly canvas{width:84px;height:56px}
+#toast{position:fixed;left:50%;top:64px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:8px 16px;border-radius:99px;font-weight:700;opacity:0;transition:opacity .25s;pointer-events:none;z-index:50;white-space:nowrap}
+#toast.show{opacity:1}
+#ov{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(26,21,64,.35);z-index:30;padding:14px;overflow:auto;touch-action:pan-y}
+#ov.show{display:flex}
+.panel{display:none;background:#fff;border-radius:22px;padding:18px 20px;max-width:640px;width:100%;box-shadow:0 12px 40px rgba(26,21,64,.25);margin:auto}
+.panel.show{display:block}
+.panel h1{margin:0;font-size:44px;line-height:1;font-weight:900;letter-spacing:-1px}
+.panel h2{margin:0 0 8px;font-size:22px}
+.panel p{margin:8px 0}
+#demoCv{width:100%;aspect-ratio:2/1;display:block;border-radius:14px;background:#EFE9FF;margin:10px 0}
+.how{margin:6px 0 10px;padding-left:18px}
+.how li{margin:3px 0}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btns button{padding:10px 16px;font-size:15px}
+#lvGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.lv{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:8px 10px;min-height:74px}
+.lv b{font-size:12px;color:var(--muted)}
+.lv span{font-weight:700;font-size:13px;line-height:1.15}
+.lv i{font-style:normal;color:#FFC21A;letter-spacing:1px}
+.lv i s{color:#DDD6F2;text-decoration:none}
+.lv.locked{background:var(--paper)}
+#savedList{display:flex;flex-direction:column;gap:6px;margin:8px 0;max-height:240px;overflow:auto}
+.sv{display:flex;gap:6px;align-items:center;border:2px solid var(--line);border-radius:12px;padding:6px 8px}
+.sv span{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#pv{display:none}
+html.preview #app,html.preview #ov,html.preview #toast,html.preview #fly{display:none!important}
+html.preview #pv{display:block;position:fixed;inset:0;width:100%;height:100%}
+@media (max-width:760px){
+  #app{grid-template-columns:minmax(0,1fr);grid-template-rows:46px auto minmax(0,1fr) auto auto auto;grid-template-areas:"top" "brief" "stage" "score" "tools" "tray"}
+  #left,#right{display:contents}
+  #top{padding:0 6px;gap:5px}
+  .logo{display:none}
+  #lvlName{font-size:13.5px;padding-left:2px}
+  .ib{padding:5px 7px}.ib .lbl{display:none}
+  .card{border-radius:0;border-width:0 0 2px;padding:6px 10px}
+  #briefCard{grid-area:brief}#scoreCard{grid-area:score;border-top-width:2px}#toolsCard{grid-area:tools}#trayCard{grid-area:tray}
+  #briefCard .hd,#trayCard .hd,#toolsCard .hd{display:none}
+  #brief{font-size:12.5px;margin-bottom:5px}
+  .chip{font-size:11px;padding:1px 7px}
+  #total{font-size:26px;min-width:48px}
+  .stars{font-size:23px}
+  #rows{grid-template-columns:1fr 1fr;gap:3px 12px;margin-top:4px}
+  .row{font-size:12px}
+  .row .det{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #fams,#selInfo .tip{display:none}
+  #selInfo{min-height:0;font-size:12px}
+  #palette{flex-wrap:nowrap;gap:4px;margin:6px 0 2px}
+  .sw{width:25px;height:25px;flex:none}
+  .toolsRow button{padding:5px 9px;font-size:13px}
+  .toolsRow kbd{display:none}
+  #tray{display:flex;overflow-x:auto;gap:6px;padding-bottom:2px;scrollbar-width:thin}
+  .ti{flex:none;width:76px}
+  .ti canvas{width:56px;height:34px}
+  #lvGrid{grid-template-columns:repeat(2,1fr)}
+  .panel{padding:14px 14px}
+  .panel h1{font-size:36px}
+  .how{font-size:13px}
+}
+@media (prefers-reduced-motion:reduce){.stars b.pop{animation:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="logo" aria-label="Roomy"><span>R</span><span>o</span><span>o</span><span>m</span><span>y</span></div>
+    <div id="lvlName"></div>
+    <button class="ib" id="bUndo" aria-label="Undo (Z)" title="Undo (Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg><span class="lbl">Undo</span></button>
+    <button class="ib" id="bRooms" aria-label="Rooms (L)" title="Rooms (L)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg><span class="lbl">Rooms</span></button>
+    <button class="ib" id="bMute" aria-label="Sound (M)" title="Sound (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="muteWave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/><path id="muteX" d="M16 9l5 6M21 9l-5 6" style="display:none"/></svg><span class="lbl" id="muteLbl">Sound</span></button>
+  </header>
+  <div id="left">
+    <section class="card" id="briefCard"><div class="hd">The brief</div><p id="brief"></p><div id="chips"></div></section>
+    <section class="card" id="scoreCard">
+      <div class="scoreHead"><div id="total">0</div><div class="stars" id="stars"><b>&#9733;</b><b>&#9733;</b><b>&#9733;</b></div><button class="primary" id="bNext" disabled>Next room</button></div>
+      <div id="starHint"></div>
+      <div id="rows"></div>
+    </section>
+  </div>
+  <main id="stage"><canvas id="room" aria-label="The room"></canvas></main>
+  <div id="right">
+    <section class="card" id="toolsCard"><div class="hd">Selected piece</div>
+      <div class="toolsRow"><button id="bRot">Rotate <kbd>R</kbd></button><button id="bDel">To tray <kbd>Del</kbd></button><button id="bClear">Clear room</button></div>
+      <div id="palette"></div>
+      <div id="fams"></div>
+      <div id="selInfo" class="muted"></div>
+      <div id="freeRow"><input id="roomName" maxlength="40" placeholder="Room name" aria-label="Room name"><button id="bSave">Save</button><button id="bExport">Export</button><button id="bImport">Import</button></div>
+    </section>
+    <section class="card" id="trayCard"><div class="hd">Pieces <span class="muted lvOnly" style="text-transform:none;letter-spacing:0;font-weight:500">(dot = the brief asks for it)</span></div><div id="tray"></div></section>
+  </div>
+</div>
+
+<div id="ov">
+  <section class="panel" id="pTitle">
+    <h1><span style="color:var(--tomato)">R</span><span style="color:var(--tangerine)">o</span><span style="color:#e0b800">o</span><span style="color:var(--pool)">m</span><span style="color:var(--grape)">y</span></h1>
+    <p><b>A cosy room decorating puzzle.</b> Twelve rooms, each with a brief and a tray of furniture. Make the room work and it earns its stars.</p>
+    <canvas id="demoCv"></canvas>
+    <ul class="how">
+      <li>Drag a piece from the tray into the room, or tap it and then tap a spot. <b>R</b> or Rotate turns it; a swatch repaints it.</li>
+      <li>The judge checks six things: the brief, a clear walkway from the door to every piece, seats facing a table or TV, light reaching every seat, accent colours from one family, and nothing blocking the door or a window.</li>
+      <li>One star unlocks the next room. Three stars is a perfect 100.</li>
+      <li class="muted">Keys: N / B pick a piece, arrows move, Enter puts down or picks up, R rotate, C colour, Del to tray, Z undo, L rooms, M sound.</li>
+    </ul>
+    <div class="btns"><button class="primary" id="bPlay">Play <kbd style="background:#fff">Enter</kbd></button><button id="bFree">Free build <kbd>F</kbd></button><button id="bLevels">Rooms</button></div>
+  </section>
+  <section class="panel" id="pLevels">
+    <h2>Rooms</h2>
+    <div id="lvGrid"></div>
+    <div class="btns"><button id="bFree2">Free build</button><button id="bTitle">How to play</button><button id="bCloseLv">Close</button></div>
+  </section>
+  <section class="panel" id="pWin">
+    <h2 id="winTitle">Three stars!</h2>
+    <div class="stars" style="font-size:52px;justify-content:center;margin:8px 0" id="winStars"><b class="on">&#9733;</b><b class="on">&#9733;</b><b class="on">&#9733;</b></div>
+    <p id="winText" style="text-align:center"></p>
+    <div class="btns" style="justify-content:center"><button class="primary" id="bWinNext">Next room</button><button id="bWinStay">Keep decorating</button></div>
+  </section>
+  <section class="panel" id="pFree">
+    <h2>Free build</h2>
+    <p class="muted">An empty room and every piece. The judge still scores walkways, seats, light, colours and the door. Rooms you save stay in this browser; export one to keep it as a file.</p>
+    <div class="hd">New room</div>
+    <div class="btns" style="margin-top:0"><button id="bSizeS">Small 7 x 6</button><button id="bSizeM">Medium 9 x 7</button><button id="bSizeL">Large 11 x 8</button></div>
+    <div class="hd" style="margin-top:12px">Saved rooms</div>
+    <div id="savedList"></div>
+    <div class="btns"><button id="bImport2">Import .json</button><button id="bCloseFree">Close</button></div>
+  </section>
+</div>
+<div id="fly"><canvas></canvas></div>
+<div id="toast"></div>
+<input type="file" id="fileIn" accept=".json,application/json" hidden>
+<canvas id="pv"></canvas>
+
+<script>
+// LOGIC-BEGIN
+/* Pure rules: no DOM, no canvas, no storage. Node tests load this block on its own. */
+var Roomy = (function () {
+  'use strict';
+  // Direction indices: 0 up, 1 right, 2 down, 3 left (screen coordinates, y grows down).
+  var DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  // Every piece is drawn and measured at rotation 0 with its front facing DOWN (dir 2).
+  // A clockwise quarter turn adds 1 to the direction, so front = (2 + r) % 4.
+  var PIECES = {
+    bed:      { name: 'Double bed',  plural: 'double beds',  w: 2, h: 3, back: true },
+    single:   { name: 'Single bed',  plural: 'single beds',  w: 1, h: 2, back: true },
+    sofa:     { name: 'Sofa',        plural: 'sofas',        w: 3, h: 1, back: true, seat: true, targets: ['tv', 'coffee'], range: 4 },
+    armchair: { name: 'Armchair',    plural: 'armchairs',    w: 1, h: 1, seat: true, targets: ['tv', 'coffee', 'side', 'table'], range: 3 },
+    chair:    { name: 'Chair',       plural: 'chairs',       w: 1, h: 1, seat: true, targets: ['table', 'desk'], range: 1 },
+    stool:    { name: 'Stool',       plural: 'stools',       w: 1, h: 1, seat: true, targets: ['counter'], range: 1 },
+    table:    { name: 'Dining table', plural: 'dining tables', w: 2, h: 2 },
+    coffee:   { name: 'Coffee table', plural: 'coffee tables', w: 2, h: 1 },
+    side:     { name: 'Side table',  plural: 'side tables',  w: 1, h: 1 },
+    desk:     { name: 'Desk',        plural: 'desks',        w: 2, h: 1, back: true },
+    tv:       { name: 'TV stand',    plural: 'TV stands',    w: 2, h: 1, back: true },
+    lamp:     { name: 'Floor lamp',  plural: 'floor lamps',  w: 1, h: 1, light: 2.9 },
+    plant:    { name: 'Plant',       plural: 'plants',       w: 1, h: 1 },
+    shelf:    { name: 'Bookshelf',   plural: 'bookshelves',  w: 2, h: 1, back: true, tall: true },
+    wardrobe: { name: 'Wardrobe',    plural: 'wardrobes',    w: 2, h: 1, back: true, tall: true },
+    fridge:   { name: 'Fridge',      plural: 'fridges',      w: 1, h: 1, back: true, tall: true },
+    counter:  { name: 'Counter',     plural: 'counters',     w: 2, h: 1, back: true },
+    rug:      { name: 'Rug',         plural: 'rugs',         w: 3, h: 2, rug: true }
+  };
+  var TYPES = Object.keys(PIECES);
+  var WINDOW_REACH = 3.6;   // light from a window reaches this far (cells) into the room
+
+  var COLOURS = {
+    oak: '#C98F5A', cream: '#F3E9D2',
+    marigold: '#FFE066', tangerine: '#FF8A3D', tomato: '#FF4F6D', bubble: '#FF7AC8',
+    grape: '#B45CF0', lavender: '#B9A8FF', periwinkle: '#8C9BFF', pool: '#22D3C5', grass: '#C6F432'
+  };
+  var COLOUR_KEYS = Object.keys(COLOURS);
+  var NEUTRALS = ['oak', 'cream'];
+  var SCHEMES = {
+    sunset:  { name: 'Sunset',  c: ['marigold', 'tangerine', 'tomato', 'bubble'] },
+    seaside: { name: 'Seaside', c: ['pool', 'periwinkle', 'lavender'] },
+    garden:  { name: 'Garden',  c: ['grass', 'marigold', 'pool'] },
+    berry:   { name: 'Berry',   c: ['grape', 'bubble', 'lavender'] }
+  };
+  var WEIGHTS = { brief: 30, path: 20, facing: 15, light: 15, colour: 10, clear: 10 };
+  var STAR_AT = [50, 80, 100];
+
+  // Stars only start once every piece the brief asks for is in the room; then 50, 80, 100.
+  function starsFor(total, briefDone) {
+    if (briefDone === false) return 0;
+    if (total >= STAR_AT[2] - 1e-6) return 3;
+    if (total >= STAR_AT[1] - 1e-6) return 2;
+    if (total >= STAR_AT[0] - 1e-6) return 1;
+    return 0;
+  }
+
+  function dims(p) {
+    var d = PIECES[p.t];
+    return (p.r & 1) ? [d.h, d.w] : [d.w, d.h];
+  }
+  function frontDir(p) { return (2 + p.r) % 4; }
+  function cellsOf(p) {
+    var wh = dims(p), out = [];
+    for (var y = 0; y < wh[1]; y++) for (var x = 0; x < wh[0]; x++) out.push([p.x + x, p.y + y]);
+    return out;
+  }
+  function inBounds(room, p) {
+    var wh = dims(p);
+    return p.x >= 0 && p.y >= 0 && p.x + wh[0] <= room.w && p.y + wh[1] <= room.h;
+  }
+  function overlaps(a, b) {
+    var da = dims(a), db = dims(b);
+    return a.x < b.x + db[0] && b.x < a.x + da[0] && a.y < b.y + db[1] && b.y < a.y + da[1];
+  }
+  function isRug(p) { return !!PIECES[p.t].rug; }
+  // Furniture may stand on a rug; furniture never overlaps furniture, rugs never overlap rugs.
+  function collides(pieces, p, ignore) {
+    for (var i = 0; i < pieces.length; i++) {
+      if (i === ignore) continue;
+      var q = pieces[i];
+      if (isRug(q) === isRug(p) && overlaps(p, q)) return true;
+    }
+    return false;
+  }
+  function canPlace(room, pieces, p, ignore) {
+    return !!PIECES[p.t] && inBounds(room, p) && !collides(pieces, p, ignore);
+  }
+  function validLayout(room, pieces) {
+    for (var i = 0; i < pieces.length; i++) if (!canPlace(room, pieces, pieces[i], i)) return false;
+    return true;
+  }
+  // Rotate in place by a quarter turn clockwise, keeping the piece's centre where it was
+  // as nearly as the grid allows, then nudging it back inside the room.
+  function rotated(room, p) {
+    var wh = dims(p);
+    var q = { t: p.t, x: p.x, y: p.y, r: (p.r + 1) % 4, c: p.c };
+    var nwh = dims(q);
+    q.x = p.x + Math.floor((wh[0] - nwh[0]) / 2);
+    q.y = p.y + Math.floor((wh[1] - nwh[1]) / 2);
+    q.x = Math.max(0, Math.min(room.w - nwh[0], q.x));
+    q.y = Math.max(0, Math.min(room.h - nwh[1], q.y));
+    return q;
+  }
+
+  // Occupancy grid of furniture (rugs excluded because you can walk on them).
+  function grid(room, pieces) {
+    var g = new Array(room.w * room.h);
+    for (var k = 0; k < g.length; k++) g[k] = -1;
+    for (var i = 0; i < pieces.length; i++) {
+      if (isRug(pieces[i])) continue;
+      var cs = cellsOf(pieces[i]);
+      for (var j = 0; j < cs.length; j++) {
+        var c = cs[j];
+        if (c[0] >= 0 && c[1] >= 0 && c[0] < room.w && c[1] < room.h) g[c[1] * room.w + c[0]] = i;
+      }
+    }
+    return g;
+  }
+  function wallCell(room, side, i) {
+    if (side === 'N') return [i, 0];
+    if (side === 'S') return [i, room.h - 1];
+    if (side === 'W') return [0, i];
+    return [room.w - 1, i];
+  }
+  function doorCell(room) { return wallCell(room, room.door.side, room.door.i); }
+  // Each window cell with the point on the wall that light comes in from.
+  function windowCells(room) {
+    var out = [];
+    (room.windows || []).forEach(function (wdw, k) {
+      for (var n = 0; n < (wdw.len || 1); n++) {
+        var c = wallCell(room, wdw.side, wdw.i + n);
+        var sx = c[0] + 0.5, sy = c[1] + 0.5;
+        if (wdw.side === 'N') sy = 0; else if (wdw.side === 'S') sy = room.h;
+        else if (wdw.side === 'W') sx = 0; else sx = room.w;
+        out.push({ x: c[0], y: c[1], sx: sx, sy: sy, k: k });
+      }
+    });
+    return out;
+  }
+
+  // Breadth-first search over walkable cells, starting at the cell inside the door.
+  function walk(room, pieces, g) {
+    g = g || grid(room, pieces);
+    var n = room.w * room.h, dist = new Array(n), prev = new Array(n);
+    for (var k = 0; k < n; k++) { dist[k] = -1; prev[k] = -1; }
+    var d = doorCell(room), s = d[1] * room.w + d[0];
+    if (g[s] !== -1) return { dist: dist, prev: prev, g: g };
+    var q = [s], head = 0; dist[s] = 0;
+    while (head < q.length) {
+      var cur = q[head++], cx = cur % room.w, cy = (cur - cx) / room.w;
+      for (var dd = 0; dd < 4; dd++) {
+        var nx = cx + DIRS[dd][0], ny = cy + DIRS[dd][1];
+        if (nx < 0 || ny < 0 || nx >= room.w || ny >= room.h) continue;
+        var ni = ny * room.w + nx;
+        if (dist[ni] !== -1 || g[ni] !== -1) continue;
+        dist[ni] = dist[cur] + 1; prev[ni] = cur; q.push(ni);
+      }
+    }
+    return { dist: dist, prev: prev, g: g };
+  }
+  // The nearest reachable cell you can stand on to use piece i (its own cell for a rug).
+  function accessCell(room, pieces, i, w) {
+    var p = pieces[i], cs = cellsOf(p), best = -1, bd = 1e9;
+    function consider(x, y) {
+      if (x < 0 || y < 0 || x >= room.w || y >= room.h) return;
+      var k = y * room.w + x;
+      if (w.dist[k] >= 0 && w.dist[k] < bd) { bd = w.dist[k]; best = k; }
+    }
+    for (var j = 0; j < cs.length; j++) {
+      if (isRug(p)) consider(cs[j][0], cs[j][1]);
+      for (var dd = 0; dd < 4; dd++) consider(cs[j][0] + DIRS[dd][0], cs[j][1] + DIRS[dd][1]);
+    }
+    return best;
+  }
+  // The walkway from the door to piece i as a list of [x, y] cells, or null if there is none.
+  function pathTo(room, pieces, i, w) {
+    w = w || walk(room, pieces);
+    var k = accessCell(room, pieces, i, w);
+    if (k < 0) return null;
+    var out = [];
+    while (k !== -1) { out.push([k % room.w, Math.floor(k / room.w)]); k = w.prev[k]; }
+    return out.reverse();
+  }
+
+  // A seat passes when, looking straight out of its front edge, the first thing it meets
+  // within its range is one of its targets, with only floor (or rug) in between.
+  function facing(room, pieces, i, g) {
+    var p = pieces[i], d = PIECES[p.t];
+    if (!d.seat) return { ok: true, target: -1 };
+    g = g || grid(room, pieces);
+    var f = frontDir(p), v = DIRS[f], cs = cellsOf(p);
+    for (var j = 0; j < cs.length; j++) {
+      var cx = cs[j][0], cy = cs[j][1];
+      var nx0 = cx + v[0], ny0 = cy + v[1];
+      if (nx0 >= 0 && ny0 >= 0 && nx0 < room.w && ny0 < room.h && g[ny0 * room.w + nx0] === i) continue; // not a front cell
+      for (var s = 1; s <= d.range; s++) {
+        var x = cx + v[0] * s, y = cy + v[1] * s;
+        if (x < 0 || y < 0 || x >= room.w || y >= room.h) break;
+        var o = g[y * room.w + x];
+        if (o === -1) continue;
+        if (d.targets.indexOf(pieces[o].t) >= 0) return { ok: true, target: o };
+        break;
+      }
+    }
+    return { ok: false, target: -1 };
+  }
+
+  // Light travels in a straight line; tall pieces (shelves, wardrobes, fridges) block it.
+  function clearLine(pieces, ax, ay, bx, by, skipA, skipB) {
+    var dx = bx - ax, dy = by - ay, len = Math.sqrt(dx * dx + dy * dy), steps = Math.max(1, Math.ceil(len * 6));
+    for (var s = 1; s < steps; s++) {
+      var px = ax + dx * s / steps, py = ay + dy * s / steps;
+      for (var i = 0; i < pieces.length; i++) {
+        if (i === skipA || i === skipB || !PIECES[pieces[i].t].tall) continue;
+        var q = pieces[i], wh = dims(q);
+        if (px > q.x + 1e-9 && px < q.x + wh[0] - 1e-9 && py > q.y + 1e-9 && py < q.y + wh[1] - 1e-9) return false;
+      }
+    }
+    return true;
+  }
+  function lightAt(room, pieces, cx, cy, skip) {
+    var px = cx + 0.5, py = cy + 0.5, i, dx, dy;
+    for (i = 0; i < pieces.length; i++) {
+      var L = PIECES[pieces[i].t].light;
+      if (!L || i === skip) continue;
+      var lx = pieces[i].x + 0.5, ly = pieces[i].y + 0.5;
+      dx = px - lx; dy = py - ly;
+      if (dx * dx + dy * dy <= L * L && clearLine(pieces, lx, ly, px, py, i, skip)) return { kind: 'lamp', i: i };
+    }
+    var ws = windowCells(room);
+    for (var k = 0; k < ws.length; k++) {
+      dx = px - ws[k].sx; dy = py - ws[k].sy;
+      if (dx * dx + dy * dy <= WINDOW_REACH * WINDOW_REACH && clearLine(pieces, ws[k].sx, ws[k].sy, px, py, skip, -1)) return { kind: 'window', k: ws[k].k };
+    }
+    return null;
+  }
+  function light(room, pieces, i) {
+    var p = pieces[i];
+    if (!PIECES[p.t].seat) return { ok: true, src: null };
+    var cs = cellsOf(p);
+    for (var j = 0; j < cs.length; j++) {
+      var src = lightAt(room, pieces, cs[j][0], cs[j][1], i);
+      if (src) return { ok: true, src: src };
+    }
+    return { ok: false, src: null };
+  }
+
+  function colourVerdict(pieces, mood) {
+    var accents = [];
+    pieces.forEach(function (p) {
+      if (NEUTRALS.indexOf(p.c) < 0 && COLOURS[p.c] && accents.indexOf(p.c) < 0) accents.push(p.c);
+    });
+    var keys = mood ? [mood] : Object.keys(SCHEMES), best = -1, bestKey = keys[0];
+    keys.forEach(function (key) {
+      var n = accents.filter(function (c) { return SCHEMES[key].c.indexOf(c) >= 0; }).length;
+      if (n > best) { best = n; bestKey = key; }
+    });
+    var outliers = accents.filter(function (c) { return SCHEMES[bestKey].c.indexOf(c) < 0; });
+    var frac, msg;
+    if (!pieces.length) { frac = 0; msg = 'Nothing placed yet'; }
+    else if (!outliers.length && accents.length >= 2) { frac = 1; msg = 'All ' + SCHEMES[bestKey].name + ' colours, lovely'; }
+    else if (!outliers.length) { frac = 0.5; msg = 'Add a second ' + (mood ? SCHEMES[mood].name + ' ' : '') + 'accent colour'; }
+    else if (outliers.length === 1) { frac = 0.4; msg = 'One colour clashes with ' + SCHEMES[bestKey].name; }
+    else { frac = 0; msg = outliers.length + ' colours clash with ' + SCHEMES[bestKey].name; }
+    return { frac: frac, accents: accents, outliers: outliers, scheme: bestKey, msg: msg };
+  }
+
+  function countTypes(list) {
+    var o = {};
+    list.forEach(function (t) { o[t] = (o[t] || 0) + 1; });
+    return o;
+  }
+
+  // The live judge. level.need may be null (free build): the brief row is then left out
+  // and the total is scaled back to 100.
+  function score(level, pieces) {
+    var room = level.room, need = level.need || null;
+    var g = grid(room, pieces), w = walk(room, pieces, g);
+    var have = countTypes(pieces.map(function (p) { return p.t; }));
+    var problems = pieces.map(function () { return []; });
+    var parts = [], reqCount = 0, reqSeats = 0, briefDone = true, t;
+
+    if (need) {
+      var got = 0, rows = [];
+      for (t in need) {
+        reqCount += need[t];
+        if (PIECES[t].seat) reqSeats += need[t];
+        got += Math.min(have[t] || 0, need[t]);
+        rows.push({ t: t, need: need[t], have: have[t] || 0 });
+      }
+      briefDone = got === reqCount;
+      parts.push({ key: 'brief', label: 'The brief', max: WEIGHTS.brief, got: WEIGHTS.brief * (reqCount ? got / reqCount : 1),
+        detail: got + ' of ' + reqCount + ' asked-for pieces', rows: rows });
+    }
+
+    var reached = 0;
+    pieces.forEach(function (p, i) { if (accessCell(room, pieces, i, w) >= 0) reached++; else problems[i].push('path'); });
+    var denom = Math.max(pieces.length, reqCount);
+    parts.push({ key: 'path', label: 'Walkway from the door', max: WEIGHTS.path, got: denom ? WEIGHTS.path * reached / denom : WEIGHTS.path,
+      detail: pieces.length ? reached + ' of ' + pieces.length + ' pieces reachable' : 'Nothing placed yet' });
+
+    var seats = 0, facingOk = 0, litOk = 0;
+    pieces.forEach(function (p, i) {
+      if (!PIECES[p.t].seat) return;
+      seats++;
+      if (facing(room, pieces, i, g).ok) facingOk++; else problems[i].push('facing');
+      if (light(room, pieces, i).ok) litOk++; else problems[i].push('light');
+    });
+    var sd = Math.max(seats, reqSeats);
+    parts.push({ key: 'facing', label: 'Seats face a table or TV', max: WEIGHTS.facing, got: sd ? WEIGHTS.facing * facingOk / sd : WEIGHTS.facing,
+      detail: sd ? facingOk + ' of ' + sd + ' seats' : 'No seats to check' });
+    parts.push({ key: 'light', label: 'Light reaches the seats', max: WEIGHTS.light, got: sd ? WEIGHTS.light * litOk / sd : WEIGHTS.light,
+      detail: sd ? litOk + ' of ' + sd + ' seats lit' : 'No seats to check' });
+
+    var cv = colourVerdict(pieces, level.mood);
+    pieces.forEach(function (p, i) { if (cv.outliers.indexOf(p.c) >= 0) problems[i].push('colour'); });
+    parts.push({ key: 'colour', label: 'Colours go together', max: WEIGHTS.colour, got: WEIGHTS.colour * cv.frac, detail: cv.msg, scheme: cv.scheme });
+
+    var dc = doorCell(room), dOcc = g[dc[1] * room.w + dc[0]];
+    if (dOcc >= 0) problems[dOcc].push('door');
+    var ws = windowCells(room), nWin = (room.windows || []).length, blocked = {};
+    ws.forEach(function (c) {
+      var o = g[c.y * room.w + c.x];
+      if (o >= 0 && PIECES[pieces[o].t].tall) { blocked[c.k] = true; if (problems[o].indexOf('window') < 0) problems[o].push('window'); }
+    });
+    var nBlocked = Object.keys(blocked).length, half = WEIGHTS.clear / 2;
+    parts.push({ key: 'clear', label: 'Door and windows clear', max: WEIGHTS.clear,
+      got: (dOcc >= 0 ? 0 : half) + (nWin ? half * (nWin - nBlocked) / nWin : half),
+      detail: (dOcc >= 0 ? 'Door blocked' : 'Door clear') + (nWin ? ', ' + (nWin - nBlocked) + ' of ' + nWin + ' windows clear' : '') });
+
+    var sumMax = 0, sumGot = 0;
+    parts.forEach(function (pt) { sumMax += pt.max; sumGot += pt.got; });
+    var total = sumMax ? sumGot * 100 / sumMax : 0;
+    if (total > 99.999) total = 100;
+    return { total: total, stars: starsFor(total, briefDone), briefDone: briefDone, parts: parts, problems: problems, walk: w };
+  }
+
+  // ---- levels ---------------------------------------------------------------------------
+  // sol: one stored 3-star layout per level, [type, x, y, rotation, colour] in placing order.
+  var LEVELS = [
+    {"name":"Sleepy corner","brief":"A sleepy corner: a bed to flop onto, a lamp for bedtime reading and one plant to say good morning to.","room":{"w":6,"h":5,"door":{"side":"S","i":4},"windows":[{"side":"N","i":1,"len":2}]},"need":{"bed":1,"lamp":1,"plant":1},"extra":{"rug":1},"look":"sunset","sol":[["rug",4,0,3,"tangerine"],["bed",3,2,1,"marigold"],["lamp",0,4,0,"cream"],["plant",5,0,1,"cream"]]},
+    {"name":"Plant lover's nook","brief":"A reading nook for someone who loves plants: an armchair in good light facing a side table, a bookshelf and three plants, all in leafy Garden colours.","room":{"w":6,"h":6,"door":{"side":"W","i":4},"windows":[{"side":"N","i":3,"len":2}]},"need":{"armchair":1,"side":1,"shelf":1,"plant":3},"extra":{"lamp":1,"plant":1,"rug":1},"mood":"garden","sol":[["rug",1,2,2,"grass"],["shelf",0,1,3,"pool"],["side",1,3,3,"marigold"],["armchair",3,3,1,"grass"],["plant",5,5,3,"cream"],["plant",0,5,1,"cream"],["plant",0,0,0,"cream"],["lamp",5,0,2,"cream"]]},
+    {"name":"Tiny studio","brief":"A tiny studio that fits a bed, a desk with its chair, and a table where two can eat.","room":{"w":8,"h":6,"door":{"side":"S","i":6},"windows":[{"side":"N","i":2,"len":2},{"side":"E","i":1,"len":1}]},"need":{"bed":1,"desk":1,"table":1,"chair":3},"extra":{"lamp":1,"plant":1},"look":"seaside","sol":[["bed",0,3,2,"pool"],["table",4,0,1,"lavender"],["desk",7,1,1,"periwinkle"],["chair",3,1,3,"pool"],["chair",4,2,2,"periwinkle"],["chair",6,2,3,"lavender"],["lamp",0,0,2,"cream"],["plant",7,5,2,"cream"]]},
+    {"name":"Movie night den","brief":"A movie night den: a sofa facing the TV with a coffee table between, a lamp for later and a soft rug, in cosy Berry tones.","room":{"w":7,"h":6,"door":{"side":"E","i":4},"windows":[{"side":"N","i":5,"len":1}]},"need":{"sofa":1,"tv":1,"coffee":1,"lamp":1,"rug":1},"extra":{"plant":1,"armchair":1},"mood":"berry","sol":[["rug",3,2,0,"grape"],["tv",4,0,0,"bubble"],["coffee",3,3,0,"lavender"],["sofa",6,0,1,"grape"],["armchair",5,2,2,"bubble"],["lamp",0,3,1,"cream"],["plant",1,5,2,"cream"]]},
+    {"name":"Office with a view","brief":"A home office: a desk and chair, two bookshelves that keep out of the windows' light, a lamp and a plant. Calm Seaside colours.","room":{"w":7,"h":6,"door":{"side":"S","i":1},"windows":[{"side":"N","i":2,"len":2},{"side":"W","i":1,"len":2}]},"need":{"desk":1,"chair":1,"shelf":2,"lamp":1,"plant":1},"extra":{"armchair":1,"side":1},"mood":"seaside","sol":[["desk",0,0,3,"pool"],["shelf",4,0,0,"lavender"],["shelf",3,5,2,"pool"],["chair",0,2,2,"periwinkle"],["lamp",6,0,2,"cream"],["plant",6,5,3,"cream"]]},
+    {"name":"Room for two kids","brief":"A bedroom for two kids: two single beds, one wardrobe to share, a desk with a chair and a big rug to play on. Bright Sunset colours.","room":{"w":8,"h":7,"door":{"side":"S","i":1},"windows":[{"side":"N","i":3,"len":2}]},"need":{"single":2,"wardrobe":1,"desk":1,"chair":1,"rug":1},"extra":{"lamp":1,"plant":1},"mood":"sunset","sol":[["rug",1,0,0,"tangerine"],["single",3,0,0,"marigold"],["single",6,0,0,"tangerine"],["wardrobe",7,2,1,"tomato"],["desk",0,0,3,"bubble"],["chair",1,1,1,"marigold"],["lamp",4,6,2,"cream"]]},
+    {"name":"Breakfast kitchen","brief":"A breakfast kitchen: two counters with a stool at each, a fridge, and a table with two chairs.","room":{"w":8,"h":6,"door":{"side":"W","i":4},"windows":[{"side":"N","i":5,"len":2}]},"need":{"counter":2,"stool":2,"fridge":1,"table":1,"chair":2},"extra":{"lamp":1,"plant":1},"look":"garden","sol":[["table",2,1,3,"pool"],["counter",7,1,1,"grass"],["counter",5,5,2,"marigold"],["fridge",0,2,3,"marigold"],["stool",7,0,0,"pool"],["stool",6,2,3,"grass"],["chair",2,0,0,"grass"],["chair",2,3,2,"marigold"],["lamp",0,5,2,"cream"],["plant",0,3,2,"cream"]]},
+    {"name":"Calm blue bedroom","brief":"A calm bedroom: a double bed with two side tables, a wardrobe, an armchair to read in with a lamp beside it, and a rug. Seaside colours only.","room":{"w":8,"h":7,"door":{"side":"S","i":6},"windows":[{"side":"E","i":1,"len":2}]},"need":{"bed":1,"side":2,"wardrobe":1,"armchair":1,"lamp":1,"rug":1},"extra":{"plant":1},"mood":"seaside","sol":[["rug",1,2,1,"lavender"],["bed",1,4,2,"pool"],["wardrobe",2,0,0,"pool"],["side",5,2,0,"periwinkle"],["side",1,2,3,"lavender"],["armchair",2,2,1,"periwinkle"],["lamp",0,0,2,"cream"],["plant",7,6,2,"cream"]]},
+    {"name":"Dinner for four","brief":"Dinner for four: one table with four chairs around it, a bookshelf, two lamps and two plants.","room":{"w":8,"h":7,"door":{"side":"E","i":5},"windows":[]},"need":{"table":1,"chair":4,"shelf":1,"lamp":2,"plant":2},"extra":{"rug":1},"look":"sunset","sol":[["rug",5,1,1,"tomato"],["table",4,2,2,"marigold"],["shelf",0,1,3,"tangerine"],["chair",3,2,3,"tangerine"],["chair",6,2,1,"tomato"],["chair",4,1,0,"bubble"],["chair",5,1,0,"marigold"],["lamp",6,0,3,"cream"],["lamp",2,0,1,"cream"],["plant",6,6,2,"cream"],["plant",7,0,2,"cream"]]},
+    {"name":"Sunroom","brief":"A sunroom full of light: a sofa and two armchairs around a coffee table, and four plants. Garden colours, of course.","room":{"w":9,"h":7,"door":{"side":"W","i":5},"windows":[{"side":"N","i":1,"len":3},{"side":"N","i":5,"len":3},{"side":"E","i":2,"len":3}]},"need":{"sofa":1,"armchair":2,"coffee":1,"plant":4},"extra":{"rug":1,"lamp":1},"mood":"garden","sol":[["rug",4,2,3,"marigold"],["coffee",4,4,2,"grass"],["sofa",5,6,2,"grass"],["armchair",5,3,0,"marigold"],["armchair",4,2,0,"pool"],["plant",6,0,0,"cream"],["plant",0,0,3,"cream"],["plant",8,0,3,"cream"],["plant",8,6,1,"cream"]]},
+    {"name":"Games lounge","brief":"A games lounge: sofa and armchair for the TV, a table with two chairs for board games, a bookshelf for the boxes, a lamp and a rug.","room":{"w":9,"h":8,"door":{"side":"S","i":4},"windows":[{"side":"W","i":2,"len":2}]},"need":{"sofa":1,"armchair":1,"tv":1,"coffee":1,"table":1,"chair":2,"shelf":1,"lamp":1,"rug":1},"extra":{"plant":1},"mood":"berry","sol":[["rug",0,3,0,"lavender"],["table",2,4,1,"bubble"],["tv",8,3,1,"lavender"],["coffee",0,3,1,"grape"],["shelf",0,5,3,"bubble"],["sofa",0,0,0,"grape"],["armchair",1,3,1,"bubble"],["chair",2,3,0,"lavender"],["chair",1,4,3,"grape"],["lamp",8,0,1,"cream"],["plant",8,7,1,"cream"]]},
+    {"name":"The whole flat","brief":"A whole flat in one room: bed and wardrobe, a desk and chair, a table for two, a sofa facing the TV, a counter and fridge, a lamp and a plant.","room":{"w":10,"h":8,"door":{"side":"S","i":5},"windows":[{"side":"N","i":2,"len":2},{"side":"N","i":7,"len":2}]},"need":{"bed":1,"wardrobe":1,"desk":1,"table":1,"chair":3,"sofa":1,"tv":1,"counter":1,"fridge":1,"lamp":1,"plant":1},"extra":{"rug":1},"look":"berry","sol":[["bed",0,3,3,"grape"],["table",3,2,3,"grape"],["wardrobe",9,5,1,"bubble"],["desk",6,0,0,"lavender"],["tv",7,2,3,"lavender"],["counter",1,0,0,"grape"],["fridge",1,7,2,"bubble"],["sofa",9,0,1,"bubble"],["chair",5,2,1,"bubble"],["chair",3,1,0,"lavender"],["chair",8,0,1,"grape"],["lamp",0,7,3,"cream"],["plant",4,7,2,"cream"]]}
+  ];
+
+  function trayOf(level) {
+    var out = [];
+    [level.need || {}, level.extra || {}].forEach(function (o) {
+      for (var t in o) for (var n = 0; n < o[t]; n++) out.push(t);
+    });
+    return out;
+  }
+  function solPieces(level) {
+    return (level.sol || []).map(function (s) { return { t: s[0], x: s[1], y: s[2], r: s[3], c: s[4] }; });
+  }
+
+  // ---- search: simulated annealing over the tray, used by the tests to prove a 3-star
+  // layout exists for a level without trusting the stored one -------------------------------
+  function rng(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function backToWall(room, p) {
+    var b = (frontDir(p) + 2) % 4, wh = dims(p);
+    return (b === 0 && p.y === 0) || (b === 2 && p.y + wh[1] === room.h) || (b === 3 && p.x === 0) || (b === 1 && p.x + wh[0] === room.w);
+  }
+  // How homely a layout looks beyond the rules: backs against walls, plants and lamps by the
+  // walls, seats and tables on the rug. Only the search uses it, to pick a nicer answer.
+  function tidy(room, pieces) {
+    var s = 0, g = grid(room, pieces);
+    pieces.forEach(function (p, i) {
+      var d = PIECES[p.t], wh = dims(p);
+      if (d.back && backToWall(room, p)) s += 2;
+      if (p.t === 'plant' || p.t === 'lamp') {
+        var ex = p.x === 0 || p.x + wh[0] === room.w, ey = p.y === 0 || p.y + wh[1] === room.h;
+        s += (ex || ey ? 0.6 : 0) + (ex && ey ? 0.4 : 0);
+      }
+      if (d.seat) {
+        var f = facing(room, pieces, i, g);
+        if (f.ok && pieces[f.target].t === 'tv') s += 1;
+      }
+      if (d.rug) pieces.forEach(function (q) {
+        var dq = PIECES[q.t];
+        if ((dq.seat || q.t === 'coffee' || q.t === 'table' || q.t === 'bed' || q.t === 'single') && overlaps(p, q)) s += 0.5;
+      });
+    });
+    return s;
+  }
+  // Turns non-seat pieces half way round when that puts their back to a wall or their front
+  // towards the seat that uses them. A half turn keeps the footprint, so no rule changes.
+  function orient(room, pieces) {
+    var out = pieces.map(function (p) { return { t: p.t, x: p.x, y: p.y, r: p.r, c: p.c }; });
+    var g = grid(room, out);
+    function worth(q, i) {
+      var v = backToWall(room, q) ? 2 : 0, wh = dims(q), f = DIRS[frontDir(q)];
+      out.forEach(function (s, j) {
+        if (!PIECES[s.t].seat || facing(room, out, j, g).target !== i) return;
+        var sw = dims(s), dx = (s.x + sw[0] / 2) - (q.x + wh[0] / 2), dy = (s.y + sw[1] / 2) - (q.y + wh[1] / 2);
+        if (dx * f[0] + dy * f[1] > 0) v += 3;
+      });
+      return v;
+    }
+    out.forEach(function (p, i) {
+      if (PIECES[p.t].seat || !PIECES[p.t].back) return;
+      var q = { t: p.t, x: p.x, y: p.y, r: (p.r + 2) % 4, c: p.c };
+      if (worth(q, i) > worth(p, i)) out[i] = q;
+    });
+    return out;
+  }
+  function solve(level, seed, iters, polish) {
+    var R = rng(seed || 1), room = level.room;
+    var need = level.need || {}, tray = trayOf(level);
+    var scheme = SCHEMES[level.mood || level.look || 'sunset'].c;
+    var accentN = 0;
+    var items = tray.map(function (t, k) {
+      var c = (t === 'plant' || t === 'lamp') ? 'cream' : scheme[(accentN++) % scheme.length];
+      return { t: t, c: c, on: false, x: 0, y: 0, r: 0, req: k < trayOf({ need: need }).length };
+    });
+    function placed() { return items.filter(function (it) { return it.on; }).map(function (it) { return { t: it.t, x: it.x, y: it.y, r: it.r, c: it.c }; }); }
+    function objective() {
+      var ps = placed(), sc = score(level, ps);
+      var extras = items.filter(function (it) { return it.on && !it.req; }).length;
+      return { v: sc.total * 10 + tidy(room, ps) - extras * 0.6, sc: sc, ps: ps };
+    }
+    function randomSpot(it) {
+      for (var tries = 0; tries < 40; tries++) {
+        var r = Math.floor(R() * 4), probe = { t: it.t, r: r, x: 0, y: 0 }, wh = dims(probe);
+        probe.x = Math.floor(R() * (room.w - wh[0] + 1)); probe.y = Math.floor(R() * (room.h - wh[1] + 1));
+        var others = items.filter(function (o) { return o !== it && o.on; });
+        if (!collides(others, probe, -1)) return probe;
+      }
+      return null;
+    }
+    items.forEach(function (it) { if (it.req) { var s = randomSpot(it); if (s) { it.on = true; it.x = s.x; it.y = s.y; it.r = s.r; } } });
+    var cur = objective(), best = cur, bestSnap = cur.ps;
+    iters = iters || 20000;
+    for (var n = 0; n < iters && (polish || best.sc.stars < 3); n++) {
+      var T = 40 * (1 - n / iters) + 0.5;
+      var it = items[Math.floor(R() * items.length)], save = { on: it.on, x: it.x, y: it.y, r: it.r };
+      var m = R();
+      if (!it.req && m < 0.15) it.on = !it.on;
+      if (it.on) {
+        var s2 = null;
+        if (m < 0.55 || !save.on) s2 = randomSpot(it);
+        else {
+          var probe = { t: it.t, x: it.x, y: it.y, r: it.r };
+          if (m < 0.7) probe.r = (probe.r + 1) % 4; else { var dd = DIRS[Math.floor(R() * 4)]; probe.x += dd[0]; probe.y += dd[1]; }
+          var others = items.filter(function (o) { return o !== it && o.on; });
+          if (inBounds(room, probe) && !collides(others, probe, -1)) s2 = probe;
+        }
+        if (!s2) { it.on = save.on; continue; }
+        it.x = s2.x; it.y = s2.y; it.r = s2.r;
+      }
+      var nx = objective();
+      if (nx.v >= cur.v || R() < Math.exp((nx.v - cur.v) / T)) {
+        cur = nx;
+        if (cur.v > best.v) { best = cur; bestSnap = cur.ps; }
+      } else { it.on = save.on; it.x = save.x; it.y = save.y; it.r = save.r; }
+    }
+    return { pieces: bestSnap, stars: best.sc.stars, total: best.sc.total };
+  }
+
+  // Validates a room read from a .json file. Anything unknown or overlapping is dropped;
+  // a file that is not a room at all throws.
+  function importRoom(o) {
+    if (!o || typeof o !== 'object' || !o.room || !Array.isArray(o.pieces)) throw new Error('not a room');
+    var r = o.room, w = r.w | 0, h = r.h | 0;
+    if (w < 4 || h < 4 || w > 14 || h > 12) throw new Error('bad room size');
+    var span = { N: w, S: w, E: h, W: h };
+    if (!r.door || !span[r.door.side]) throw new Error('bad door');
+    var di = r.door.i | 0;
+    if (di < 0 || di >= span[r.door.side]) throw new Error('bad door');
+    var windows = (Array.isArray(r.windows) ? r.windows : []).filter(function (x) {
+      return x && span[x.side] && (x.i | 0) >= 0 && (x.len | 0) >= 1 && (x.len | 0) <= 4 && (x.i | 0) + (x.len | 0) <= span[x.side];
+    }).slice(0, 8).map(function (x) { return { side: x.side, i: x.i | 0, len: x.len | 0 }; });
+    var room = { w: w, h: h, door: { side: r.door.side, i: di }, windows: windows }, pieces = [];
+    o.pieces.slice(0, 200).forEach(function (p) {
+      if (!p || !Object.prototype.hasOwnProperty.call(PIECES, p.t)) return;
+      var q = { t: p.t, x: p.x | 0, y: p.y | 0, r: (p.r | 0) & 3, c: Object.prototype.hasOwnProperty.call(COLOURS, p.c) ? p.c : 'oak' };
+      if (canPlace(room, pieces, q, -1)) pieces.push(q);
+    });
+    return { name: String(o.name || 'Imported room').slice(0, 40), room: room, pieces: pieces };
+  }
+
+  return {
+    DIRS: DIRS, PIECES: PIECES, TYPES: TYPES, COLOURS: COLOURS, COLOUR_KEYS: COLOUR_KEYS, NEUTRALS: NEUTRALS,
+    SCHEMES: SCHEMES, WEIGHTS: WEIGHTS, STAR_AT: STAR_AT, WINDOW_REACH: WINDOW_REACH, LEVELS: LEVELS,
+    starsFor: starsFor, dims: dims, frontDir: frontDir, cellsOf: cellsOf, inBounds: inBounds, overlaps: overlaps,
+    collides: collides, canPlace: canPlace, validLayout: validLayout, rotated: rotated, grid: grid,
+    doorCell: doorCell, windowCells: windowCells, walk: walk, accessCell: accessCell, pathTo: pathTo,
+    facing: facing, clearLine: clearLine, lightAt: lightAt, light: light, colourVerdict: colourVerdict,
+    score: score, importRoom: importRoom, trayOf: trayOf, solPieces: solPieces, rng: rng, solve: solve, tidy: tidy, backToWall: backToWall, orient: orient
+  };
+})();
+// LOGIC-END
+
+(function () {
+'use strict';
+var R = Roomy, P = R.PIECES, L = R.LEVELS;
+var qs = new URLSearchParams(location.search);
+var PREVIEW = qs.has('preview') && qs.get('preview') !== '0';
+var REDUCED = false;
+try { REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+function $(id) { return document.getElementById(id); }
+if (PREVIEW) { document.documentElement.classList.add('preview'); document.body.classList.add('preview'); }
+
+/* ---------------- storage: every read and write may throw ---------------- */
+var store = {
+  get: function (k, d) { try { var v = localStorage.getItem('roomy.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set: function (k, v) { if (PREVIEW) return; try { localStorage.setItem('roomy.' + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+/* ---------------- sound: Web Audio, only after the first input ---------------- */
+var AC = null, muted = !!store.get('muted', false);
+function wakeAudio() {
+  if (PREVIEW || AC) return;
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { AC = null; }
+}
+function tone(f, dur, type, vol, f2, delay) {
+  if (!AC || muted) return;
+  try {
+    var t = AC.currentTime + (delay || 0), o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.1, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.02);
+  } catch (e) {}
+}
+function sfx(n) {
+  if (n === 'place') { tone(420, 0.14, 'sine', 0.2, 250); tone(840, 0.07, 'triangle', 0.05); }
+  else if (n === 'pick') tone(520, 0.07, 'triangle', 0.08, 700);
+  else if (n === 'rot') { tone(700, 0.04, 'square', 0.03); tone(930, 0.04, 'square', 0.025, 0, 0.04); }
+  else if (n === 'paint') tone(900, 0.09, 'sine', 0.09, 1400);
+  else if (n === 'bad') tone(170, 0.2, 'sawtooth', 0.05, 110);
+  else if (n === 'star') [523, 659, 784].forEach(function (f, i) { tone(f, 0.18, 'triangle', 0.1, 0, i * 0.08); });
+  else if (n === 'win') [523, 659, 784, 1047, 1319].forEach(function (f, i) { tone(f, 0.3, 'triangle', 0.1, 0, i * 0.09); });
+  else if (n === 'undo') tone(600, 0.08, 'sine', 0.07, 380);
+}
+
+/* ---------------- drawing ---------------- */
+function hex2rgb(h) { var n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function shade(h, f) {
+  var c = hex2rgb(h), t = f < 0 ? 0 : 255, a = Math.abs(f);
+  return 'rgb(' + c.map(function (v) { return Math.round(v + (t - v) * a); }).join(',') + ')';
+}
+function colHex(c) { return R.COLOURS[c] || R.COLOURS.oak; }
+function rrect(ctx, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function box(ctx, x, y, w, h, r, fill, stroke) {
+  rrect(ctx, x, y, w, h, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) ctx.stroke();
+}
+function dot(ctx, x, y, r, fill, stroke) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) ctx.stroke();
+}
+var BOOKS = ['#FF4F6D', '#22D3C5', '#FFE066', '#B45CF0', '#C6F432', '#FF7AC8', '#8C9BFF', '#FF8A3D'];
+// Draws a piece centred on the origin in its base orientation (front facing down), cell size s.
+function drawPiece(ctx, t, c, s) {
+  var d = P[t], W = d.w * s, H = d.h * s, col = colHex(c), m = s * 0.07;
+  var x = -W / 2 + m, y = -H / 2 + m, w = W - 2 * m, h = H - 2 * m;
+  var dk = shade(col, -0.3), lt = shade(col, 0.4), i;
+  ctx.lineWidth = Math.max(1, s * 0.035); ctx.strokeStyle = 'rgba(26,21,64,.55)'; ctx.lineJoin = 'round';
+  switch (t) {
+    case 'bed': case 'single': {
+      box(ctx, x, y, w, h, s * 0.14, dk, true);
+      box(ctx, x, y, w, s * 0.24, s * 0.1, shade(col, -0.48), true);
+      box(ctx, x + s * 0.08, y + s * 0.18, w - s * 0.16, h - s * 0.26, s * 0.1, '#FFFDF7', false);
+      var n = t === 'bed' ? 2 : 1, gap = s * 0.07, pw = (w - s * 0.16 - (n + 1) * gap) / n;
+      ctx.strokeStyle = '#DCD2F2';
+      for (i = 0; i < n; i++) box(ctx, x + s * 0.08 + gap + i * (pw + gap), y + s * 0.3, pw, s * 0.4, s * 0.13, '#fff', true);
+      ctx.strokeStyle = 'rgba(26,21,64,.55)';
+      box(ctx, x + s * 0.05, y + h * 0.42, w - s * 0.1, h * 0.58 - s * 0.05, s * 0.12, col, true);
+      box(ctx, x + s * 0.05, y + h * 0.42, w - s * 0.1, s * 0.22, s * 0.1, lt, true);
+      break;
+    }
+    case 'sofa': case 'armchair': {
+      var arm = s * 0.22, back = s * 0.3;
+      box(ctx, x, y, w, h, s * 0.18, dk, true);
+      var nc = d.w, cw = (w - 2 * arm) / nc;
+      for (i = 0; i < nc; i++) {
+        box(ctx, x + arm + i * cw + s * 0.02, y + back, cw - s * 0.04, h - back - s * 0.05, s * 0.1, col, true);
+        box(ctx, x + arm + i * cw + s * 0.1, y + h - s * 0.2, cw - s * 0.2, s * 0.08, s * 0.04, lt, false);
+      }
+      break;
+    }
+    case 'chair':
+      box(ctx, -s * 0.29, -s * 0.2, s * 0.58, s * 0.52, s * 0.12, col, true);
+      box(ctx, -s * 0.34, -s * 0.4, s * 0.68, s * 0.17, s * 0.08, dk, true);
+      break;
+    case 'stool':
+      dot(ctx, 0, 0, s * 0.3, col, true); dot(ctx, 0, 0, s * 0.17, lt, false);
+      break;
+    case 'table':
+      box(ctx, x, y, w, h, s * 0.22, col, true);
+      ctx.strokeStyle = lt; box(ctx, x + s * 0.12, y + s * 0.12, w - s * 0.24, h - s * 0.24, s * 0.14, null, true);
+      ctx.strokeStyle = '#DCD2F2';
+      [[0, -0.62], [0, 0.62], [-0.62, 0], [0.62, 0]].forEach(function (q) { dot(ctx, q[0] * s, q[1] * s, s * 0.17, '#fff', true); dot(ctx, q[0] * s, q[1] * s, s * 0.09, '#F4EEFF', false); });
+      dot(ctx, 0, 0, s * 0.12, '#fff', true); dot(ctx, -s * 0.06, -s * 0.04, s * 0.07, '#7BD34C'); dot(ctx, s * 0.06, s * 0.02, s * 0.06, '#FF7AC8');
+      break;
+    case 'coffee':
+      box(ctx, x, y + s * 0.06, w, h - s * 0.12, s * 0.18, col, true);
+      box(ctx, x + w * 0.14, -s * 0.16, s * 0.52, s * 0.3, s * 0.04, '#8C9BFF', false);
+      ctx.strokeStyle = '#DCD2F2'; dot(ctx, x + w * 0.74, 0, s * 0.11, '#fff', true); dot(ctx, x + w * 0.74, 0, s * 0.06, '#8a5a3b');
+      break;
+    case 'side':
+      box(ctx, x + s * 0.08, y + s * 0.08, w - s * 0.16, h - s * 0.16, s * 0.14, col, true);
+      ctx.strokeStyle = '#DCD2F2'; dot(ctx, 0, 0, s * 0.12, '#fff', true); dot(ctx, 0, 0, s * 0.06, '#FFE066');
+      break;
+    case 'desk':
+      box(ctx, x, y, w, h, s * 0.1, col, true);
+      box(ctx, -s * 0.38, y + s * 0.07, s * 0.76, s * 0.36, s * 0.05, '#3B3470', false);
+      box(ctx, -s * 0.32, y + s * 0.11, s * 0.64, s * 0.26, s * 0.03, '#8C9BFF', false);
+      box(ctx, -s * 0.36, y + s * 0.47, s * 0.72, s * 0.2, s * 0.04, '#D9D3F0', false);
+      ctx.save(); ctx.translate(x + w * 0.84, y + h * 0.5); ctx.rotate(0.2); box(ctx, -s * 0.15, -s * 0.2, s * 0.3, s * 0.4, s * 0.03, '#fff', false); ctx.restore();
+      dot(ctx, x + w * 0.13, y + h * 0.45, s * 0.1, '#FF4F6D');
+      break;
+    case 'tv':
+      box(ctx, x, y, w, h, s * 0.1, col, true);
+      dot(ctx, x + s * 0.24, y + s * 0.2, s * 0.07, dk); dot(ctx, x + w - s * 0.24, y + s * 0.2, s * 0.07, dk);
+      box(ctx, x + s * 0.14, y + h * 0.38, w - s * 0.28, s * 0.16, s * 0.06, '#1A1540', false);
+      ctx.fillStyle = 'rgba(140,155,255,.8)'; ctx.fillRect(x + s * 0.26, y + h * 0.38 + s * 0.17, w - s * 0.52, s * 0.07);
+      break;
+    case 'lamp':
+      dot(ctx, 0, 0, s * 0.36, dk, true); dot(ctx, 0, 0, s * 0.27, '#FFF3C4', true); dot(ctx, 0, 0, s * 0.1, '#FFE066');
+      break;
+    case 'plant':
+      dot(ctx, 0, 0, s * 0.3, col, true); dot(ctx, 0, 0, s * 0.22, '#7A5234');
+      for (i = 0; i < 7; i++) {
+        var a = i * Math.PI * 2 / 7 + 0.3;
+        ctx.save(); ctx.rotate(a); ctx.beginPath(); ctx.ellipse(s * 0.2, 0, s * 0.21, s * 0.09, 0, 0, Math.PI * 2);
+        ctx.fillStyle = i % 2 ? '#4FAF3F' : '#7BD34C'; ctx.fill(); ctx.restore();
+      }
+      dot(ctx, 0, 0, s * 0.07, '#3E8F32');
+      break;
+    case 'shelf':
+      box(ctx, x, y, w, h, s * 0.08, dk, true);
+      box(ctx, x + s * 0.07, y + s * 0.07, w - s * 0.14, h - s * 0.14, s * 0.04, '#F7EBDD', false);
+      var bx = x + s * 0.1;
+      for (i = 0; bx < x + w - s * 0.18; i++) {
+        var bw = s * (0.08 + ((i * 37) % 5) * 0.015);
+        if (i % 7 === 5) { bx += s * 0.1; continue; }
+        ctx.fillStyle = BOOKS[i % BOOKS.length]; ctx.fillRect(bx, y + s * 0.1, bw, h * (0.5 + ((i * 13) % 4) * 0.08));
+        bx += bw + s * 0.02;
+      }
+      break;
+    case 'wardrobe':
+      box(ctx, x, y, w, h, s * 0.08, col, true);
+      box(ctx, x, y, w, s * 0.14, s * 0.06, dk, false);
+      ctx.beginPath(); ctx.moveTo(0, y + s * 0.14); ctx.lineTo(0, y + h); ctx.stroke();
+      dot(ctx, -s * 0.1, y + h - s * 0.16, s * 0.05, '#1A1540'); dot(ctx, s * 0.1, y + h - s * 0.16, s * 0.05, '#1A1540');
+      break;
+    case 'fridge':
+      box(ctx, x, y, w, h, s * 0.1, col, true);
+      box(ctx, x + s * 0.08, y + s * 0.08, w - s * 0.16, h * 0.5, s * 0.06, lt, false);
+      box(ctx, -s * 0.22, y + h - s * 0.14, s * 0.44, s * 0.07, s * 0.03, '#1A1540', false);
+      break;
+    case 'counter':
+      box(ctx, x, y, w, h, s * 0.08, col, true);
+      box(ctx, x + s * 0.05, y + s * 0.05, w - s * 0.1, h - s * 0.1, s * 0.06, lt, false);
+      box(ctx, x + s * 0.12, y + s * 0.14, s * 0.7, h - s * 0.3, s * 0.12, '#CFF3F1', true);
+      dot(ctx, x + s * 0.47, y + s * 0.1, s * 0.05, '#8a86a8');
+      ctx.strokeStyle = '#2B2550'; ctx.lineWidth = s * 0.05;
+      dot(ctx, x + w - s * 0.56, 0, s * 0.15, null, true); dot(ctx, x + w - s * 0.24, 0, s * 0.11, null, true);
+      break;
+    case 'rug':
+      ctx.globalAlpha = 0.92; box(ctx, x, y, w, h, s * 0.14, col, false);
+      ctx.strokeStyle = lt; ctx.lineWidth = s * 0.06; ctx.setLineDash([s * 0.12, s * 0.1]);
+      box(ctx, x + s * 0.14, y + s * 0.14, w - s * 0.28, h - s * 0.28, s * 0.08, null, true); ctx.setLineDash([]);
+      ctx.fillStyle = shade(col, -0.15);
+      for (i = 1; i < 4; i++) ctx.fillRect(x + w * i / 4 - s * 0.03, y + s * 0.3, s * 0.06, h - s * 0.6);
+      ctx.globalAlpha = 1;
+      break;
+  }
+}
+function drawIcon(cv, t, c, cssW, cssH) {
+  var dpr = Math.min(3, window.devicePixelRatio || 1), ctx = cv.getContext('2d');
+  cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cssW, cssH);
+  var d = P[t], turn = d.h > d.w, bw = turn ? d.h : d.w, bh = turn ? d.w : d.h;
+  var s = Math.min((cssW - 4) / bw, (cssH - 4) / bh);
+  ctx.save(); ctx.translate(cssW / 2, cssH / 2); if (turn) ctx.rotate(-Math.PI / 2); drawPiece(ctx, t, c, s); ctx.restore();
+}
+function drawStar(ctx, x, y, r, fill, stroke) {
+  ctx.beginPath();
+  for (var i = 0; i < 10; i++) {
+    var a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.46 : r;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1, r * 0.12); ctx.stroke(); }
+}
+
+var PROBLEM_TEXT = {
+  path: 'no walkway to it from the door', light: 'sitting in the dark: no lamp or window reaches it',
+  door: 'blocking the door', window: 'a tall piece blocking a window', colour: 'its colour clashes with the rest'
+};
+function facingText(t) {
+  var d = P[t], names = d.targets.map(function (x) { return P[x].name.toLowerCase(); });
+  return 'not facing a ' + names.slice(0, -1).join(', ') + (names.length > 1 ? ' or ' : '') + names[names.length - 1] +
+    (d.range > 1 ? ' (within ' + d.range + ' squares, nothing in between)' : ' (right in front of it)');
+}
+
+// Draws a whole room. v = {ox, oy, cs}. o carries the optional extras for the live game.
+function drawRoom(ctx, v, level, pieces, o) {
+  o = o || {};
+  var room = level.room, cs = v.cs, ox = v.ox, oy = v.oy, W = room.w * cs, H = room.h * cs, wt = Math.max(4, cs * 0.32), i, k;
+  // walls
+  box(ctx, ox - wt, oy - wt, W + wt * 2, H + wt * 2, wt * 0.9, '#3A2E73', false);
+  box(ctx, ox - wt, oy - wt, W + wt * 2, wt * 0.45, wt * 0.4, 'rgba(255,255,255,.12)', false);
+  // floor: dim planks; light pools make it warm where seats would be lit
+  ctx.fillStyle = '#E3C79F'; ctx.fillRect(ox, oy, W, H);
+  ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, W, H); ctx.clip();
+  ctx.strokeStyle = 'rgba(122,82,52,.16)'; ctx.lineWidth = 1;
+  for (k = 1; k < room.h * 2; k++) { ctx.beginPath(); ctx.moveTo(ox, oy + k * cs / 2); ctx.lineTo(ox + W, oy + k * cs / 2); ctx.stroke(); }
+  for (k = 0; k < room.h * 2; k++) { var off = ((k * 7) % 5) * cs * 0.37; for (var sx = off; sx < W; sx += cs * 1.85) { ctx.beginPath(); ctx.moveTo(ox + sx, oy + k * cs / 2); ctx.lineTo(ox + sx, oy + (k + 1) * cs / 2); ctx.stroke(); } }
+  var ws = R.windowCells(room);
+  ws.forEach(function (c) {
+    var gx = ox + c.sx * cs, gy = oy + c.sy * cs, g = ctx.createRadialGradient(gx, gy, 0, gx, gy, R.WINDOW_REACH * cs);
+    g.addColorStop(0, 'rgba(255,250,215,.62)'); g.addColorStop(0.75, 'rgba(255,246,200,.22)'); g.addColorStop(1, 'rgba(255,246,200,0)');
+    ctx.fillStyle = g; ctx.fillRect(gx - R.WINDOW_REACH * cs, gy - R.WINDOW_REACH * cs, R.WINDOW_REACH * cs * 2, R.WINDOW_REACH * cs * 2);
+  });
+  pieces.forEach(function (p) {
+    var Lr = P[p.t].light; if (!Lr) return;
+    var gx = ox + (p.x + 0.5) * cs, gy = oy + (p.y + 0.5) * cs, g = ctx.createRadialGradient(gx, gy, 0, gx, gy, Lr * cs);
+    g.addColorStop(0, 'rgba(255,226,110,.7)'); g.addColorStop(0.7, 'rgba(255,226,110,.28)'); g.addColorStop(1, 'rgba(255,226,110,0)');
+    ctx.fillStyle = g; ctx.fillRect(gx - Lr * cs, gy - Lr * cs, Lr * cs * 2, Lr * cs * 2);
+  });
+  // faint grid so squares are countable
+  ctx.fillStyle = 'rgba(26,21,64,.13)';
+  for (var gy2 = 1; gy2 < room.h; gy2++) for (var gx2 = 1; gx2 < room.w; gx2++) ctx.fillRect(ox + gx2 * cs - 1, oy + gy2 * cs - 1, 2, 2);
+  // walkway to the selected piece
+  if (o.path && o.path.length) {
+    ctx.fillStyle = 'rgba(180,92,240,.55)';
+    o.path.forEach(function (c, n) { dot(ctx, ox + (c[0] + 0.5) * cs, oy + (c[1] + 0.5) * cs, cs * (n === o.path.length - 1 ? 0.13 : 0.08)); });
+  }
+  ctx.restore();
+  // windows
+  ws.forEach(function (c) {
+    var vert = (room.windows[c.k].side === 'W' || room.windows[c.k].side === 'E');
+    var x0 = ox + c.sx * cs, y0 = oy + c.sy * cs;
+    var ww = vert ? wt : cs, hh = vert ? cs : wt;
+    var bx = vert ? (c.sx === 0 ? x0 - wt : x0) : x0 - cs / 2, by = vert ? y0 - cs / 2 : (c.sy === 0 ? y0 - wt : y0);
+    ctx.fillStyle = '#BFF4EF'; ctx.fillRect(bx + 1, by + 1, ww - 2, hh - 2);
+    ctx.fillStyle = '#fff'; if (vert) ctx.fillRect(bx, by + hh / 2 - 1, ww, 2); else ctx.fillRect(bx + ww / 2 - 1, by, 2, hh);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.strokeRect(bx + 1, by + 1, ww - 2, hh - 2);
+  });
+  // door: gap in the wall, a mat and the swing
+  var dcell = R.doorCell(room), side = room.door.side, dx = ox + dcell[0] * cs, dy = oy + dcell[1] * cs;
+  ctx.fillStyle = '#E3C79F';
+  if (side === 'S') ctx.fillRect(dx + 2, dy + cs, cs - 4, wt + 1); else if (side === 'N') ctx.fillRect(dx + 2, dy - wt - 1, cs - 4, wt + 1);
+  else if (side === 'W') ctx.fillRect(dx - wt - 1, dy + 2, wt + 1, cs - 4); else ctx.fillRect(dx + cs, dy + 2, wt + 1, cs - 4);
+  ctx.fillStyle = 'rgba(255,138,61,.28)'; box(ctx, dx + cs * 0.12, dy + cs * 0.12, cs * 0.76, cs * 0.76, cs * 0.12, 'rgba(255,138,61,.22)', false);
+  ctx.strokeStyle = '#FF8A3D'; ctx.lineWidth = Math.max(1.5, cs * 0.05); ctx.setLineDash([cs * 0.08, cs * 0.08]);
+  ctx.beginPath();
+  var hx, hy, a0;
+  if (side === 'S') { hx = dx; hy = dy + cs; a0 = -Math.PI / 2; } else if (side === 'N') { hx = dx + cs; hy = dy; a0 = Math.PI / 2; }
+  else if (side === 'W') { hx = dx; hy = dy; a0 = 0; } else { hx = dx + cs; hy = dy + cs; a0 = Math.PI; }
+  ctx.arc(hx, hy, cs * 0.92, a0, a0 + Math.PI / 2); ctx.stroke(); ctx.setLineDash([]);
+  // pieces: rugs first, then furniture with a soft shadow
+  var order = pieces.map(function (p, n) { return n; }).sort(function (a, b) { return (P[pieces[b].t].rug ? 1 : 0) - (P[pieces[a].t].rug ? 1 : 0); });
+  var now = o.now || 0;
+  order.forEach(function (n) {
+    var p = pieces[n], wh = R.dims(p), sc = 1;
+    if (p._pop) { var age = (now - p._pop) / 1000; if (age < 0.5) sc = 1 + 0.16 * Math.sin(age * Math.PI * 4) * (1 - age / 0.5); }
+    ctx.save(); ctx.translate(ox + (p.x + wh[0] / 2) * cs, oy + (p.y + wh[1] / 2) * cs); ctx.scale(sc, sc); ctx.rotate(p.r * Math.PI / 2);
+    if (!P[p.t].rug) { ctx.shadowColor = 'rgba(26,21,64,.25)'; ctx.shadowBlur = cs * 0.14; ctx.shadowOffsetY = cs * 0.05; }
+    drawPiece(ctx, p.t, p.c, cs); ctx.restore();
+    if (P[p.t].seat) frontMark(ctx, v, p, 'rgba(26,21,64,.45)');
+  });
+  // problem badges
+  if (o.problems) pieces.forEach(function (p, n) {
+    var pr = o.problems[n]; if (!pr || !pr.length) return;
+    var wh = R.dims(p), bx = ox + (p.x + wh[0]) * cs - cs * 0.16, by = oy + p.y * cs + cs * 0.16;
+    badge(ctx, bx, by, cs * 0.17, pr[0]);
+  });
+  if (o.sel >= 0 && pieces[o.sel]) {
+    var sp = pieces[o.sel], swh = R.dims(sp);
+    ctx.strokeStyle = '#1A1540'; ctx.lineWidth = 2.5; ctx.setLineDash([6, 4]);
+    box(ctx, ox + sp.x * cs - 3, oy + sp.y * cs - 3, swh[0] * cs + 6, swh[1] * cs + 6, cs * 0.18, null, true); ctx.setLineDash([]);
+  }
+  if (o.held) {
+    var h = o.held, hwh = R.dims(h);
+    ctx.save(); ctx.globalAlpha = 0.8; ctx.translate(ox + (h.x + hwh[0] / 2) * cs, oy + (h.y + hwh[1] / 2) * cs); ctx.rotate(h.r * Math.PI / 2);
+    drawPiece(ctx, h.t, h.c, cs); ctx.restore();
+    ctx.strokeStyle = o.heldOk ? '#3E9F2E' : '#FF4F6D'; ctx.lineWidth = 3;
+    box(ctx, ox + h.x * cs, oy + h.y * cs, hwh[0] * cs, hwh[1] * cs, cs * 0.14, o.heldOk ? 'rgba(198,244,50,.18)' : 'rgba(255,79,109,.2)', true);
+    if (P[h.t].seat) frontMark(ctx, v, h, '#1A1540');
+  }
+  if (o.cursor) {
+    ctx.strokeStyle = '#B45CF0'; ctx.lineWidth = 2.5; ctx.setLineDash([4, 4]);
+    box(ctx, ox + o.cursor.x * cs + 2, oy + o.cursor.y * cs + 2, cs - 4, cs - 4, cs * 0.16, null, true); ctx.setLineDash([]);
+  }
+}
+function frontMark(ctx, v, p, col) {
+  var wh = R.dims(p), f = R.frontDir(p), D = R.DIRS[f], cs = v.cs;
+  var cx = v.ox + (p.x + wh[0] / 2 + D[0] * wh[0] / 2) * cs, cy = v.oy + (p.y + wh[1] / 2 + D[1] * wh[1] / 2) * cs;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(f * Math.PI / 2);
+  ctx.beginPath(); ctx.moveTo(-cs * 0.09, -cs * 0.1); ctx.lineTo(0, -cs * 0.02); ctx.lineTo(cs * 0.09, -cs * 0.1);
+  ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, cs * 0.04); ctx.lineCap = 'round'; ctx.stroke(); ctx.restore();
+}
+function badge(ctx, x, y, r, kind) {
+  dot(ctx, x, y, r, '#FF4F6D'); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; dot(ctx, x, y, r, null, true);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.2, r * 0.22); ctx.lineCap = 'round';
+  if (kind === 'light') { dot(ctx, x, y, r * 0.5, '#fff'); dot(ctx, x + r * 0.28, y - r * 0.2, r * 0.45, '#FF4F6D'); }
+  else if (kind === 'facing') { ctx.beginPath(); ctx.moveTo(x - r * 0.5, y); ctx.lineTo(x + r * 0.45, y); ctx.moveTo(x + r * 0.1, y - r * 0.35); ctx.lineTo(x + r * 0.45, y); ctx.lineTo(x + r * 0.1, y + r * 0.35); ctx.stroke(); }
+  else if (kind === 'path') { dot(ctx, x - r * 0.28, y + r * 0.2, r * 0.2, '#fff'); dot(ctx, x + r * 0.28, y - r * 0.2, r * 0.2, '#fff'); }
+  else if (kind === 'colour') { dot(ctx, x, y, r * 0.42, '#fff'); dot(ctx, x, y, r * 0.2, '#FF4F6D'); }
+  else { ctx.fillRect(x - r * 0.1, y - r * 0.55, r * 0.2, r * 0.7); dot(ctx, x, y + r * 0.45, r * 0.12, '#fff'); }
+}
+
+/* ---------------- particles, shared by the game and the demo ---------------- */
+function puff(list, x, y, cs, col) {
+  var n = REDUCED ? 5 : 14;
+  for (var i = 0; i < n; i++) {
+    var a = Math.random() * Math.PI * 2, sp = cs * (1 + Math.random() * 2.2);
+    list.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.5 + Math.random() * 0.3, max: 0.8, r: cs * (0.05 + Math.random() * 0.07), col: i % 3 ? col : '#FFE066' });
+  }
+}
+function stepParticles(list, ctx, dt) {
+  for (var i = list.length - 1; i >= 0; i--) {
+    var q = list[i]; q.life -= dt; if (q.life <= 0) { list.splice(i, 1); continue; }
+    q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 0.9; q.vy *= 0.9;
+    ctx.globalAlpha = Math.max(0, q.life / q.max); dot(ctx, q.x, q.y, q.r, q.col);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------------- the autopilot: places a stored 3-star layout piece by piece ---------------- */
+function Demo(cv, start) { this.cv = cv; this.ctx = cv.getContext('2d'); this.li = start || 0; this.fx = []; this.begin(); }
+Demo.prototype.begin = function () {
+  this.lv = L[this.li]; this.sol = R.solPieces(this.lv); this.placed = []; this.step = 0;
+  this.phase = 'wait'; this.pt = 0; this.sc = R.score(this.lv, []); this.shownStars = 0; this.starT = [];
+};
+Demo.prototype.update = function (dt) {
+  this.pt += dt;
+  if (this.phase === 'wait' && this.pt > 0.45) { this.phase = 'fly'; this.pt = 0; }
+  else if (this.phase === 'fly' && this.pt > 1.0) {
+    var p = this.sol[this.step]; p._pop = performance.now();
+    this.placed.push(p); this.sc = R.score(this.lv, this.placed); this.step++;
+    var v = this.view, wh = R.dims(p);
+    if (v) puff(this.fx, v.ox + (p.x + wh[0] / 2) * v.cs, v.oy + (p.y + wh[1] / 2) * v.cs, v.cs, colHex(p.c));
+    if (this.sc.stars > this.shownStars) { for (var s = this.shownStars; s < this.sc.stars; s++) this.starT[s] = performance.now(); this.shownStars = this.sc.stars; }
+    this.phase = this.step < this.sol.length ? 'wait' : 'done'; this.pt = this.step < this.sol.length ? 0.2 : 0;
+  } else if (this.phase === 'done' && this.pt > 3.2) { this.li = (this.li + 1) % L.length; this.begin(); }
+};
+Demo.prototype.render = function () {
+  var cv = this.cv, ctx = this.ctx, dpr = Math.min(2, window.devicePixelRatio || 1);
+  var cw = cv.clientWidth, ch = cv.clientHeight;
+  if (!cw || !ch) return;
+  if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  var bg = ctx.createLinearGradient(0, 0, cw, ch); bg.addColorStop(0, '#F7F4FF'); bg.addColorStop(1, '#EDE6FF');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
+  var room = this.lv.room, panelW = Math.max(110, cw * 0.34), aw = cw - panelW, pad = ch * 0.06;
+  var cs = Math.min((aw - pad * 2) / (room.w + 0.7), (ch - pad * 2) / (room.h + 0.7));
+  var v = this.view = { cs: cs, ox: pad + (aw - pad * 2 - room.w * cs) / 2, oy: (ch - room.h * cs) / 2 };
+  var fading = this.phase === 'done' && this.pt > 2.8 ? (this.pt - 2.8) / 0.4 : 0;
+  drawRoom(ctx, v, this.lv, this.placed, { now: performance.now(), problems: this.sc.problems });
+  // the piece in the air, carried by a round little hand
+  var px = aw + panelW * 0.5, py = ch * 0.78;
+  if (this.phase === 'fly' || (this.phase === 'wait' && this.step < this.sol.length)) {
+    var p = this.sol[this.step], wh = R.dims(p), k = this.phase === 'fly' ? Math.min(1, this.pt / 0.85) : 0;
+    var e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    var tx = v.ox + (p.x + wh[0] / 2) * cs, ty = v.oy + (p.y + wh[1] / 2) * cs;
+    var x = px + (tx - px) * e, y = py + (ty - py) * e - Math.sin(k * Math.PI) * ch * 0.12;
+    var rot = p.r * Math.min(1, Math.max(0, (k - 0.25) / 0.5)), col = k > 0.55 ? p.c : (p.t === 'plant' || p.t === 'lamp' || p.t === 'rug' ? 'cream' : 'oak');
+    var sc = cs * (0.75 + 0.25 * e);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot * Math.PI / 2); ctx.shadowColor = 'rgba(26,21,64,.3)'; ctx.shadowBlur = cs * 0.4; ctx.shadowOffsetY = cs * 0.25 * (1 - e * 0.6);
+    drawPiece(ctx, p.t, col, sc); ctx.restore();
+    ctx.strokeStyle = '#1A1540'; ctx.lineWidth = Math.max(1.5, cs * 0.05);
+    dot(ctx, x + cs * 0.22, y + cs * 0.22, cs * 0.2, '#FFF0DA', true); dot(ctx, x + cs * 0.12, y + cs * 0.1, cs * 0.08, '#FFF0DA', true);
+  }
+  stepParticles(this.fx, ctx, 1 / 60);
+  // side panel: name, stars, score, checks
+  var fs = Math.max(9, Math.min(15, ch * 0.055)), X = aw + 4, Y = ch * 0.1;
+  ctx.fillStyle = '#1A1540'; ctx.font = '800 ' + fs + 'px system-ui,sans-serif'; ctx.textBaseline = 'top';
+  var name = (this.li + 1) + '. ' + this.lv.name;
+  while (ctx.measureText(name).width > panelW - 10 && name.length > 4) name = name.slice(0, -2);
+  ctx.fillText(name === (this.li + 1) + '. ' + this.lv.name ? name : name + '…', X, Y);
+  var sr = Math.min(panelW / 8.5, ch * 0.075), sy = Y + fs * 1.6 + sr;
+  for (var s = 0; s < 3; s++) {
+    var on = s < this.shownStars, t0 = this.starT[s] || 0, age = (performance.now() - t0) / 1000, grow = on && age < 0.5 ? 1 + 0.5 * Math.sin(age * Math.PI * 2) * (1 - age * 2) : 1;
+    drawStar(ctx, X + sr + s * sr * 2.3, sy, sr * grow, on ? '#FFC21A' : '#DDD6F2', on ? '#D59A00' : null);
+  }
+  ctx.font = '900 ' + Math.round(fs * 2) + 'px system-ui,sans-serif'; ctx.fillStyle = '#1A1540';
+  var numTxt = Math.round(this.sc.total) + '', numW = ctx.measureText(numTxt).width;
+  ctx.fillText(numTxt, X, sy + sr * 1.4);
+  ctx.font = '600 ' + Math.round(fs * 0.8) + 'px system-ui,sans-serif'; ctx.fillStyle = '#6C6690';
+  ctx.fillText('/ 100', X + numW + fs * 0.4, sy + sr * 1.4 + fs * 1.05);
+  if (ch > 200) {
+    var ry = sy + sr * 1.4 + fs * 2.6, rf = Math.round(fs * 0.78);
+    ctx.font = '600 ' + rf + 'px system-ui,sans-serif';
+    this.sc.parts.forEach(function (pt, n) {
+      var ok = pt.got >= pt.max - 1e-6;
+      ctx.fillStyle = ok ? '#3E9F2E' : '#FF4F6D'; ctx.fillText(ok ? '✓' : '•', X, ry + n * rf * 1.45);
+      ctx.fillStyle = '#1A1540'; ctx.fillText(pt.label, X + rf * 1.1, ry + n * rf * 1.45);
+    });
+  }
+  if (fading > 0) { ctx.fillStyle = 'rgba(247,244,255,' + Math.min(1, fading) + ')'; ctx.fillRect(0, 0, cw, ch); }
+};
+
+/* ---------------- preview mode: the autopilot forever, nothing else ---------------- */
+if (PREVIEW) {
+  var pvDemo = new Demo($('pv'), 0), pvLast = performance.now();
+  (function pvLoop(now) {
+    var dt = Math.min(0.05, (now - pvLast) / 1000); pvLast = now;
+    pvDemo.update(dt); pvDemo.render();
+    requestAnimationFrame(pvLoop);
+  })(pvLast);
+  window.__roomy = { preview: true, demo: pvDemo };
+  return;
+}
+
+/* ================= the game ================= */
+var cv = $('room'), ctx = cv.getContext('2d');
+var S = {
+  mode: 'title', li: 0, level: null, pieces: [], trayCount: null, sel: -1, held: null, cursor: { x: 0, y: 0 },
+  undo: [], sc: null, view: null, fx: [], shake: 0, drag: null, overCanvas: false, freeId: null, lastStars: 0
+};
+var best = store.get('best', []); if (!Array.isArray(best)) best = [];
+var layouts = store.get('layouts', {}); if (!layouts || typeof layouts !== 'object') layouts = {};
+var saved = store.get('rooms', []); if (!Array.isArray(saved)) saved = [];
+var FREE_ROOMS = {
+  S: { w: 7, h: 6, door: { side: 'S', i: 1 }, windows: [{ side: 'N', i: 2, len: 3 }] },
+  M: { w: 9, h: 7, door: { side: 'S', i: 4 }, windows: [{ side: 'N', i: 1, len: 2 }, { side: 'N', i: 6, len: 2 }] },
+  L: { w: 11, h: 8, door: { side: 'W', i: 6 }, windows: [{ side: 'N', i: 2, len: 3 }, { side: 'N', i: 7, len: 2 }, { side: 'E', i: 2, len: 2 }] }
+};
+
+function clean(ps) { return ps.map(function (p) { return { t: p.t, x: p.x, y: p.y, r: p.r, c: p.c }; }); }
+function defaultColour(t) { return t === 'plant' || t === 'lamp' || t === 'rug' || t === 'fridge' ? 'cream' : 'oak'; }
+function unlocked(li) { return li === 0 || (best[li - 1] || 0) >= 1; }
+function toast(msg) { var t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(function () { t.classList.remove('show'); }, 1900); }
+
+function remaining(t) {
+  if (!S.trayCount) return Infinity;
+  var n = (S.trayCount[t] || 0);
+  S.pieces.forEach(function (p) { if (p.t === t) n--; });
+  if (S.held && !S.held.orig && S.held.t === t) n--;
+  return n;
+}
+function trayTypes() {
+  if (!S.trayCount) return R.TYPES.slice();
+  return Object.keys(S.trayCount);
+}
+
+function loadLevel(li) {
+  li = Math.max(0, Math.min(L.length - 1, li));
+  S.mode = 'level'; S.li = li; S.level = L[li];
+  S.trayCount = {}; R.trayOf(S.level).forEach(function (t) { S.trayCount[t] = (S.trayCount[t] || 0) + 1; });
+  S.pieces = [];
+  var keep = layouts[li];
+  if (Array.isArray(keep)) keep.forEach(function (p) {
+    var q = { t: p.t, x: p.x | 0, y: p.y | 0, r: (p.r | 0) & 3, c: R.COLOURS[p.c] ? p.c : 'oak' };
+    if (P[q.t] && remaining(q.t) > 0 && R.canPlace(S.level.room, S.pieces, q, -1)) S.pieces.push(q);
+  });
+  startRoom();
+}
+function loadFree(room, pieces, name, id) {
+  S.mode = 'free'; S.trayCount = null; S.freeId = id || null;
+  S.level = { name: 'Free build', brief: 'Free build: no brief and every piece you like. The judge still checks walkways, seats, light, colours and the door.', room: room, need: null, mood: null };
+  S.pieces = [];
+  (pieces || []).forEach(function (p) { if (R.canPlace(room, S.pieces, p, -1)) S.pieces.push({ t: p.t, x: p.x, y: p.y, r: p.r, c: p.c }); });
+  $('roomName').value = name || '';
+  startRoom();
+}
+function startRoom() {
+  S.sel = -1; S.held = null; S.undo = []; S.drag = null;
+  S.cursor = { x: Math.floor(S.level.room.w / 2), y: Math.floor(S.level.room.h / 2) };
+  document.body.classList.toggle('free', S.mode === 'free');
+  S.sc = R.score(S.level, S.pieces); S.lastStars = S.sc.stars;
+  buildBrief(); buildTray(); refresh(true);
+  hideOverlay();
+}
+
+function snapshot() { return clean(S.pieces); }
+function pushUndo(snap) { S.undo.push(snap); if (S.undo.length > 80) S.undo.shift(); }
+function undo() {
+  if (S.held) cancelHeld();
+  if (!S.undo.length) { toast('Nothing to undo'); return; }
+  S.pieces = S.undo.pop(); S.sel = -1; sfx('undo'); refresh();
+}
+
+/* ---------- panels ---------- */
+function buildBrief() {
+  var lv = S.level;
+  $('lvlName').innerHTML = S.mode === 'level' ? 'Room ' + (S.li + 1) + ' of ' + L.length + ' <small>&middot;</small> ' + esc(lv.name) : 'Free build <small>&middot; ' + lv.room.w + ' x ' + lv.room.h + '</small>';
+  $('brief').textContent = lv.brief;
+  var fam = $('fams'); fam.innerHTML = 'Colour families: ' + Object.keys(R.SCHEMES).map(function (k) {
+    return '<span style="white-space:nowrap">' + R.SCHEMES[k].name + ' ' + R.SCHEMES[k].c.map(function (c) { return '<i style="background:' + R.COLOURS[c] + '"></i>'; }).join('') + '</span>';
+  }).join(' &nbsp;') + '. Oak and cream go with anything.';
+  var pal = $('palette'); pal.innerHTML = '';
+  R.COLOUR_KEYS.forEach(function (c, n) {
+    var b = document.createElement('button'); b.className = 'sw'; b.style.background = R.COLOURS[c];
+    var fams = Object.keys(R.SCHEMES).filter(function (k) { return R.SCHEMES[k].c.indexOf(c) >= 0; }).map(function (k) { return R.SCHEMES[k].name; });
+    b.title = c + (fams.length ? ' (' + fams.join(', ') + ')' : ' (goes with anything)') + ' [' + ((n + 1) % 10) + ']';
+    b.setAttribute('aria-label', 'Colour ' + c);
+    if (lv.mood && R.SCHEMES[lv.mood].c.indexOf(c) >= 0) b.classList.add('fam');
+    b.dataset.c = c;
+    b.addEventListener('click', function () { wakeAudio(); paint(c); });
+    pal.appendChild(b);
+  });
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function buildTray() {
+  var tray = $('tray'); tray.innerHTML = '';
+  trayTypes().forEach(function (t) {
+    var b = document.createElement('button'); b.className = 'ti'; b.dataset.t = t;
+    if (S.level.need && S.level.need[t]) b.classList.add('need');
+    var c = document.createElement('canvas'); b.appendChild(c);
+    var sp = document.createElement('span'); sp.textContent = P[t].name; b.appendChild(sp);
+    var em = document.createElement('em'); b.appendChild(em);
+    b.setAttribute('aria-label', P[t].name);
+    tray.appendChild(b);
+    var small = window.innerWidth <= 760;
+    drawIcon(c, t, defaultColour(t), small ? 56 : 64, small ? 34 : 40);
+    trayPointer(b, t);
+  });
+}
+function refreshTray() {
+  var items = $('tray').children;
+  for (var i = 0; i < items.length; i++) {
+    var t = items[i].dataset.t, n = remaining(t);
+    items[i].querySelector('em').textContent = n === Infinity ? '' : 'x' + Math.max(0, n);
+    items[i].querySelector('em').style.display = n === Infinity ? 'none' : '';
+    items[i].classList.toggle('empty', n <= 0);
+    items[i].classList.toggle('armed', !!(S.held && !S.held.orig && S.held.t === t));
+  }
+}
+function refresh(first) {
+  S.sc = R.score(S.level, S.pieces);
+  var sc = S.sc, lv = S.level;
+  // brief chips
+  var chips = $('chips'); chips.innerHTML = '';
+  if (lv.need) {
+    var have = {}; S.pieces.forEach(function (p) { have[p.t] = (have[p.t] || 0) + 1; });
+    Object.keys(lv.need).forEach(function (t) {
+      var n = lv.need[t], h = Math.min(n, have[t] || 0), el = document.createElement('span');
+      el.className = 'chip' + (h >= n ? ' ok' : '');
+      el.textContent = (h >= n ? '✓ ' : '') + (n > 1 ? n + ' ' + P[t].plural : P[t].name) + (n > 1 ? ' (' + h + ')' : '');
+      chips.appendChild(el);
+    });
+  }
+  if (lv.mood) { var m = document.createElement('span'); m.className = 'chip mood'; m.textContent = R.SCHEMES[lv.mood].name + ' colours'; chips.appendChild(m); }
+  // score rows
+  $('total').textContent = Math.round(sc.total);
+  var rows = $('rows'); rows.innerHTML = '';
+  sc.parts.forEach(function (pt) {
+    var f = pt.max ? pt.got / pt.max : 1, el = document.createElement('div');
+    el.className = 'row' + (f >= 1 - 1e-6 ? '' : f <= 0 ? ' zero' : ' part');
+    el.innerHTML = '<span>' + esc(pt.label) + '</span><span class="pts">' + (Math.round(pt.got * 10) / 10) + '/' + pt.max + '</span><div class="bar"><i style="width:' + Math.round(f * 100) + '%"></i></div><span class="det">' + esc(pt.detail) + '</span>';
+    rows.appendChild(el);
+  });
+  var st = $('stars').children;
+  for (var i = 0; i < 3; i++) {
+    var on = i < sc.stars; st[i].classList.toggle('on', on);
+    if (!first && on && i >= S.lastStars) { st[i].classList.remove('pop'); void st[i].offsetWidth; st[i].classList.add('pop'); }
+  }
+  if (!first && sc.stars > S.lastStars) sfx('star');
+  $('starHint').textContent = !sc.briefDone ? 'Stars start once everything the brief asks for is in the room.' :
+    sc.stars === 3 ? 'A perfect room.' : sc.stars === 2 ? 'A perfect 100 earns the third star.' : sc.stars === 1 ? '80 earns the second star.' : '50 earns the first star.';
+  // progress
+  if (S.mode === 'level') {
+    var prev = best[S.li] || 0;
+    if (sc.stars > prev) {
+      best[S.li] = sc.stars; store.set('best', best);
+      if (prev < 1 && S.li + 1 < L.length && !first) toast('Room ' + (S.li + 2) + ' unlocked');
+      if (sc.stars === 3 && !first) setTimeout(function () { if (S.sc.stars === 3) showWin(); }, 650);
+    }
+    layouts[S.li] = clean(S.pieces); store.set('layouts', layouts);
+    $('bNext').disabled = !((best[S.li] || 0) >= 1 && S.li + 1 < L.length);
+    $('bNext').textContent = S.li + 1 < L.length ? 'Next room' : 'All done';
+  }
+  S.lastStars = sc.stars;
+  refreshTray(); refreshTools();
+}
+function selected() { return S.held || (S.sel >= 0 ? S.pieces[S.sel] : null); }
+function refreshTools() {
+  var p = selected(), info = $('selInfo');
+  $('bRot').disabled = !p; $('bDel').disabled = !p; $('bClear').disabled = !S.pieces.length;
+  $('bUndo').disabled = !S.undo.length;
+  var sws = $('palette').children;
+  for (var i = 0; i < sws.length; i++) { sws[i].classList.toggle('on', !!p && sws[i].dataset.c === p.c); }
+  if (!p) { info.innerHTML = '<span class="tip">Tap or click a piece in the room to rotate, repaint or move it.</span>'; return; }
+  var html = '<b>' + esc(P[p.t].name) + '</b>';
+  if (S.held) html += ' <span class="tip">&middot; ' + (S.drag ? 'drop it in the room' : 'tap a spot, or Enter to put it down') + '</span>';
+  else {
+    var pr = S.sc.problems[S.sel] || [];
+    if (pr.length) html += ': <span class="bad">' + pr.map(function (k) { return k === 'facing' ? facingText(p.t) : PROBLEM_TEXT[k]; }).join('; ') + '</span>';
+    else html += ': <span style="color:#3E9F2E;font-weight:600">happy here</span>';
+  }
+  info.innerHTML = html;
+}
+
+/* ---------- actions ---------- */
+function commit(fn) { pushUndo(snapshot()); fn(); refresh(); }
+function pickFromTray(t, x, y) {
+  if (remaining(t) <= 0) { sfx('bad'); toast('No more ' + P[t].plural + ' in the tray'); return false; }
+  if (S.held) cancelHeld();
+  var h = { t: t, r: 0, c: defaultColour(t), x: 0, y: 0, orig: null };
+  var wh = R.dims(h);
+  h.x = x == null ? S.cursor.x : x; h.y = y == null ? S.cursor.y : y;
+  clampHeld(h, wh);
+  S.held = h; S.sel = -1; sfx('pick'); refreshTray(); refreshTools();
+  return true;
+}
+function clampHeld(h) {
+  var wh = R.dims(h), room = S.level.room;
+  h.x = Math.max(0, Math.min(room.w - wh[0], h.x)); h.y = Math.max(0, Math.min(room.h - wh[1], h.y));
+}
+function pickUp(idx) {
+  var p = S.pieces[idx], snap = snapshot();
+  S.pieces.splice(idx, 1);
+  S.held = { t: p.t, r: p.r, c: p.c, x: p.x, y: p.y, orig: { idx: idx, p: p }, snap: snap };
+  S.sel = -1; sfx('pick'); refresh();
+}
+function heldOk() { return !!S.held && R.canPlace(S.level.room, S.pieces, S.held, -1); }
+function drop() {
+  var h = S.held; if (!h) return false;
+  var p = { t: h.t, x: h.x, y: h.y, r: h.r, c: h.c };
+  if (!R.canPlace(S.level.room, S.pieces, p, -1)) { sfx('bad'); shake(); toast(R.inBounds(S.level.room, p) ? 'Something is in the way' : 'It does not fit there'); return false; }
+  pushUndo(h.snap || snapshot());
+  var at = h.orig ? Math.min(h.orig.idx, S.pieces.length) : S.pieces.length;
+  p._pop = performance.now();
+  S.pieces.splice(at, 0, p); S.held = null; S.sel = at; S.drag = null;
+  var v = S.view, wh = R.dims(p);
+  if (v) puff(S.fx, v.ox + (p.x + wh[0] / 2) * v.cs, v.oy + (p.y + wh[1] / 2) * v.cs, v.cs, colHex(p.c));
+  S.cursor = { x: p.x, y: p.y };
+  sfx('place'); refresh();
+  return true;
+}
+function cancelHeld() {
+  var h = S.held; if (!h) return;
+  S.held = null; S.drag = null;
+  if (h.orig) { S.pieces.splice(Math.min(h.orig.idx, S.pieces.length), 0, h.orig.p); S.sel = Math.min(h.orig.idx, S.pieces.length - 1); }
+  refresh();
+}
+function toTray() {
+  if (S.held) {
+    if (S.held.orig) { pushUndo(S.held.snap); S.held = null; S.drag = null; sfx('undo'); refresh(); }
+    else cancelHeld();
+    return;
+  }
+  if (S.sel < 0) return;
+  var i = S.sel; commit(function () { S.pieces.splice(i, 1); S.sel = -1; }); sfx('undo');
+}
+function rotate() {
+  if (S.held) { var q = R.rotated(S.level.room, S.held); S.held.r = q.r; S.held.x = q.x; S.held.y = q.y; sfx('rot'); refreshTools(); return; }
+  if (S.sel < 0) return;
+  var p = S.pieces[S.sel], r = R.rotated(S.level.room, p), offs = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1], [2, 0], [-2, 0], [0, 2], [0, -2]];
+  for (var k = 0; k < offs.length; k++) {
+    var q2 = { t: r.t, r: r.r, c: r.c, x: r.x + offs[k][0], y: r.y + offs[k][1] };
+    if (R.canPlace(S.level.room, S.pieces, q2, S.sel)) {
+      var i = S.sel; commit(function () { q2._pop = performance.now(); S.pieces[i] = q2; }); sfx('rot'); return;
+    }
+  }
+  sfx('bad'); shake(); toast('No room to turn it here');
+}
+function paint(c) {
+  if (S.held) { S.held.c = c; sfx('paint'); refreshTools(); return; }
+  if (S.sel < 0) { toast('Pick a piece first, then a colour'); return; }
+  var i = S.sel; if (S.pieces[i].c === c) return;
+  commit(function () { S.pieces[i] = { t: S.pieces[i].t, x: S.pieces[i].x, y: S.pieces[i].y, r: S.pieces[i].r, c: c, _pop: performance.now() }; });
+  sfx('paint');
+}
+function cycleColour(dir) {
+  var p = selected(); if (!p) return;
+  var k = R.COLOUR_KEYS.indexOf(p.c), n = R.COLOUR_KEYS.length;
+  paint(R.COLOUR_KEYS[((k + dir) % n + n) % n]);
+}
+function moveSel(dx, dy) {
+  if (S.held) { S.held.x += dx; S.held.y += dy; clampHeld(S.held); S.cursor = { x: S.held.x, y: S.held.y }; return; }
+  var room = S.level.room;
+  S.cursor.x = Math.max(0, Math.min(room.w - 1, S.cursor.x + dx)); S.cursor.y = Math.max(0, Math.min(room.h - 1, S.cursor.y + dy));
+  S.sel = pieceAt(S.cursor.x + 0.5, S.cursor.y + 0.5); refreshTools();
+}
+function nextTray(dir) {
+  var types = trayTypes().filter(function (t) { return remaining(t) > 0 || (S.held && !S.held.orig && S.held.t === t); });
+  if (!types.length) { toast('The tray is empty'); return; }
+  var cur = S.held && !S.held.orig ? types.indexOf(S.held.t) : -1;
+  var n = cur < 0 ? (dir > 0 ? 0 : types.length - 1) : ((cur + dir) % types.length + types.length) % types.length;
+  var at = S.held ? { x: S.held.x, y: S.held.y } : { x: S.cursor.x, y: S.cursor.y };
+  if (S.held) cancelHeld();
+  pickFromTray(types[n], at.x, at.y);
+}
+function clearRoom() { if (!S.pieces.length) return; commit(function () { S.pieces = []; S.sel = -1; }); sfx('undo'); }
+function shake() { if (!REDUCED) S.shake = 1; }
+function pieceAt(fx, fy) {
+  var hit = -1;
+  for (var pass = 0; pass < 2 && hit < 0; pass++) {
+    for (var i = S.pieces.length - 1; i >= 0; i--) {
+      var p = S.pieces[i], wh = R.dims(p);
+      if (!!P[p.t].rug !== (pass === 1)) continue;
+      if (fx >= p.x && fx < p.x + wh[0] && fy >= p.y && fy < p.y + wh[1]) { hit = i; break; }
+    }
+  }
+  return hit;
+}
+
+/* ---------- pointer input ---------- */
+function canvasCell(e) {
+  var r = cv.getBoundingClientRect(), v = S.view; if (!v) return null;
+  var px = e.clientX - r.left, py = e.clientY - r.top;
+  return { fx: (px - v.ox) / v.cs, fy: (py - v.oy) / v.cs, inside: px >= 0 && py >= 0 && px <= r.width && py <= r.height };
+}
+function aimHeld(c) {
+  var h = S.held, wh = R.dims(h);
+  var gx = h.gx != null ? h.gx : wh[0] / 2, gy = h.gy != null ? h.gy : wh[1] / 2;
+  h.x = Math.round(c.fx - gx); h.y = Math.round(c.fy - gy); clampHeld(h);
+}
+cv.addEventListener('pointerdown', function (e) {
+  wakeAudio(); if (S.mode === 'title') return;
+  var c = canvasCell(e); if (!c) return;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  if (S.held) { aimHeld(c); S.drag = { x: e.clientX, y: e.clientY, moved: true, fromTap: true }; return; }
+  var i = pieceAt(c.fx, c.fy);
+  if (i >= 0) {
+    var p = S.pieces[i];
+    pickUp(i);
+    S.held.gx = c.fx - p.x; S.held.gy = c.fy - p.y;
+    S.drag = { x: e.clientX, y: e.clientY, moved: false };
+  } else {
+    S.sel = -1;
+    var room = S.level.room;
+    if (c.fx >= 0 && c.fy >= 0 && c.fx < room.w && c.fy < room.h) S.cursor = { x: Math.floor(c.fx), y: Math.floor(c.fy) };
+    refreshTools();
+  }
+});
+cv.addEventListener('pointermove', function (e) {
+  if (!S.held) return;
+  var c = canvasCell(e); if (!c) return;
+  if (S.drag) { if (Math.abs(e.clientX - S.drag.x) + Math.abs(e.clientY - S.drag.y) > 6) S.drag.moved = true; if (S.drag.moved) aimHeld(c); }
+  else if (e.pointerType === 'mouse') aimHeld(c);
+});
+cv.addEventListener('pointerup', function (e) {
+  if (!S.held || !S.drag) return;
+  var d = S.drag; S.drag = null;
+  if (S.held.orig && !d.moved) { cancelHeld(); refreshTools(); return; }   // a tap selects
+  var c = canvasCell(e);
+  if (S.held.orig && c && !c.inside) { toTray(); return; }
+  if (!drop() && S.held && S.held.orig) cancelHeld();
+});
+cv.addEventListener('pointercancel', function () { if (S.held && S.held.orig) cancelHeld(); S.drag = null; });
+cv.addEventListener('pointerleave', function (e) { if (e.pointerType === 'mouse' && S.held && !S.drag) { /* keep the ghost where it was */ } });
+
+// Dragging out of the tray. The tray scrolls sideways on a phone (touch-action: pan-x), so a
+// mostly vertical drag is ours and a sideways one belongs to the browser.
+function trayPointer(el, t) {
+  var st = null;
+  el.addEventListener('pointerdown', function (e) {
+    wakeAudio();
+    st = { x: e.clientX, y: e.clientY, id: e.pointerId, dragging: false };
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  el.addEventListener('pointermove', function (e) {
+    if (!st || e.pointerId !== st.id) return;
+    var dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (!st.dragging && Math.abs(dx) + Math.abs(dy) > 8) {
+      if (remaining(t) <= 0) { st = null; return; }
+      st.dragging = true;
+      if (S.held) cancelHeld();
+      S.held = { t: t, r: 0, c: defaultColour(t), x: 0, y: 0, orig: null };
+      S.drag = { x: st.x, y: st.y, moved: true, tray: true }; S.overCanvas = false; S.sel = -1; sfx('pick'); refreshTray(); refreshTools();
+      drawIcon($('fly').firstChild, t, S.held.c, 84, 56);
+    }
+    if (st.dragging) followTray(e);
+  });
+  el.addEventListener('pointerup', function (e) {
+    if (!st) return;
+    var was = st; st = null; $('fly').style.display = 'none';
+    if (!was.dragging) {           // a tap or click arms the piece; the next tap in the room places it
+      if (S.held && !S.held.orig && S.held.t === t) { cancelHeld(); return; }
+      pickFromTray(t);
+      return;
+    }
+    var c = canvasCell(e);
+    S.drag = null;
+    if (c && c.inside && S.held) { aimHeld(c); if (!drop()) cancelHeld(); }
+    else cancelHeld();
+  });
+  el.addEventListener('pointercancel', function () {
+    if (st && st.dragging) { S.drag = null; cancelHeld(); }
+    st = null; $('fly').style.display = 'none';
+  });
+}
+function followTray(e) {
+  var c = canvasCell(e), fly = $('fly');
+  if (c && c.inside) { fly.style.display = 'none'; aimHeld(c); S.overCanvas = true; }
+  else { fly.style.display = 'block'; fly.style.transform = 'translate(' + (e.clientX - 42) + 'px,' + (e.clientY - 28) + 'px)'; S.overCanvas = false; }
+}
+
+/* ---------- keyboard ---------- */
+window.addEventListener('keydown', function (e) {
+  wakeAudio();
+  var k = e.key, tag = e.target && e.target.tagName;
+  if (k === 'Escape') {            // never preventDefault on Escape: the host page closes on it
+    if (S.held) cancelHeld(); else if (overlayShown() && S.mode !== 'title') hideOverlay(); else if (S.sel >= 0) { S.sel = -1; refreshTools(); }
+    return;
+  }
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  var onTray = e.target && e.target.classList && e.target.classList.contains('ti');
+  if ((k === 'Enter' || k === ' ') && tag === 'BUTTON' && !onTray) return;   // let a focused button click itself
+  if ((k === 'Enter' || k === ' ') && onTray && !S.held && !overlayShown()) { e.preventDefault(); pickFromTray(e.target.dataset.t); return; }
+  if (k === 'm' || k === 'M') { setMute(!muted, true); return; }
+  if (overlayShown()) {
+    if (panelShown('pTitle')) { if (k === 'Enter') { e.preventDefault(); play(); } else if (k === 'f' || k === 'F') openFree(); else if (k === 'l' || k === 'L') showLevels(); }
+    else if (panelShown('pWin') && k === 'Enter') { e.preventDefault(); nextRoom(); }
+    return;
+  }
+  if (S.mode === 'title') return;
+  var lower = k.length === 1 ? k.toLowerCase() : k;
+  if ((e.ctrlKey || e.metaKey) && lower === 'z') { e.preventDefault(); undo(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  var dirs = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] };
+  if (dirs[lower]) { e.preventDefault(); moveSel(dirs[lower][0], dirs[lower][1]); return; }
+  if (lower === 'r') { rotate(); return; }
+  if (lower === 'c') { cycleColour(e.shiftKey ? -1 : 1); return; }
+  if (lower === 'n' || k === ']') { nextTray(1); return; }
+  if (lower === 'b' || k === '[') { nextTray(-1); return; }
+  if (k === 'Enter' || k === ' ') {
+    e.preventDefault();
+    if (S.held) drop();
+    else { var i = pieceAt(S.cursor.x + 0.5, S.cursor.y + 0.5); if (i >= 0) pickUp(i); }
+    return;
+  }
+  if (k === 'Delete' || k === 'Backspace' || lower === 'x') { e.preventDefault(); toTray(); return; }
+  if (lower === 'z' || lower === 'u') { undo(); return; }
+  if (lower === 'l') { showLevels(); return; }
+  if (/^[0-9]$/.test(k)) { var n = (parseInt(k, 10) + 9) % 10; if (R.COLOUR_KEYS[n]) paint(R.COLOUR_KEYS[n]); }
+});
+
+/* ---------- overlays ---------- */
+function overlayShown() { return $('ov').classList.contains('show'); }
+function panelShown(id) { return overlayShown() && $(id).classList.contains('show'); }
+function showPanel(id) {
+  ['pTitle', 'pLevels', 'pWin', 'pFree'].forEach(function (p) { $(p).classList.toggle('show', p === id); });
+  $('ov').classList.add('show'); $('ov').scrollTop = 0;
+}
+function hideOverlay() {
+  $('ov').classList.remove('show');
+  var a = document.activeElement; if (a && a !== document.body && a.blur) a.blur();
+}
+function showTitle() { if (S.held) cancelHeld(); showPanel('pTitle'); }
+function showLevels() {
+  if (S.held) cancelHeld();
+  var g = $('lvGrid'); g.innerHTML = '';
+  L.forEach(function (lv, i) {
+    var b = document.createElement('button'), ok = unlocked(i), s = best[i] || 0;
+    b.className = 'lv' + (ok ? '' : ' locked'); b.disabled = !ok;
+    b.innerHTML = '<b>Room ' + (i + 1) + (ok ? '' : ' &middot; locked') + '</b><span>' + esc(lv.name) + '</span><i>' + '★'.repeat(s) + '<s>' + '★'.repeat(3 - s) + '</s></i>';
+    b.addEventListener('click', function () { loadLevel(i); });
+    g.appendChild(b);
+  });
+  $('bCloseLv').style.display = S.level ? '' : 'none';
+  showPanel('pLevels');
+}
+function showWin() {
+  if (S.mode !== 'level') return;
+  sfx('win');
+  $('winTitle').textContent = 'Three stars!';
+  $('winText').textContent = S.level.name + ': a perfect 100. ' + (S.li + 1 < L.length ? 'Room ' + (S.li + 2) + ' is waiting.' : 'That was the last room. Free build is always open.');
+  $('bWinNext').textContent = S.li + 1 < L.length ? 'Next room' : 'Free build';
+  showPanel('pWin');
+  if (S.view) for (var i = 0; i < 4; i++) puff(S.fx, S.view.ox + Math.random() * S.level.room.w * S.view.cs, S.view.oy + Math.random() * S.level.room.h * S.view.cs, S.view.cs * 1.5, ['#FF4F6D', '#22D3C5', '#B45CF0', '#FFE066'][i]);
+}
+function nextRoom() {
+  if (S.mode === 'level' && S.li + 1 < L.length) { if (unlocked(S.li + 1)) loadLevel(S.li + 1); }
+  else openFree();
+}
+function play() {
+  for (var i = 0; i < L.length; i++) if (unlocked(i) && (best[i] || 0) < 1) return loadLevel(i);
+  showLevels();
+}
+function openFree() { if (S.held) cancelHeld(); renderSaved(); showPanel('pFree'); }
+function renderSaved() {
+  var list = $('savedList'); list.innerHTML = '';
+  if (!saved.length) { list.innerHTML = '<div class="muted">No saved rooms yet. Build one and press Save.</div>'; return; }
+  saved.forEach(function (rm, n) {
+    var row = document.createElement('div'); row.className = 'sv';
+    row.innerHTML = '<span></span><button>Open</button><button>Delete</button>';
+    row.firstChild.textContent = (rm.name || 'Untitled room') + ' (' + rm.room.w + ' x ' + rm.room.h + ', ' + rm.pieces.length + ' pieces)';
+    row.children[1].addEventListener('click', function () { loadFree(rm.room, rm.pieces, rm.name, rm.id); });
+    var del = row.children[2];
+    del.addEventListener('click', function () {
+      if (del.dataset.sure) { saved.splice(n, 1); store.set('rooms', saved); renderSaved(); }
+      else { del.dataset.sure = '1'; del.textContent = 'Sure?'; }
+    });
+    list.appendChild(row);
+  });
+}
+function saveFree() {
+  var name = $('roomName').value.trim() || 'Room ' + (saved.length + 1);
+  $('roomName').value = name;
+  var rec = { id: S.freeId || ('r' + Date.now()), name: name, room: S.level.room, pieces: clean(S.pieces) };
+  var at = -1; saved.forEach(function (r, i) { if (r.id === rec.id) at = i; });
+  if (at >= 0) saved[at] = rec; else saved.push(rec);
+  S.freeId = rec.id; store.set('rooms', saved);
+  toast('Saved "' + name + '"');
+}
+function exportRoom() {
+  var name = $('roomName').value.trim() || (S.mode === 'level' ? S.level.name : 'My room');
+  var data = { kind: 'roomy-room', version: 1, name: name, room: S.level.room, pieces: clean(S.pieces) };
+  try {
+    var blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }), url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = 'roomy-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.json';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    toast('Exported ' + a.download);
+  } catch (e) { toast('Export failed'); }
+}
+function importFile(file) {
+  var fr = new FileReader();
+  fr.onload = function () {
+    try { var r = R.importRoom(JSON.parse(fr.result)); loadFree(r.room, r.pieces, r.name, null); toast('Imported "' + r.name + '" (' + r.pieces.length + ' pieces)'); }
+    catch (e) { toast('That file is not a Roomy room'); }
+  };
+  fr.readAsText(file);
+}
+
+function setMute(m, persist) {
+  muted = m; if (persist) store.set('muted', m);
+  $('muteWave').style.display = m ? 'none' : ''; $('muteX').style.display = m ? '' : 'none';
+  $('muteLbl').textContent = m ? 'Muted' : 'Sound';
+  $('bMute').setAttribute('aria-pressed', m ? 'true' : 'false');
+}
+
+/* ---------- wiring ---------- */
+$('bUndo').onclick = undo;
+$('bRooms').onclick = showLevels;
+$('bMute').onclick = function () { wakeAudio(); setMute(!muted, true); };
+$('bRot').onclick = rotate;
+$('bDel').onclick = toTray;
+$('bClear').onclick = clearRoom;
+$('bNext').onclick = nextRoom;
+$('bPlay').onclick = play;
+$('bFree').onclick = openFree; $('bFree2').onclick = openFree;
+$('bLevels').onclick = showLevels;
+$('bTitle').onclick = showTitle;
+$('bCloseLv').onclick = hideOverlay;
+$('bWinNext').onclick = nextRoom;
+$('bWinStay').onclick = hideOverlay;
+$('bCloseFree').onclick = function () { if (S.level) hideOverlay(); else showTitle(); };
+$('bSizeS').onclick = function () { loadFree(FREE_ROOMS.S, [], ''); };
+$('bSizeM').onclick = function () { loadFree(FREE_ROOMS.M, [], ''); };
+$('bSizeL').onclick = function () { loadFree(FREE_ROOMS.L, [], ''); };
+$('bSave').onclick = saveFree;
+$('bExport').onclick = exportRoom;
+$('bImport').onclick = $('bImport2').onclick = function () { $('fileIn').value = ''; $('fileIn').click(); };
+$('fileIn').addEventListener('change', function () { if (this.files && this.files[0]) importFile(this.files[0]); });
+window.addEventListener('pointerdown', wakeAudio, { passive: true });
+document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+// Mouse clicks on the game's buttons should not leave them focused, or the next Enter or
+// Space meant for the room would click the button again. Tab focus still works as usual.
+document.addEventListener('mousedown', function (e) { if (e.target.closest && e.target.closest('#app button')) e.preventDefault(); });
+
+/* ---------- frame loop ---------- */
+var demo = new Demo($('demoCv'), 0), last = performance.now();
+function frame(now) {
+  var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (panelShown('pTitle')) { demo.update(dt); demo.render(); }
+  if (S.level) render(dt, now);
+  requestAnimationFrame(frame);
+}
+function render(dt, now) {
+  var dpr = Math.min(3, window.devicePixelRatio || 1), st = $('stage'), cw = st.clientWidth, ch = st.clientHeight;
+  if (!cw || !ch) return;
+  if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(ch * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); }
+  var room = S.level.room, pad = cw < 500 ? 8 : 18;
+  var cs = Math.floor(Math.min((cw - pad * 2) / (room.w + 0.7), (ch - pad * 2) / (room.h + 0.7)));
+  S.view = { cs: cs, ox: Math.round((cw - room.w * cs) / 2), oy: Math.round((ch - room.h * cs) / 2) };
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cw, ch);
+  if (S.shake > 0) { ctx.translate((Math.random() - 0.5) * 8 * S.shake, (Math.random() - 0.5) * 8 * S.shake); S.shake = Math.max(0, S.shake - dt * 4); }
+  var path = null;
+  if (S.sel >= 0 && !S.held) path = R.pathTo(S.level.room, S.pieces, S.sel, S.sc.walk);
+  drawRoom(ctx, S.view, S.level, S.pieces, {
+    now: now, problems: S.sc.problems, sel: S.held ? -1 : S.sel, path: path,
+    held: S.held && (S.overCanvas || !S.drag || !S.drag.tray) ? S.held : null, heldOk: heldOk(),
+    cursor: !S.held && S.keyboard ? S.cursor : null
+  });
+  stepParticles(S.fx, ctx, dt);
+}
+window.addEventListener('keydown', function () { S.keyboard = true; }, true);
+window.addEventListener('pointerdown', function () { S.keyboard = false; }, true);
+
+setMute(muted, false);
+showTitle();
+requestAnimationFrame(frame);
+
+// Test hook (read-only use by the check scripts).
+window.__roomy = {
+  S: S, R: R, best: function () { return best.slice(); },
+  state: function () { return { mode: S.mode, li: S.li, total: S.sc ? S.sc.total : null, stars: S.sc ? S.sc.stars : null, pieces: clean(S.pieces), held: S.held ? { t: S.held.t, x: S.held.x, y: S.held.y, r: S.held.r, c: S.held.c } : null, sel: S.sel, overlay: overlayShown(), view: S.view }; },
+  load: loadLevel
+};
+})();
+</script>
+</body>
+</html>

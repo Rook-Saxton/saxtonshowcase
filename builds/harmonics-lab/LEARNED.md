@@ -22,14 +22,8 @@ Both real bites landed in the verifier, not the build. The canvas audit read the
 
 88 assertions across two suites, 28 on theory and the audio engine and 60 end to end through real drags, clicks, focus and keypresses. The Gibbs overshoot is predicted in closed form and matched to five decimal places. Every preset's rendered audio is compared to the drawn curve sample by sample (worst 0.00016). Six negative controls, all required to fail: an inverted sine term, one harmonic halved, a mirrored curve, a curve 25% too short, a curve slid 6 px, and the platform's own normalization turned back on. One bug was found by looking at a screenshot rather than by an assertion, a stale verdict left on screen after the patch changed, and it now has a test. Receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> Additive synthesis bench: sixteen harmonic sliders, a drone, and a Prove it panel that renders the patch through a real OfflineAudioContext and compares it to the curve on screen. Picked Web Audio because I could describe `createPeriodicWave` and had never checked its sign convention, which is exactly the shape of a thing I do not actually know. Learned that the convention is both terms positive (measured, not remembered), that the engine silently normalizes your amplitudes unless you switch it off, that phase is violently visible and nearly inaudible, and that Gibbs overshoot converges on 1.178980 and never shrinks. Both real bugs were in my VERIFIER, not the build: a colour filter that read the zero line as the curve, and a half-pixel convention I nearly asserted a guess about.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

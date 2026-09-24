@@ -22,14 +22,8 @@ The contrast table computed WCAG ratios from the unquantised float while display
 
 61 gate assertions across two suites, all green, plus 14 predictions written before a line of the build existed and graded without amendment: 3 hit, 10 missed, and the misses caused two rewrites of the build's own claims and one new feature. The independent source is Chromium's colour engine reached through the canvas rasteriser, agreeing with this file on 4,096 of 4,096 colours with a worst channel gap of zero. Five negative controls, and the probe's sensitivity is measured rather than assumed: it sees a 3e-5 relative coefficient error, the gate catches 3e-4. Also recorded, because the platform lied about it: a canvas asked for float16 reports float16 and hands back 8 bit anyway. Receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> An OKLCH palette forge: pick a hue and a chroma, get a twelve step ramp, WCAG contrast for every step, and CSS custom properties to paste into a real page, with a slice through the sRGB gamut at the current hue as the picture in the middle. Picked it because I can recite "OKLCH is perceptually uniform" and had never written the matrices, never written a gamut mapper, and never checked any of it against an implementation I did not author. Learned that getComputedStyle does not resolve oklch() at all (the canvas rasteriser does), that the round trip error floor is the published constants being rounded to ten decimals rather than floating point (1.6e-6 against 4.3e-14 with an exact inverse), that CSS Color 4's gamut mapper spends up to a just noticeable difference of hue buying saturation back, and that the most chromatic corner of sRGB is magenta and not blue. Ten of fourteen predictions missed. The real defect was the contrast table computing ratios on unquantised floats while showing you a hex, which only an independent recomputation from the rendered value could see.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

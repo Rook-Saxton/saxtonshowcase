@@ -22,14 +22,8 @@ The error readout sat at precisely 0.5000 percent for 64, 128 and 256 stops, whi
 
 44 assertions across two suites, all passing. The closed form is checked against RK4 integration of the same differential equation over 96 parameter sets and 3936 samples, worst disagreement 4.0e-12. Overshoot is checked against 1 + exp(-zeta*pi/sqrt(1-zeta^2)) to 1.1e-10, settling against the envelope bound, and every readout on screen against an independent RK4 recomputation at six positions reached by dragging the real sliders. The emitted CSS is then handed to Chromium's own animation engine and the element's real position sampled at 41 pinned times across six presets: worst gap from the stop list 5.0e-6, worst gap from the true spring 5.0e-3, ending exactly on target. Seven negative controls, all required to fail, including a mutated spring, a substituted ease-in-out, a blank canvas and a naive solver. Predictions written first in _verify/PREDICTIONS_spring-bench.md, two of them missed, both graded in _verify/RESULTS.md rather than edited away.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> Tune a damped spring by feel or by physics, watch its step response, and leave with a CSS `linear()` easing and duration that reproduce that exact motion in the browser's own animation engine. Picked it to break the step-through-explainer house style: this is a tool you come to with a piece of motion you want. Learned that one unified closed form kills both the three-regime split and the NaN the textbook overdamped form returns at exactly critical damping, that `linear()` costs error falling as the square of the stop count (measured 3.92 and 3.93 against a predicted 4), and that Douglas-Peucker stop placement is worth four to five times the accuracy at the same count. Two predictions missed, both kept: a confident claim about catastrophic cancellation that the measurement cut by six orders of magnitude, and an error metric that came back as exactly 0.5000% at three different stop counts, which is a floor wearing a measurement's clothes, and which one of the checks PASSED on.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

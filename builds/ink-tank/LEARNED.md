@@ -22,14 +22,8 @@ Four of eleven pre-registered predictions were wrong, and both actual defects we
 
 60 assertions across two suites, 34 on the physics and 26 driven only through real drags, clicks, keys and slider events. Predictions written in PREDICTIONS_ink-tank.md before the solver existed; four missed and each miss is graded with its root cause rather than edited away. Closed-form checks the solver never sees: the recovered pressure correlates 0.9999898 with the analytic potential, a projected composite field matches its analytic divergence-free part to 1.17 percent, a non-sinusoidal stream function shows third-order truncation at 6.54x and 7.26x per grid doubling, and the rotation mass loss matches a derived contraction law at two different step counts. Six negative controls, every one required to fail, including two that were found to be inert and fixed. Receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> Jos Stam's Stable Fluids as a tank you drag your finger through: dye carried by a velocity field solved back to incompressible every frame, with the pressure and the leftover divergence on a view switch. Picked it to break the house style the log called out, something pleasant first and instructive second, and picked fluids because I could recite the projection step and had never written the boundary conditions or the Poisson solve by hand. Learned that Stam's famous 20 iterations do not converge the solve for any mode (1.247x on a smooth field, against 222.9x at 2000), that the collocated grid makes the projection exactly blind to checkerboard modes, and that the blob which looks like it evaporates is really spiralling inward because the backtrace cuts the chord instead of the arc, to a closed form that matched 15.165 against 15.164 measured. Four of eleven pre-registered predictions were wrong. Both real defects were in the verification: an inert negative control reporting the same clean zero a pass reports, and a control whose fixture never painted.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

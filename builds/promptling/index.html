@@ -1,0 +1,1289 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  PROMPTLING
+  Bite-size daily lessons for using AI chat assistants well and safely.
+  Built 2026-09-23. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  A daily-habit learning app for everyday people, not programmers. A winding path of lesson nodes
+  in six units (what an AI chat actually is, asking well, checking what it says, staying safe,
+  getting real things done, knowing the limits), each unit closed by a review node. A lesson is a
+  run of quick exercises of seven kinds: multiple choice, which prompt is better, spot the made-up
+  part, build the prompt, safe or not safe (tap or swipe), put the steps in order, and fix it.
+  Right answers get a bright bar, a chime and a one or two sentence reason; wrong answers cost a
+  heart, show the reason, and come back at the end of the lesson. Five hearts, one back every
+  thirty minutes of real time, or refill them all with a practice round of questions already seen.
+  XP, a daily goal ring, a day streak counted in calendar days in your own time zone, and a
+  profile with a reset. Pip, the mascot, is a small speech bubble with a star on its head.
+  No real AI is called: every exercise is pre-written, and the whole curriculum lives in one data
+  block between the LESSONS-BEGIN and LESSONS-END markers so it can be reviewed on its own.
+  The content teaches general, well-established practice only: no statistics, product or company
+  names, or claims about what any particular assistant can do.
+
+  CONTROLS
+  Tap or click everything. Keyboard: number keys pick options (in "put in order", they place or
+  remove steps; Backspace removes the last one), Enter checks and continues, Enter on the path
+  starts the next lesson, M mutes. Safe-or-not cards can also be swiped right (safe) or left.
+  Escape is never handled here, so a host page can use it.
+  ?preview=1 runs a silent attract loop that plays part of a lesson with a visible fake finger.
+
+  HOW IT WAS CHECKED
+  A node script slices the LESSONS and CORE blocks out of this file and checks: six units, 25
+  lessons, six review nodes, 169 exercises of eight kinds; every exercise has exactly one correct
+  answer (or one correct set, or a valid order), an explanation, no empty strings and a unique id;
+  every exercise accepts its own answer and rejects a wrong one; no digits, percent or currency
+  signs, month names or product and company names anywhere in the content; plus the streak
+  (calendar days, clock changes), heart refill, XP and unlock rules. Nine planted defects (a
+  statistic, a product name, a price, a duplicate id and so on) were each caught.
+  Headless Chrome (Playwright) then: finished a whole lesson by keyboard at 1280x720 with one
+  deliberate miss that came back at the end; finished one by taps at 390x844 with every target at
+  least 44 px; swiped a safe-or-not card; lost all five hearts on purpose and got the practice
+  offer, whose round refilled them; reloaded and found XP and streak kept; moved the page clock
+  on 31 and 95 minutes (one and three hearts back), one day (streak 2) and past a skipped day
+  (streak shown 0, then 1, best kept at 2); reset from the profile after a confirm; played with
+  localStorage throwing; ran ?preview=1 at 600x300 for 30 seconds (it looped, drew confetti,
+  made no sound and wrote nothing). Escape was never default-prevented. Zero page or console
+  errors in every run.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Promptling</title>
+<style>
+:root{
+  --marigold:#FFE066;--tomato:#FF4F6D;--grass:#C6F432;--pool:#22D3C5;--grape:#B45CF0;--bubble:#FF7AC8;--peri:#8C9BFF;--ink:#1A1540;--paper:#F7F4FF;
+  --marigold-d:#D6B22A;--tomato-d:#D63355;--grass-d:#93BD17;--pool-d:#139C92;--grape-d:#8B3BC6;--bubble-d:#D9529F;--peri-d:#5E6FD8;
+  --line:#E2DCF3;--dim:#5E5880;--ok-bg:#EEFBC8;--ok-ink:#3F5E00;--bad-bg:#FFE4EA;--bad-ink:#B81E3C;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+body{overflow:hidden;position:fixed;inset:0}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--grape);outline-offset:2px}
+[hidden]{display:none!important}
+#app{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;background:var(--paper)}
+.screen{flex:1;min-height:0;display:none;flex-direction:column;position:relative}
+.screen.on{display:flex}
+svg{display:block}
+.ico{width:22px;height:22px}
+
+/* chunky buttons */
+.btn{min-height:50px;padding:12px 24px;border-radius:16px;border:0;border-bottom:5px solid var(--grass-d);background:var(--grass);font-weight:900;letter-spacing:.06em;text-transform:uppercase;font-size:15px;transition:transform .06s}
+.btn:active{transform:translateY(3px);border-bottom-width:2px;margin-top:3px}
+.btn[disabled]{background:#E7E2F3;border-bottom-color:#D2CBE6;color:#8F88AC;cursor:default}
+.btn[disabled]:active{transform:none;border-bottom-width:5px;margin-top:0}
+.btn.alt{background:#fff;border:2px solid var(--line);border-bottom-width:5px;color:var(--grape-d)}
+.btn.pool{background:var(--pool);border-bottom-color:var(--pool-d)}
+.btn.warn{background:var(--tomato);border-bottom-color:var(--tomato-d);color:#fff}
+.ibtn{width:44px;height:44px;border-radius:12px;border:2px solid transparent;background:none;display:grid;place-items:center;color:var(--dim);padding:0}
+.ibtn:hover{background:#EEE9FA}
+
+/* top bar */
+#top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;border-bottom:2px solid var(--line);background:var(--paper);flex:none}
+.brand{display:flex;align-items:center;gap:8px;font-weight:900;font-size:20px;letter-spacing:.01em}
+.brand .pip{width:38px;height:38px}
+.stats{display:flex;align-items:center;gap:4px}
+.stat{display:flex;align-items:center;gap:4px;font-weight:900;font-size:16px;padding:4px 6px;border-radius:12px;min-height:44px;background:none;border:0}
+.stat .ico{width:24px;height:24px}
+#stStreak{color:#B7B0CF}
+#stStreak.lit{color:#FF8A3D}
+#stStreak b{color:var(--ink)}
+#stHearts{color:var(--tomato)}
+#stHearts b{color:var(--ink)}
+#heartT{font-size:11px;color:var(--dim);font-weight:700;min-width:0}
+#stXp{color:var(--marigold-d)}
+#stXp b{color:var(--ink)}
+#goal{position:relative;width:44px;height:44px;display:grid;place-items:center;padding:0}
+#goal svg{width:40px;height:40px}
+#goal span{position:absolute;font-size:10px;font-weight:900}
+#goal.met #ringArc{stroke:var(--grass-d)}
+@media (max-width:520px){ .brand > span:last-child{display:none} .stat{padding:4px 3px} }
+
+/* path */
+#path{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:18px 12px 150px;scroll-behavior:smooth}
+.unit{max-width:560px;margin:0 auto 26px}
+.ubanner{background:var(--c);border-bottom:6px solid var(--cd);border-radius:20px;padding:14px 18px;margin-bottom:34px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.ubanner small{display:block;font-weight:900;text-transform:uppercase;letter-spacing:.1em;font-size:12px;opacity:.75}
+.ubanner h2{margin:2px 0 0;font-size:20px;line-height:1.2}
+.ubanner .uprog{font-weight:900;font-size:14px;background:rgba(255,255,255,.55);border-radius:99px;padding:4px 10px;white-space:nowrap}
+.nrow{position:relative;height:94px;display:flex;justify-content:center;align-items:center}
+.node{width:76px;height:70px;border-radius:50%;border:0;background:var(--c);border-bottom:8px solid var(--cd);display:grid;place-items:center;position:relative;color:var(--ink);padding:0;transition:transform .08s}
+.node:active{transform:translateY(3px)}
+.node svg{width:34px;height:34px}
+.node.locked{background:#E3DEF0;border-bottom-color:#CBC3E0;color:#A69FC0}
+.node.done svg{color:var(--ink)}
+.node.review{width:84px;border-radius:24px}
+.node.cur::after{content:"";position:absolute;inset:-11px -11px -19px;border-radius:50%;border:4px solid var(--c);opacity:.55;animation:pulse 1.8s ease-in-out infinite}
+.node.review.cur::after{border-radius:30px}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.06);opacity:.2}}
+.tag{position:absolute;top:-36px;left:50%;transform:translateX(-50%);background:#fff;border:2px solid var(--line);color:var(--cd);font-weight:900;font-size:13px;letter-spacing:.08em;padding:4px 10px;border-radius:10px;white-space:nowrap;animation:bob 1.6s ease-in-out infinite}
+.tag::after{content:"";position:absolute;left:50%;bottom:-7px;width:10px;height:10px;background:#fff;border-right:2px solid var(--line);border-bottom:2px solid var(--line);transform:translateX(-50%) rotate(45deg)}
+@keyframes bob{0%,100%{margin-top:0}50%{margin-top:-4px}}
+.pipside{position:absolute;width:86px;height:86px;top:4px;pointer-events:none}
+.pipside .pip{width:86px;height:86px}
+.finale{max-width:560px;margin:0 auto;text-align:center;padding:10px 16px;color:var(--dim);font-weight:700}
+
+/* node sheet */
+#sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:3px solid var(--line);border-radius:24px 24px 0 0;padding:18px 20px calc(18px + env(safe-area-inset-bottom));transform:translateY(110%);transition:transform .22s ease-out;box-shadow:0 -10px 30px rgba(26,21,64,.08);z-index:5}
+#sheet.on{transform:none}
+.sheetin{max-width:560px;margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:4px 16px;align-items:center}
+#sheetKick{font-size:12px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+#sheetTitle{margin:0;font-size:22px}
+#sheetNote{grid-column:1;color:var(--dim);font-size:15px}
+#sheetGo{grid-column:2;grid-row:1/span 3}
+@media (max-width:520px){ .sheetin{grid-template-columns:1fr} #sheetGo{grid-column:1;grid-row:auto;margin-top:10px;width:100%} }
+
+/* lesson */
+.lhead{display:flex;align-items:center;gap:10px;padding:10px 14px;width:100%;max-width:780px;margin:0 auto;flex:none}
+.pbar{flex:1;height:18px;background:#E5E0F2;border-radius:99px;overflow:hidden}
+.pbar i{display:block;height:100%;width:0;background:var(--grass);border-radius:99px;transition:width .35s ease-out;box-shadow:inset 0 -5px 0 rgba(0,0,0,.07)}
+.lhearts{display:flex;align-items:center;gap:4px;font-weight:900;color:var(--tomato);min-width:48px}
+.lhearts b{color:var(--ink)}
+.lhearts.hit{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+#lbody{flex:1;min-height:0;overflow-y:auto;padding:6px 16px 20px;width:100%;max-width:780px;margin:0 auto}
+.tlabel{font-weight:900;font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--grape-d);display:flex;gap:8px;align-items:center}
+.again{background:var(--marigold);color:var(--ink);border-radius:8px;padding:2px 8px;letter-spacing:.05em}
+.q{font-size:22px;font-weight:800;margin:6px 0 14px;line-height:1.3}
+.opts{display:grid;gap:10px}
+.opt{display:flex;align-items:center;gap:12px;text-align:left;background:#fff;border:2px solid var(--line);border-bottom-width:5px;border-radius:16px;padding:10px 14px;min-height:54px;width:100%;transition:background .12s,border-color .12s,opacity .12s}
+.opt:hover{background:#FBFAFF}
+.opt .k{flex:none;width:26px;height:26px;border-radius:8px;border:2px solid var(--line);display:grid;place-items:center;font-size:13px;font-weight:900;color:var(--dim);background:#fff}
+.opt .tx{flex:1}
+.opt.sel{border-color:var(--pool);background:#E2FAF7}
+.opt.sel .k{border-color:var(--pool);color:var(--pool-d)}
+.opt.right{border-color:var(--grass-d);background:var(--ok-bg)}
+.opt.right .k{border-color:var(--grass-d);color:var(--ok-ink)}
+.opt.wrong{border-color:var(--tomato);background:var(--bad-bg)}
+.opt.wrong .k{border-color:var(--tomato);color:var(--bad-ink)}
+.opt.missed{border-style:dashed;border-color:var(--grass-d)}
+.opt.used{opacity:.32}
+.pick{grid-template-columns:1fr 1fr}
+.pick .opt{flex-direction:column;align-items:flex-start;font-size:17px;border-radius:20px;padding:14px 16px 16px}
+.pick .opt small{display:flex;align-items:center;gap:8px;font-weight:900;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+@media (max-width:600px){ .pick{grid-template-columns:1fr} }
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.chips .opt{width:auto;flex:1 1 auto;min-width:40%}
+.chips.short .opt{min-width:0;flex:0 1 auto}
+.hint{color:var(--dim);font-size:14px;margin:12px 2px 0}
+.chat{display:flex;flex-direction:column;gap:8px;margin:4px 0 12px}
+.bub{max-width:88%;padding:10px 14px;border-radius:18px;font-size:15.5px}
+.bub .who{display:block;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;opacity:.7;margin-bottom:2px}
+.bub.you{align-self:flex-end;background:var(--pool);border-bottom-right-radius:6px}
+.bub.ai{align-self:flex-start;background:#fff;border:2px solid var(--line);border-bottom-left-radius:6px}
+.src{background:#FFF8D2;border:2px dashed var(--marigold-d);border-radius:14px;padding:10px 14px;margin:6px 0 10px;font-size:15.5px}
+.src b,.pcard b{display:block;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+.ask{font-weight:700;margin:0 0 4px;color:var(--dim)}
+.reply{background:#fff;border:2px solid var(--line);border-radius:18px;padding:10px;display:grid;gap:4px}
+.reply .who{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);padding:0 8px}
+.sent{display:flex;gap:10px;align-items:center;text-align:left;width:100%;background:none;border:2px solid transparent;border-radius:12px;padding:8px 10px;min-height:46px}
+.sent:hover{background:#FBFAFF}
+.sent .k{flex:none;width:24px;height:24px;border-radius:7px;border:2px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:900;color:var(--dim)}
+.sent.sel{background:#FFF1B3;border-color:var(--marigold-d)}
+.sent.right{background:var(--ok-bg);border-color:var(--grass-d)}
+.sent.wrong{background:var(--bad-bg);border-color:var(--tomato)}
+.scard{margin:4px auto 16px;max-width:460px;min-height:130px;display:grid;place-items:center;background:#fff;border:3px solid var(--ink);border-radius:24px;padding:24px 22px;font-size:20px;font-weight:800;text-align:center;box-shadow:0 8px 0 var(--ink);touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;transition:transform .2s ease-out,background .15s}
+.scard.drag{transition:none}
+.scard.lean-y{background:#E2FAF7}
+.scard.lean-n{background:var(--bad-bg)}
+.sbtns{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:460px;margin:0 auto}
+.sbtns .opt{justify-content:center;font-weight:900;font-size:17px}
+.sbtns .opt .tx{flex:none}
+.pcard{background:#fff;border:2px solid var(--ink);border-radius:16px;padding:12px 14px;font-size:18px;margin:6px 0 12px;box-shadow:0 4px 0 var(--ink)}
+.slots{border:2px dashed var(--line);border-radius:16px;padding:8px;display:grid;gap:8px;margin:0 0 14px}
+.slot{display:flex;gap:10px;align-items:center;text-align:left;background:#fff;border:2px solid var(--line);border-bottom-width:4px;border-radius:12px;padding:8px 12px;min-height:46px;width:100%}
+.slot .n{flex:none;font-weight:900;color:var(--pool-d);width:20px}
+.slot.empty{background:transparent;border:2px dashed #EAE5F7;min-height:46px}
+.slot.right{background:var(--ok-bg);border-color:var(--grass-d)}
+.slot.wrong{background:var(--bad-bg);border-color:var(--tomato)}
+#lfoot{flex:none;border-top:2px solid var(--line);padding:14px 16px calc(14px + env(safe-area-inset-bottom))}
+.footin{max-width:780px;margin:0 auto;display:flex;justify-content:flex-end}
+#check{min-width:200px}
+@media (max-width:600px){ #check{width:100%} .q{font-size:20px} }
+.fb{position:absolute;left:0;right:0;bottom:0;transform:translateY(105%);transition:transform .22s ease-out;padding:16px 16px calc(16px + env(safe-area-inset-bottom));z-index:4;border-top:2px solid transparent}
+.fb.on{transform:none}
+.fb.good{background:var(--ok-bg);border-top-color:var(--grass-d)}
+.fb.bad{background:var(--bad-bg);border-top-color:var(--tomato)}
+.fbin{max-width:780px;margin:0 auto;display:grid;grid-template-columns:auto 1fr auto;gap:4px 14px;align-items:center}
+.fbicon{grid-row:1/span 2;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:#fff}
+.fb.good .fbicon{color:var(--ok-ink)}
+.fb.bad .fbicon{color:var(--bad-ink)}
+.fbicon svg{width:30px;height:30px}
+.fbt{font-size:22px;font-weight:900}
+.fb.good .fbt{color:var(--ok-ink)}
+.fb.bad .fbt{color:var(--bad-ink)}
+.fbw{grid-column:2;font-size:15.5px;max-height:34vh;overflow-y:auto}
+.fbw .ans{font-weight:800;margin-bottom:2px}
+.fbw ol{margin:2px 0 4px;padding-left:22px}
+#cont{grid-column:3;grid-row:1/span 2;min-width:170px}
+.fb.bad #cont{background:var(--tomato);border-bottom-color:var(--tomato-d);color:#fff}
+@media (max-width:600px){ .fbin{grid-template-columns:auto 1fr} #cont{grid-column:1/span 2;grid-row:auto;width:100%;margin-top:8px} .fbicon{grid-row:auto;width:36px;height:36px} .fbicon svg{width:22px;height:22px} .fbw{grid-column:1/span 2} }
+
+/* centred screens */
+.centre{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px 18px calc(20px + env(safe-area-inset-bottom));gap:10px}
+.centre h1{margin:4px 0 0;font-size:30px;line-height:1.15}
+.centre p{margin:0;max-width:460px;color:var(--dim)}
+.bigpip{width:150px;height:150px}
+.bigpip .pip{width:150px;height:150px}
+.tiles{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin:10px 0 8px}
+.tile{border:3px solid var(--c);border-radius:18px;overflow:hidden;min-width:104px;background:#fff}
+.tile h4{background:var(--c);margin:0;padding:5px 10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.tile b{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 12px;font-size:26px}
+.tile b svg{width:24px;height:24px}
+.how{list-style:none;padding:0;margin:6px 0 8px;display:grid;gap:8px;text-align:left;max-width:440px}
+.how li{background:#fff;border:2px solid var(--line);border-radius:14px;padding:10px 14px;display:flex;gap:10px;align-items:flex-start}
+.how li i{flex:none;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-style:normal;font-weight:900;background:var(--c)}
+.small{font-size:13px}
+.row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+
+/* modal */
+#modal{position:fixed;inset:0;background:rgba(26,21,64,.45);display:grid;place-items:center;z-index:50;padding:16px}
+.mbox{background:#fff;border-radius:24px;padding:22px;max-width:440px;width:100%;max-height:92vh;overflow:auto;position:relative}
+.mbox h2{margin:0 0 12px;font-size:22px}
+.mbox .x{position:absolute;right:10px;top:10px}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.pgrid div{border:2px solid var(--line);border-radius:14px;padding:10px 12px}
+.pgrid b{display:block;font-size:26px}
+.pgrid span{font-size:13px;color:var(--dim);font-weight:700}
+.mbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.mbtns .btn{flex:1 1 auto}
+
+#fx{position:fixed;left:0;top:0;pointer-events:none;z-index:40}
+#finger{position:fixed;left:50%;top:60%;width:38px;height:38px;border-radius:50%;background:rgba(26,21,64,.28);border:3px solid #fff;box-shadow:0 0 0 2px var(--ink),0 4px 10px rgba(26,21,64,.3);pointer-events:none;z-index:60;display:none;transition:left .45s ease-in-out,top .45s ease-in-out,transform .12s}
+#finger.press{transform:scale(.72);background:rgba(26,21,64,.5)}
+
+.pip-b{transform-origin:60px 100px}
+.bob .pip-b{animation:pipbob 2.4s ease-in-out infinite}
+@keyframes pipbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.pip-eyes{transform-origin:60px 50px;animation:blink 5s infinite}
+@keyframes blink{0%,95%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
+.cheer .pip-b{animation:hop .6s ease-in-out infinite}
+@keyframes hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* preview: fixed 2:1 stage scaled to fit, chrome hidden */
+html.preview #app{inset:auto;left:50%;top:50%;width:640px;height:320px;transform-origin:center center}
+html.preview #top,html.preview .mute,html.preview #lfoot .hint{display:none!important}
+html.preview #quit{visibility:hidden}
+html.preview #finger{display:block}
+html.preview *{scrollbar-width:none}
+html.preview *::-webkit-scrollbar{display:none}
+html.preview #path{padding-top:10px;scroll-behavior:auto}
+html.preview .lhead{padding:8px 14px}
+html.preview #lbody{padding:2px 16px 8px}
+html.preview .q{font-size:17px;margin:2px 0 8px}
+html.preview .opt{min-height:34px;padding:4px 12px;font-size:14px;border-bottom-width:4px}
+html.preview .opt .k{width:22px;height:22px;font-size:12px}
+html.preview .tlabel{font-size:11px}
+html.preview .opts{gap:6px}
+html.preview .scard{min-height:80px;padding:14px 18px;font-size:16px;margin-bottom:12px;box-shadow:0 5px 0 var(--ink)}
+html.preview .pick .opt{font-size:14px;padding:8px 12px 10px}
+html.preview #lfoot{padding:8px 16px}
+html.preview .btn{min-height:40px;padding:8px 18px}
+html.preview .fb{padding:10px 16px}
+html.preview .fbw{font-size:13.5px}
+html.preview .centre{gap:4px;padding:8px}
+html.preview .bigpip,html.preview .bigpip .pip{width:84px;height:84px}
+html.preview .centre h1{font-size:22px}
+html.preview .tiles{margin:4px 0}
+html.preview .tile b{font-size:20px;padding:6px 10px}
+html.preview #sheet{padding:12px 20px}
+html.preview .sheetin{grid-template-columns:1fr auto}
+html.preview #sheetGo{grid-column:2;grid-row:1/span 3;width:auto;margin-top:0}
+html.preview .pick{grid-template-columns:1fr 1fr}
+html.preview #check{width:auto}
+html.preview .fbin{grid-template-columns:auto 1fr auto;gap:2px 12px}
+html.preview .fbicon{grid-row:1/span 2;width:36px;height:36px}
+html.preview .fbicon svg{width:22px;height:22px}
+html.preview .fbt{font-size:18px}
+html.preview .fbw{grid-column:2;font-size:13px;line-height:1.3}
+html.preview #cont{grid-column:3;grid-row:1/span 2;width:auto;min-width:130px;margin-top:0}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand"><span id="brandPip"></span><span>Promptling</span></div>
+    <div class="stats">
+      <div class="stat" id="stStreak" title="Day streak"><span data-ico="flame"></span><b id="streakN">0</b></div>
+      <div class="stat" id="stHearts" title="Hearts"><span data-ico="heart"></span><b id="heartN">5</b><small id="heartT"></small></div>
+      <div class="stat" id="stXp" title="Total XP"><span data-ico="bolt"></span><b id="xpN">0</b></div>
+      <div class="stat" id="goal" title="Daily goal">
+        <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="15" fill="none" stroke="#E3DEF0" stroke-width="5"/><circle id="ringArc" cx="20" cy="20" r="15" fill="none" stroke="var(--pool)" stroke-width="5" stroke-linecap="round" stroke-dasharray="94.25" stroke-dashoffset="94.25" transform="rotate(-90 20 20)"/></svg>
+        <span id="goalN">0</span>
+      </div>
+      <button class="ibtn" id="profileBtn" aria-label="Profile and stats"><span data-ico="user"></span></button>
+      <button class="ibtn mute" aria-label="Mute sound (M)"><span class="muteico"></span></button>
+    </div>
+  </header>
+
+  <section class="screen" id="welcome">
+    <div class="centre">
+      <div class="bigpip" id="welcomePip"></div>
+      <h1>Hi, I'm Pip. This is Promptling.</h1>
+      <p>Short daily lessons on using AI chat assistants well, and safely. A few minutes a day is plenty.</p>
+      <ul class="how">
+        <li style="--c:var(--pool)"><i>1</i><span>Tap an answer, or press its number key. Then Check (or Enter).</span></li>
+        <li style="--c:var(--tomato)"><i>2</i><span>A wrong answer costs a heart, and the question comes back at the end.</span></li>
+        <li style="--c:var(--marigold)"><i>3</i><span>Finish a lesson each day to grow your streak.</span></li>
+      </ul>
+      <p class="small">Everything here is pre-written practice. No real AI is used, and nothing you do leaves this page.</p>
+      <button class="btn" id="welcomeGo">Let's go</button>
+    </div>
+  </section>
+
+  <main class="screen" id="home">
+    <div id="path"></div>
+    <div id="sheet" aria-live="polite">
+      <div class="sheetin">
+        <div id="sheetKick"></div>
+        <h3 id="sheetTitle"></h3>
+        <div id="sheetNote"></div>
+        <button class="btn" id="sheetGo">Start</button>
+      </div>
+    </div>
+  </main>
+
+  <section class="screen" id="lesson">
+    <div class="lhead">
+      <button class="ibtn" id="quit" aria-label="Quit lesson"><span data-ico="x"></span></button>
+      <div class="pbar" role="progressbar" aria-label="Lesson progress"><i id="prog"></i></div>
+      <div class="lhearts" id="lhearts"><span data-ico="heart"></span><b id="lheartN">5</b></div>
+      <button class="ibtn mute" aria-label="Mute sound (M)"><span class="muteico"></span></button>
+    </div>
+    <div id="lbody"></div>
+    <div id="lfoot"><div class="footin"><button class="btn" id="check" disabled>Check</button></div></div>
+    <div class="fb" id="fb" aria-live="polite">
+      <div class="fbin">
+        <div class="fbicon" id="fbIcon"></div>
+        <div class="fbt" id="fbTitle"></div>
+        <div class="fbw" id="fbWhy"></div>
+        <button class="btn" id="cont">Continue</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="done">
+    <div class="centre">
+      <div class="bigpip" id="donePip"></div>
+      <h1 id="doneTitle">Lesson complete!</h1>
+      <p id="doneNote"></p>
+      <div class="tiles">
+        <div class="tile" style="--c:var(--marigold)"><h4>XP earned</h4><b><span data-ico="bolt"></span><span id="doneXp">0</span></b></div>
+        <div class="tile" style="--c:var(--grass)"><h4>Accuracy</h4><b id="doneAcc">0%</b></div>
+        <div class="tile" style="--c:var(--tomato)"><h4>Day streak</h4><b><span data-ico="flame"></span><span id="doneStreak">0</span></b></div>
+      </div>
+      <button class="btn" id="doneGo">Continue</button>
+    </div>
+  </section>
+
+  <section class="screen" id="out">
+    <div class="centre">
+      <div class="bigpip" id="outPip"></div>
+      <h1>Out of hearts</h1>
+      <p>Practise with questions you've already seen to refill all your hearts, or take a break: one heart comes back every thirty minutes.</p>
+      <p id="outTimer" class="small"></p>
+      <div class="row">
+        <button class="btn pool" id="practiseGo">Practise to refill</button>
+        <button class="btn alt" id="waitGo">Wait</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="modal" hidden><div class="mbox" id="mbox" role="dialog" aria-modal="true"></div></div>
+<canvas id="fx"></canvas>
+<div id="finger" aria-hidden="true"></div>
+
+<script>
+// LESSONS-BEGIN
+// The whole curriculum. Types: mc (multiple choice), pick (which prompt is better), spot (spot the
+// made-up part), need / tiles (build the prompt: pick all that apply), safe (0 = safe, 1 = not safe),
+// order (steps listed in the correct order), fix (best follow-up after a disappointing reply).
+// For single-answer types `a` is the index of the one correct option; for need/tiles `a` is the set.
+const LESSONS = [
+{ id:"u1", title:"What an AI chat actually is", color:"grape", lessons:[
+  { id:"u1-1", title:"It predicts words", ex:[
+    { id:"u1-1-1", t:"mc", q:"How does an AI chat assistant come up with its replies?", o:["It writes text by predicting what is likely to come next","It looks up every answer in a checked encyclopedia","A person types each reply for you","It copies the first web page it finds"], a:0, why:"These assistants are built on language models trained on very large amounts of text. They write replies by predicting likely next words, which is why they sound so fluent." },
+    { id:"u1-1-2", t:"mc", q:"Because it predicts likely wording, a smooth, fluent reply is...", o:["Not proof that it is correct","Almost certainly correct","Checked by an editor before you see it"], a:0, why:"Fluent wording comes from predicting likely text. Sounding right and being right are different things, so important details still need checking." },
+    { id:"u1-1-3", t:"pick", q:"Which prompt gives the assistant more to work with?", o:["Dinner ideas","Dinner ideas for two adults using chicken, rice and whatever vegetables I have, ready in about half an hour"], a:1, why:"It can only work with what you tell it. Who it's for, what you have and how long you have steer it toward something useful." },
+    { id:"u1-1-4", t:"fix", chat:[["you","Tell me about bats."],["ai","Bats are fascinating animals. There are many different kinds, and they live in lots of places."]], q:"The reply is vague. What is the best follow-up?", o:["My child has a school project on how bats find food in the dark. Explain it simply in a short paragraph.","Tell me about bats again.","That was useless."], a:0, why:"A vague question tends to get a general answer. Adding the purpose, the reader and the length gives it something specific to aim at." },
+    { id:"u1-1-5", t:"mc", q:"Why might two people asking the same question get slightly different replies?", o:["Replies are generated fresh each time, often with a little built-in variety","One of them has a broken screen","The assistant is choosing favourites"], a:0, why:"Replies are generated rather than fetched from a fixed store, and there is often some deliberate randomness. Small changes in wording can change the answer too." },
+    { id:"u1-1-6", t:"order", q:"Put these in the order a chat reply happens.", steps:["You type a message","The assistant takes in your message along with the chat so far","It writes a reply, a little at a time","You read the reply and decide what to trust"], why:"The reply is generated mainly from what you wrote and the conversation so far. Deciding what to trust is always the last step, and it is yours." },
+    { id:"u1-1-7", t:"tiles", q:"Tap every statement that is true about AI chat assistants.", o:["They generate text by predicting what is likely","They can sound sure even when they are wrong","They always know today's news","They never make mistakes"], a:[0,1], why:"They predict text and can be confidently wrong. Their built-in knowledge can be out of date, and mistakes do happen." }
+  ]},
+  { id:"u1-2", title:"Confident is not correct", ex:[
+    { id:"u1-2-1", t:"mc", q:"An assistant answers in a calm, certain tone. What does the tone tell you about accuracy?", o:["Very little: it can sound just as sure when it is wrong","It is definitely right","It double-checked the answer"], a:0, why:"The confident tone comes from how the text is written, not from checking facts. Judge the content, not the tone." },
+    { id:"u1-2-2", t:"spot", src:"Spring book sale in the main hall. Doors open at ten in the morning. Cash only.", ask:"You pasted this flyer and asked for a summary. The reply:", s:["The book sale is in the main hall.","Doors open at ten in the morning.","Payment is cash only.","Every book costs the same low price."], a:3, why:"The flyer says nothing about prices. Assistants can fill gaps with plausible details, so compare a summary with the original." },
+    { id:"u1-2-3", t:"pick", q:"Which follow-up helps you judge how reliable an answer is?", o:["Are you sure?","Which parts of your answer are you least sure about, and what should I double-check?"], a:1, why:"A plain 'are you sure?' can get a confident yes or a sudden change of mind. Asking what is uncertain gives you something to check." },
+    { id:"u1-2-4", t:"mc", q:"Which kind of detail most needs checking before you rely on it?", o:["A specific name, number, date or quote","A friendly greeting","A suggestion to take a break"], a:0, why:"Specific details are easy to get subtly wrong and costly to repeat. Check them against a trusted source." },
+    { id:"u1-2-5", t:"safe", q:"Copying an AI answer about how much medicine to give into a note for a relative, without checking it", a:1, why:"Doses should come from the label, a pharmacist or a doctor. An assistant can state a wrong amount just as confidently as a right one." },
+    { id:"u1-2-6", t:"fix", chat:[["you","What did the mayor say at last night's town meeting?"],["ai","The mayor announced a new park and said, 'This is a great day for our town.'"]], q:"You can't tell where this came from. Best follow-up?", o:["Where does that quote come from? If you don't have a source, please say so.","Great, I'll share that quote online.","Say it in a funnier way."], a:0, why:"An assistant may not know about recent events and can invent quotes that sound real. Ask for the source, allow it to say it doesn't know, then check for yourself." },
+    { id:"u1-2-7", t:"tiles", q:"Tap every sign that a reply needs checking.", o:["It quotes someone word for word but gives no source","It gives precise figures you never gave it","It repeats your question back to you","It's about your health, money or safety"], a:[0,1,3], why:"Exact quotes, precise figures and high-stakes topics are where invented details do the most harm. Those are the parts to verify." }
+  ]},
+  { id:"u1-3", title:"Not a search engine, not a person", ex:[
+    { id:"u1-3-1", t:"mc", q:"How is a chat assistant different from a web search?", o:["A search points you to pages; an assistant writes new text that may not match any source","They are exactly the same thing","An assistant only shows pages written by experts"], a:0, why:"Search results are pages you can open and judge. An assistant writes its own wording, and even when it looks things up, you should still check where facts come from." },
+    { id:"u1-3-2", t:"mc", q:"The assistant says 'I understand how you feel.' What is the most accurate way to think about that?", o:["It is producing words that fit the conversation; it is not a person","It is a person typing in secret","It is a close friend who knows you well"], a:0, why:"It is software that writes text to fit the chat. Kind words can still help, but it does not know you the way a friend does." },
+    { id:"u1-3-3", t:"pick", q:"You need a local shop's opening hours for today. Which is the better move?", o:["Ask a chat assistant and trust the answer","Check the shop's own website or phone them"], a:1, why:"Hours change, and an assistant may have old or invented details. For current local facts, go to the source." },
+    { id:"u1-3-4", t:"mc", q:"Which job suits a chat assistant best?", o:["Brainstorming names for a bake sale","Telling you tonight's train times","Telling you your bank balance"], a:0, why:"Brainstorming plays to its strengths. Live information like timetables or balances should come from the source itself." },
+    { id:"u1-3-5", t:"order", q:"You want to know the recycling rules where you live. Put the steps in order.", steps:["Ask the assistant for a list of the kinds of rules to look out for","Take that list to your area's official recycling page","Compare what the assistant said with the official page","Follow the official page wherever they differ"], why:"The assistant helps you know what to look for, but rules differ from place to place. The official local source decides." },
+    { id:"u1-3-6", t:"mc", q:"You asked for plumbers near you and got three names with phone numbers. What should you do before calling?", o:["Look each one up yourself, since listings can be invented or out of date","Call the first one right away","Give the assistant your card number to book"], a:0, why:"Businesses and numbers in a reply can be wrong or made up. Confirm them through a source you trust first." },
+    { id:"u1-3-7", t:"tiles", q:"Tap every statement that fits a chat assistant.", o:["A tool that writes text","The same thing as a search engine","A person on the other end","Useful for drafts and ideas"], a:[0,3], why:"It is a writing tool, handy for drafts, ideas and explanations. It is not a person, and its replies are generated text rather than pages someone published." }
+  ]},
+  { id:"u1-4", title:"Out of date and forgetful", ex:[
+    { id:"u1-4-1", t:"mc", q:"Why might an assistant not know about something that happened last week?", o:["Its knowledge comes from text collected up to a certain point, and it may not be able to look up newer news","It is ignoring you on purpose","Nothing important happened"], a:0, why:"Built-in knowledge stops where its training text stops. Some assistants can search the web, so if a reply covers recent events, check where it got them." },
+    { id:"u1-4-2", t:"mc", q:"You open a brand new chat. Will the assistant remember what you told it in yesterday's chat?", o:["Not necessarily: some start each chat fresh unless a memory feature is on","Yes, always","Only if you ask politely"], a:0, why:"Some assistants have memory features and some don't. Don't assume; if something matters, give the key details again." },
+    { id:"u1-4-3", t:"pick", q:"You're in a new chat, picking up yesterday's work. Which opener is better?", o:["Now make it shorter.","Here is my cover letter draft, pasted below. Please make it shorter but keep the part about my volunteering."], a:1, why:"In a fresh chat it may have no idea what 'it' means. Paste or restate what you're working on." },
+    { id:"u1-4-4", t:"spot", ask:"You asked: what's new at our town pool? The reply:", q:"Tap the sentence it is least likely to really know.", s:["Pool opening hours can change during holidays.","Your town pool reopened this morning with a new water slide.","The pool's own website is the best place to check today's hours."], a:1, why:"This morning's local news is exactly what built-in knowledge is least likely to include. A specific, recent claim with no source is the one to check." },
+    { id:"u1-4-5", t:"fix", chat:[["you","What's the weather going to be tomorrow?"],["ai","I can't see live weather data, but at this time of year it is often mild."]], q:"What's the best next step?", o:["Check a weather service for your area","Argue until it gives you a forecast","Assume it will be sunny"], a:0, why:"When an assistant says it can't see live data, take that at face value. Go to a source that has current information." },
+    { id:"u1-4-6", t:"tiles", q:"You're continuing a job in a fresh chat. Tap everything worth pasting back in.", o:["The draft you're working on","Who it's for","The changes you already agreed on","Your email password"], a:[0,1,2], why:"A fresh chat may know nothing about the last one, so restate the work, the reader and the decisions. Passwords never belong in a chat." },
+    { id:"u1-4-7", t:"order", q:"Picking up work in a new chat. Put the steps in order.", steps:["Open a new chat","Paste the draft and say what it is for","Under the draft, list the changes you already agreed","Ask for the next change"], why:"Give it the material and the background first, then ask for the change. It can only build on what's in front of it." }
+  ]}
+]},
+{ id:"u2", title:"Asking well", color:"pool", lessons:[
+  { id:"u2-1", title:"Say the goal, give context", ex:[
+    { id:"u2-1-1", t:"need", p:"Write something for my neighbour.", q:"Tap every ingredient this prompt is missing.", o:["Goal","Context","Audience","Format"], a:[0,1,3], why:"It says who it's for, but not the goal (a thank-you? a complaint?), the background, or the shape (a card, a text, a letter)." },
+    { id:"u2-1-2", t:"pick", o:["Help me with my garden.","My small back garden is shady most of the day. I want plants that are easy to look after. Suggest a few, with one line on each."], a:1, why:"The second says the situation, the goal and the format. The first leaves the assistant guessing." },
+    { id:"u2-1-3", t:"mc", q:"What does 'context' mean in a prompt?", o:["Background it needs: your situation, what you've tried, any limits","The font you type in","How polite you are"], a:0, why:"Context is the background that makes a general answer fit your situation. Without it, the assistant has to guess." },
+    { id:"u2-1-4", t:"tiles", q:"You want help writing a complaint about a late parcel. Tap the details that will help.", o:["What you ordered and when it should have arrived","What you want: a refund or a new delivery","Your card's security code","That you want it firm but polite"], a:[0,1,3], why:"The facts, the outcome you want and the tone all help. A card security code is never needed to write a letter." },
+    { id:"u2-1-5", t:"fix", chat:[["you","Write a speech."],["ai","Ladies and gentlemen, today we gather to celebrate this momentous occasion..."]], q:"It went formal and generic. Best follow-up?", o:["It's a short toast at my friend's wedding. Warm and a bit funny, and mention that the couple met on a hiking trip.","No.","Write a better speech."], a:0, why:"The assistant filled the blanks with a generic guess. The occasion, the tone and a personal detail give it what it needs." },
+    { id:"u2-1-6", t:"mc", q:"You ask for help and the answer misses the point. What's the most likely fix?", o:["Add the goal and background you left out","Type the same thing again","Give up on the tool"], a:0, why:"A missed point usually means missing information. Say what you're trying to achieve and why." },
+    { id:"u2-1-7", t:"need", p:"Help me write a message to my landlord.", q:"Tap every ingredient this prompt is missing.", o:["Goal","Context","Audience"], a:[0,1], why:"It names who the message is for, but not what it should achieve or what's going on, so the assistant can only guess." }
+  ]},
+  { id:"u2-2", title:"Who it's for, what shape", ex:[
+    { id:"u2-2-1", t:"pick", o:["Explain how vaccines work.","Explain how vaccines work to a curious eight-year-old, in a few short sentences, with an everyday comparison."], a:1, why:"Naming the reader and the length changes the words, detail and tone the assistant picks." },
+    { id:"u2-2-2", t:"need", p:"Explain how a pension works to my teenage son, in one short paragraph.", q:"Tap every ingredient this prompt already has.", o:["Goal","Audience","Format","Example"], a:[0,1,2], why:"It has a goal (explain pensions), an audience (a teenager) and a format (one short paragraph). It has no example, and doesn't need one here." },
+    { id:"u2-2-3", t:"mc", q:"Which of these is a 'format' request?", o:["Put it in a table with a column for each option","I'm a nurse","This is for my manager"], a:0, why:"Format is the shape of the answer: a table, a list, a length. The other two are context and audience." },
+    { id:"u2-2-4", t:"mc", q:"Why tell the assistant who the answer is for?", o:["It changes the words, detail and tone it picks","It makes every answer longer","It makes no difference"], a:0, why:"An explanation for a child and one for an expert should look very different. Naming the reader gets you the right one." },
+    { id:"u2-2-5", t:"fix", chat:[["you","Explain what a mortgage is."],["ai","A mortgage is a secured loan in which real property serves as collateral, typically amortised over the term..."]], q:"That's too technical for you. Best follow-up?", o:["Explain it again in plain words for someone who has never bought a home, with a short everyday example.","Why are you so hard to understand?","Explain it more."], a:0, why:"Say who the answer is for and what would help. 'Plain words' plus an example is a clear instruction." },
+    { id:"u2-2-6", t:"tiles", q:"Tap every format request.", o:["As a checklist","In under a hundred words","I feel nervous about this","As a table comparing the options"], a:[0,1,3], why:"Checklists, word limits and tables all shape the answer. Feeling nervous is useful context, but it isn't a format." },
+    { id:"u2-2-8", t:"need", p:"Write a bedtime story.", q:"Tap every ingredient this prompt is missing.", o:["Goal","Audience","Context","Format"], a:[1,2,3], why:"The goal is clear, and it says what kind of piece it wants, but not who it's for (how old?), what they enjoy, or the format details, such as how long it should be." },
+    { id:"u2-2-7", t:"pick", q:"Which prompt will get something you can stick on the fridge?", o:["Chores for kids","Make a simple weekly chore chart for two kids aged seven and ten, as a table with the days across the top."], a:1, why:"Audience, purpose and a clear layout turn a vague idea into something ready to print." }
+  ]},
+  { id:"u2-3", title:"Examples, and questions first", ex:[
+    { id:"u2-3-1", t:"mc", q:"Why include an example of what you want?", o:["It can show the style and length faster than describing them","Assistants can't work without one","It guarantees a perfect answer"], a:0, why:"An example is often the quickest way to show the tone or layout you mean. You don't always need one, but it helps when style matters." },
+    { id:"u2-3-2", t:"pick", o:["Write a description for my handmade candles.","Write a description for my handmade candles. Here's one I wrote for my soaps that I like: 'Small batch, big smell, made in my kitchen.' Match that short, playful style."], a:1, why:"The example shows the tone and length in one line, so the assistant doesn't have to guess." },
+    { id:"u2-3-3", t:"mc", q:"You're not sure which details matter. What can you ask the assistant to do first?", o:["Ask you some questions before it answers","Guess everything","Write the longest answer it can"], a:0, why:"Asking it to interview you brings out details you forgot to mention, which usually means a better first draft." },
+    { id:"u2-3-4", t:"pick", o:["Plan my holiday.","I want to plan a relaxing holiday. Before you suggest anything, ask me a few questions about budget, timing and what I enjoy."], a:1, why:"Inviting questions first means the plan is built on your real needs rather than a generic guess." },
+    { id:"u2-3-5", t:"fix", chat:[["you","Help me write a short bio for a volunteering website."],["ai","I am a passionate, dedicated individual who loves making a difference..."]], q:"It knows nothing about you. Best follow-up?", o:["Before rewriting, ask me questions about what I do and why I volunteer.","Make it sound more impressive.","Add more adjectives."], a:0, why:"Without real details it can only write filler. Let it ask, then answer honestly." },
+    { id:"u2-3-6", t:"tiles", q:"You want a thank-you note in your own style. Tap what's good to include.", o:["A thank-you note you wrote before and liked","A few words on the tone you want","Someone else's private letter you found","Who the note is for"], a:[0,1,3], why:"Your own writing shows your style. Someone else's private letter isn't yours to share." },
+    { id:"u2-3-7", t:"order", q:"Using the 'ask me first' trick. Put the steps in order.", steps:["Say what you want help with","Ask it to ask you questions about that first","Answer its questions","Ask for the draft"], why:"The questions come before the draft so the draft can use your answers." }
+  ]},
+  { id:"u2-4", title:"Big jobs, small steps", ex:[
+    { id:"u2-4-1", t:"mc", q:"You need help planning a wedding. What usually works better?", o:["Break it into parts, like budget, guest list and timeline, and work through each","One giant request for everything at once","Ask for a plan without giving any details"], a:0, why:"Smaller requests get more focused answers, and you can check each part before building on it." },
+    { id:"u2-4-2", t:"order", q:"Writing a newsletter with help. Put the steps in order.", steps:["Ask for a list of possible topics","Pick the topics you like","Ask for an outline","Ask for a draft of each section","Read and edit the final version yourself"], why:"Each step builds on one you've already checked, and the final read is always yours." },
+    { id:"u2-4-3", t:"pick", o:["Write my whole business plan.","Let's work on my business plan one section at a time. First, help me describe who my customers are, and ask me questions if you need to."], a:1, why:"One section at a time keeps each answer focused and lets you steer as you go." },
+    { id:"u2-4-4", t:"mc", q:"Why check each step before moving on?", o:["A mistake early on can get carried into the steps that follow","The assistant gets tired","It makes no difference"], a:0, why:"Later steps build on earlier ones. Catching a problem early saves redoing everything." },
+    { id:"u2-4-5", t:"fix", chat:[["you","Plan a birthday party, make the invitations, write a shopping list and plan some games."],["ai","Party plan: games, food, invitations, decorations, music, timings, shopping and more, all in one very long list..."]], q:"It tried to do everything and did none of it well. Best follow-up?", o:["Let's go one at a time. Start with a simple plan for the day, then we'll do the invitation.","Do it all again, but better.","Add even more."], a:0, why:"Splitting the job lets it give each part proper attention, and lets you check as you go." },
+    { id:"u2-4-7", t:"need", p:"Plan a relaxed day out in a city for two friends who love museums and hate crowds, as a simple morning-to-evening timeline.", q:"Tap every ingredient this prompt already has.", o:["Goal","Context","Format","Example"], a:[0,1,2], why:"It has the goal (a relaxed day out), the context (two friends, museums, no crowds) and the format (a timeline). No example is needed here." },
+    { id:"u2-4-6", t:"tiles", q:"Tap sensible first steps for 'help me get my finances organised'.", o:["List the kinds of bills I pay and when they're due","Suggest a simple way to track spending","Tell it my online banking password","Explain budgeting terms I don't know"], a:[0,1,3], why:"Start with the general picture and simple tools. No step ever needs your password." }
+  ]},
+  { id:"u2-5", title:"Iterate, don't start over", ex:[
+    { id:"u2-5-1", t:"mc", q:"The first draft is close but not right. What's usually the best move?", o:["Say exactly what to change and keep going","Start a new chat with the same words","Accept it as it is"], a:0, why:"Specific feedback builds on what already works. Repeating the same request may just get you a similar draft." },
+    { id:"u2-5-2", t:"fix", chat:[["you","Write a note asking my landlord to fix the heater."],["ai","I DEMAND that you fix the heater immediately. This is unacceptable."]], q:"Too aggressive. Best follow-up?", o:["Keep the facts but make it polite and friendly, and add that I'm happy to be home for a repair visit.","Make it different.","Start again."], a:0, why:"Say what to keep and what to change. 'Make it different' gives it nothing to aim for." },
+    { id:"u2-5-3", t:"pick", q:"Which feedback will improve the draft more?", o:["It's not good.","Shorten the second paragraph, drop the joke, and end with a clear question about next steps."], a:1, why:"Precise feedback tells it what good looks like to you. Vague feedback gets a guess." },
+    { id:"u2-5-4", t:"order", q:"Improving a draft. Put the steps in order.", steps:["Read the draft carefully","Note what works and what doesn't","Tell the assistant the specific changes","Read the new version and repeat if needed"], why:"You can only give useful feedback once you've read it closely. Then it's a loop of change and check." },
+    { id:"u2-5-5", t:"mc", q:"When might starting a fresh chat make sense?", o:["When a long chat has drifted off track and a clear restart would help","Every time you want a tiny change","Never, under any circumstances"], a:0, why:"Long, tangled chats can drift. For small fixes keep going; for a muddle, start fresh with a clear summary of what you want." },
+    { id:"u2-5-6", t:"tiles", q:"Tap every useful piece of feedback.", o:["Make the opening friendlier","Cut it to about half the length","Hmm","Use bullet points for the steps"], a:[0,1,3], why:"Useful feedback names a specific change. 'Hmm' leaves the assistant guessing." }
+  ]}
+]},
+{ id:"u3", title:"Checking what it says", color:"peri", lessons:[
+  { id:"u3-1", title:"Made-up facts happen", ex:[
+    { id:"u3-1-1", t:"mc", q:"What do people often call it when an assistant states something false as if it were true?", o:["A hallucination: a confident, made-up answer","A software update","A search result"], a:0, why:"Assistants can produce details that sound right but aren't real, including facts, quotes and sources. Check anything that matters." },
+    { id:"u3-1-2", t:"spot", src:"Trip to the science museum. Bring a packed lunch. The coach leaves from the school gate.", ask:"You pasted your notes from the class meeting and asked for a reminder for parents. The reply:", s:["The class is going on a trip to the science museum.","Children should bring a packed lunch.","The coach leaves from the school gate.","Parents need to pay for tickets on arrival."], a:3, why:"Your notes don't mention tickets or payment. The assistant added a plausible detail that could cause real confusion if sent." },
+    { id:"u3-1-3", t:"spot", src:"Soup. Onions, carrots, stock. Simmer until soft. Blend.", ask:"You pasted your recipe notes and asked for them written out neatly. The reply:", s:["You'll need onions, carrots and stock.","Simmer everything until soft.","Blend until smooth.","This recipe was a favourite of a famous chef."], a:3, why:"Nothing in your notes mentions a famous chef. Invented backstory can slip into even simple tasks." },
+    { id:"u3-1-4", t:"mc", q:"Which of these can an assistant make up?", o:["Facts, quotes, book titles and web links","Only jokes","Nothing: it only repeats real sources"], a:0, why:"Invented details can appear anywhere, including sources and links that look real. A citation is something to open, not something to trust." },
+    { id:"u3-1-5", t:"safe", q:"Putting an AI-written list of book references into a school essay without looking any of them up", a:1, why:"Invented references can look completely real. Find and read each one before you use it." },
+    { id:"u3-1-6", t:"fix", chat:[["you","Suggest some books about beekeeping for beginners."],["ai","Here are three great picks, with titles and authors..."]], q:"Before you buy, what's best?", o:["Look each title up to check it exists and is what you want","Buy them straight away","Ask it to promise they're real"], a:0, why:"A promise doesn't make a title real. A quick search of a library catalogue or bookshop confirms it." },
+    { id:"u3-1-7", t:"tiles", q:"Tap everything you should check before using.", o:["A quote you plan to share","A web link it gave you","A list of party theme ideas","A figure for a report"], a:[0,1,3], why:"Quotes, links and figures can be invented. Brainstormed ideas don't need to be true; they just need to be useful." }
+  ]},
+  { id:"u3-2", title:"Sources: ask, then open", ex:[
+    { id:"u3-2-1", t:"order", q:"Checking a claim. Put the steps in order.", steps:["Ask where the claim comes from","Open the link or find the source yourself","Read the part that is meant to support the claim","Use it only if the source really says that"], why:"A source only counts once you've read it yourself. Sometimes it doesn't exist, or says something different." },
+    { id:"u3-2-2", t:"mc", q:"The assistant gives you a link. What now?", o:["Open it and check it exists and says what the assistant claims","Trust it: links are always real","Share it without opening it"], a:0, why:"Links can be broken, wrong or made up. Opening one takes a moment and shows you what the page really says; just don't type logins or card details on a page you reached this way." },
+    { id:"u3-2-3", t:"mc", q:"The source says something different from the assistant's summary. Which do you go with?", o:["The original source","The assistant's summary","Whichever is shorter"], a:0, why:"The source is the evidence; the summary is a retelling. When they disagree, go with the source, as long as it's a trustworthy one." },
+    { id:"u3-2-4", t:"pick", o:["Is this true?","Please list a source for each claim above, and mark any claim you couldn't tie to a source."], a:1, why:"This asks for something you can check, and gives it room to admit gaps instead of just saying yes." },
+    { id:"u3-2-5", t:"fix", chat:[["you","Where did you get that?"],["ai","It comes from a well-known study."]], q:"You can't check that. Best follow-up?", o:["Which study exactly? Give the title and where it was published, or say if you're not sure.","Okay, thanks!","Well-known means it's true."], a:0, why:"'A well-known study' can't be checked. Ask for specifics and look them up; if it can't give any, treat the claim as unsupported." },
+    { id:"u3-2-6", t:"safe", q:"Clicking a link in an AI reply and typing your bank login on the page it opens", a:1, why:"Links can be wrong or lead somewhere unexpected. For banking, use the app or the address you already know, never a link you've been handed." },
+    { id:"u3-2-7", t:"tiles", q:"Tap the signs of a trustworthy source for a health question.", o:["It's from an official health service or a recognised medical organisation","It clearly says who wrote it","It's a post with no author","It shows when it was last reviewed"], a:[0,1,3], why:"Official bodies, named authors and review dates are good signs. An anonymous post gives you nothing to judge it by." }
+  ]},
+  { id:"u3-3", title:"Numbers, dates, names", ex:[
+    { id:"u3-3-1", t:"mc", q:"Which details in an AI answer deserve a second look?", o:["Exact numbers, dates and names","The greeting at the top","The punctuation"], a:0, why:"Small slips in specifics are easy to miss and can cause real problems. Check them against the original." },
+    { id:"u3-3-2", t:"spot", src:"Blue kettle. Toaster. Delivery: free.", ask:"You pasted your order confirmation and asked for a summary. The reply:", s:["You bought a blue kettle and a toaster.","Delivery was free.","The kettle comes with a two-year warranty."], a:2, why:"Nothing in the confirmation mentions a warranty. Details like that must come from the paperwork, not a guess." },
+    { id:"u3-3-3", t:"spot", src:"Sam's leaving party, Friday, at the Garden Cafe, from six.", ask:"You pasted the invitation and asked for a reminder. The reply:", q:"Tap the sentence that gets a detail wrong.", s:["Sam's leaving party is on Friday.","It's at the Garden Cafe.","It starts at seven."], a:2, why:"The invitation says six, not seven. Times, dates and names are easy to slip on, so check them against the original." },
+    { id:"u3-3-4", t:"mc", q:"An assistant adds up your monthly bills and gives a total. Best move?", o:["Check the sum yourself with a calculator or spreadsheet","Trust it: computers can't get sums wrong","Round it up and hope"], a:0, why:"Chat assistants can make arithmetic slips when working in text. For money, check the maths yourself." },
+    { id:"u3-3-5", t:"fix", chat:[["you","Summarise this email thread about the meeting."],["ai","The meeting is on Thursday with Priya and Tom."]], q:"You're about to put it in your calendar. What first?", o:["Check the day and names against the original emails","Add it straight away","Ask if it's sure, then add it"], a:0, why:"Asking 'are you sure?' isn't a check. The emails are the source, so a quick look confirms the details." },
+    { id:"u3-3-6", t:"tiles", q:"Tap the details to double-check in an AI summary of a letter from your insurer.", o:["The deadline to reply","Any amounts","The friendly sign-off","The names of the people or places involved"], a:[0,1,3], why:"Deadlines, amounts and names are what you'll act on. A slip there costs time or money." }
+  ]},
+  { id:"u3-4", title:"Show your working", ex:[
+    { id:"u3-4-1", t:"pick", o:["Which phone plan is best for me?","Here are the two plans I'm choosing between, pasted below. Compare them step by step for someone who mostly texts and rarely calls, and show your reasoning."], a:1, why:"Giving your details and asking for reasoning lets you follow and check each step." },
+    { id:"u3-4-2", t:"mc", q:"Why ask the assistant to list what it's unsure about?", o:["It points you to the parts most worth checking","It makes the answer correct","It's rude to the assistant"], a:0, why:"Its list of doubts may not be complete, but it helps you focus. You still check anything that matters." },
+    { id:"u3-4-3", t:"mc", q:"Asking it to show its reasoning step by step helps because...", o:["You can spot the step where it went wrong","It proves the answer is right","It makes the reply shorter"], a:0, why:"Steps let you follow along and catch a wrong turn. Tidy reasoning can still contain errors, so it helps you check but guarantees nothing." },
+    { id:"u3-4-4", t:"order", q:"Double-checking an important answer. Put the steps in order.", steps:["Ask for the answer and the reasoning behind it","Ask what it is least sure about","Check those parts against a trusted source","Decide what to do"], why:"First see the answer and its weak spots, then check them, then decide. The decision stays with you." },
+    { id:"u3-4-5", t:"mc", q:"What counts as a trusted source for checking?", o:["The official organisation, the original document, or a qualified expert","A second AI answer that agrees","Whatever shows up first"], a:0, why:"Two AI answers agreeing doesn't make them right. Go to where the information actually comes from." },
+    { id:"u3-4-6", t:"fix", chat:[["you","I'm doubling this recipe. How much of each ingredient do I need?"],["ai","Doubled, you'll need about the same amount of flour and twice the sugar."]], q:"That doesn't add up. Best follow-up?", o:["Show your working for each ingredient, one line each.","Okay, thanks.","Write it in capitals."], a:0, why:"Seeing the working exposes the slip. For a simple doubling, you can also check each line yourself." },
+    { id:"u3-4-7", t:"tiles", q:"Tap the good ways to double-check an answer.", o:["Compare it with a trusted source","Ask it to show its reasoning","Keep asking until it agrees with you","Ask what it's unsure about"], a:[0,1,3], why:"Sources, reasoning and flagged doubts all help. Pushing until it agrees just gets you your own opinion back." }
+  ]}
+]},
+{ id:"u4", title:"Staying safe", color:"tomato", lessons:[
+  { id:"u4-1", title:"Keep secrets secret", ex:[
+    { id:"u4-1-1", t:"safe", q:"Pasting your online banking password so the assistant can check it's strong", a:1, why:"Never share a real password with any chat. For advice, ask what makes passwords strong in general." },
+    { id:"u4-1-2", t:"safe", q:"Asking for tips on making strong passwords, without sharing any real ones", a:0, why:"General advice is safe to ask for. The secret stays with you." },
+    { id:"u4-1-3", t:"safe", q:"Giving a chat the one-time code from a text message so it can 'help you log in'", a:1, why:"One-time codes unlock your accounts. No genuine helper needs one, and anyone asking for it is a warning sign." },
+    { id:"u4-1-4", t:"mc", q:"Which of these is fine to share with a chat assistant?", o:["I'm choosing between two savings accounts and want to understand the terms","Your card number and security code","A photo of your passport"], a:0, why:"You can get plenty of help without identifying details. Card numbers and ID documents should never go into a chat." },
+    { id:"u4-1-5", t:"safe", q:"Asking an assistant to explain a confusing bill after removing your account number and address", a:0, why:"Removing identifying details first lets you get help with the content without handing over personal numbers." },
+    { id:"u4-1-6", t:"tiles", q:"Tap everything you should never type into an AI chat.", o:["Passwords","One-time security codes","A question about how to budget","Card numbers and PINs"], a:[0,1,3], why:"These are keys to your money and accounts. General questions like budgeting are fine." },
+    { id:"u4-1-7", t:"mc", q:"Why be careful about what you type into any online service, AI chats included?", o:["It may be stored, and some services may have people review it or use it to improve their systems","Nothing typed online is ever saved","Chats vanish everywhere the moment you close them"], a:0, why:"Services differ, so check the privacy settings and policy. A safe habit: don't type anything you wouldn't want someone else to read." }
+  ]},
+  { id:"u4-2", title:"Other people's information", ex:[
+    { id:"u4-2-1", t:"safe", q:"Pasting your club members' names, home addresses and phone numbers to make a tidy table", a:1, why:"That's other people's personal information, shared without their say. Use made-up placeholders to get the layout, then fill in the real details yourself." },
+    { id:"u4-2-2", t:"safe", q:"Asking for help planning a surprise party using first names and the food people like", a:0, why:"Light, everyday details are enough to get help. Leave out things like addresses, health details or private messages." },
+    { id:"u4-2-3", t:"mc", q:"You want help with a confidential report at work. What comes first?", o:["Check your workplace's rules on AI tools before pasting anything","Paste it all in: it's quicker","Send it to a friend to ask"], a:0, why:"Work documents can contain details you aren't allowed to share. Workplaces may have rules about which tools can be used, so follow them or ask." },
+    { id:"u4-2-4", t:"pick", q:"Which request is the safer way to get help?", o:["Here is my coworker's full performance review with her name. Rewrite it.","Help me structure feedback for a team member who misses deadlines but does great work. Keep it kind and specific."], a:1, why:"You get the same help without sharing a colleague's private details." },
+    { id:"u4-2-5", t:"tiles", q:"You want help replying to a customer's complaint. Tap what's fine to include.", o:["The kind of problem they had","The tone you want","Their home address and phone number","What you can offer to put it right"], a:[0,1,3], why:"The assistant needs the situation, not the person's contact details." },
+    { id:"u4-2-6", t:"order", q:"Getting help with a document that contains personal details. Put the steps in order.", steps:["Check whether you're allowed to share it","Make a copy and remove names, numbers and addresses","Ask for the help you need","Put the real details back in yourself"], why:"Permission first, then strip out what isn't needed. The real details only go back into your own copy." },
+    { id:"u4-2-7", t:"mc", q:"What does it mean to anonymise a document before asking for help?", o:["Replace names and identifying details with placeholders","Make the font bigger","Translate it"], a:0, why:"Placeholders like 'Person A' keep the meaning while hiding who is involved. Watch for other clues too, like a job title, a street or an unusual event, that could still point to someone." }
+  ]},
+  { id:"u4-3", title:"Fake voices, urgent money", ex:[
+    { id:"u4-3-1", t:"mc", q:"A call sounds exactly like a relative in trouble, asking for money right away. What should you do?", o:["Hang up and call them back on a number you already know","Send the money quickly","Ask the caller for a number and call that"], a:0, why:"Voices can be faked. Calling back on a number you already had, not one the caller gives you, confirms who you're really talking to." },
+    { id:"u4-3-2", t:"mc", q:"Can a voice or video be faked convincingly?", o:["Yes: AI tools can make realistic fake voices and videos","No, a voice can't be copied","Only in films"], a:0, why:"Convincing fakes exist. A familiar voice or face alone isn't proof, especially when money is involved." },
+    { id:"u4-3-3", t:"order", q:"An urgent money request arrives. Put the steps in order.", steps:["While they're still on the line, don't pay or share anything","End the call or stop replying","Contact the person on a number you already know","If it was fake, report it and warn others"], why:"Pressure to act fast is part of the trick. Pausing and checking through a route you already know breaks it." },
+    { id:"u4-3-4", t:"tiles", q:"Tap the warning signs of a scam call or message.", o:["Pressure to act right now","A request for gift cards, cryptocurrency or a bank transfer","Being asked to keep it secret","A friend asking how your weekend was"], a:[0,1,2], why:"Urgency, unusual ways to pay and secrecy are classic scam signs, whether a person or an AI wrote the message." },
+    { id:"u4-3-5", t:"mc", q:"What is a family 'safe word'?", o:["A word agreed in person that helps you check a caller is really who they say","Your email password","A word you post online"], a:0, why:"Agree it face to face and never share it online or in messages. It helps, but it isn't proof: if anything feels off, or the caller can't give it, hang up and call back on a number you know." },
+    { id:"u4-3-6", t:"safe", q:"Calling your bank on the number printed on your card after getting a worrying message", a:0, why:"Using a number you already trust means you reach the real bank, not whoever sent the message." },
+    { id:"u4-3-7", t:"safe", q:"Sending money to a 'relative' who messages from a new number saying their phone broke and they need it today", a:1, why:"This is a common scam pattern. Contact them on their usual number, or in person, first." }
+  ]},
+  { id:"u4-4", title:"Scams and kids", ex:[
+    { id:"u4-4-1", t:"mc", q:"Many people look for bad spelling to spot a scam message. Why is that an unreliable clue?", o:["AI tools make it easy to write fluent, polished messages","Scammers stopped sending messages","Everyone spells perfectly now"], a:0, why:"Good writing doesn't mean a message is genuine. Judge the request itself, and verify through a channel you already trust." },
+    { id:"u4-4-2", t:"safe", q:"Clicking the link in a polished email saying a parcel is held and a small fee is due", a:1, why:"Go to the delivery company's own website or app yourself instead. Messages like this are a common way to steal card details." },
+    { id:"u4-4-3", t:"tiles", q:"Tap the best habits for dealing with convincing scam messages.", o:["Check the sender through a channel you already trust","Be wary of any rush to pay or share codes","Trust messages with perfect grammar","Talk it over with someone before acting"], a:[0,1,3], why:"Verifying, slowing down and getting a second opinion work however polished the message is." },
+    { id:"u4-4-4", t:"mc", q:"A child wants to use an AI chat for homework help. What's a sensible approach?", o:["Check the service's own rules for young users, and try it together at first","Let them use any chat without looking","Tell them it's always right"], a:0, why:"Services often set their own rules for young users. Exploring together helps a child learn to question answers and keep personal details private." },
+    { id:"u4-4-5", t:"mc", q:"What's a good rule to teach children about AI chats?", o:["Don't share your name, school, address or photos, and tell a grown-up if something feels wrong","Believe everything it says","It's a real friend who keeps secrets"], a:0, why:"Keeping personal details private and speaking up about anything odd are the same habits that keep children safe elsewhere online." },
+    { id:"u4-4-6", t:"pick", q:"Which is the better way for a child to use it for homework?", o:["Write my whole essay for me.","Quiz me on my spelling words and tell me which ones I got wrong."], a:1, why:"Practising with it builds the skill. Having it do the work skips the learning, and may break the school's rules." }
+  ]}
+]},
+{ id:"u5", title:"Getting real things done", color:"marigold", lessons:[
+  { id:"u5-1", title:"Summarise a long letter", ex:[
+    { id:"u5-1-1", t:"order", q:"Getting a long letter summarised. Put the steps in order.", steps:["Remove account numbers and personal details","Paste the letter and ask for a plain-language summary, including any actions and deadlines","Check the summary against the letter","Act on the deadlines and amounts in the letter itself"], why:"Protect your details first, ask for what you actually need, and check before you act." },
+    { id:"u5-1-2", t:"pick", o:["Summarise this.","Summarise this letter from my energy supplier in plain language. List anything I need to do, and by when, as bullet points."], a:1, why:"It says what the letter is, the reading level and the format, and asks for the part you need most: the actions." },
+    { id:"u5-1-3", t:"spot", src:"Your contract ends soon. If you do nothing, you will move to our standard rate. To choose a new plan, reply within two weeks.", ask:"You pasted this letter and asked for a summary. The reply:", s:["Your contract is ending soon.","If you do nothing, you'll move to the standard rate.","Reply within two weeks to choose a new plan.","You'll be charged a penalty if you don't reply."], a:3, why:"The letter mentions no penalty. An invented consequence could push you into a hasty decision." },
+    { id:"u5-1-4", t:"mc", q:"After getting a summary of an important letter, what should you still do?", o:["Read the key parts of the original, especially deadlines and amounts","Throw the letter away","Forward the summary to everyone"], a:0, why:"A summary can drop or change details. Anything you'll act on should be confirmed in the original." },
+    { id:"u5-1-5", t:"fix", chat:[["you","Summarise this letter."],["ai","The correspondence pertains to amendments to your tariff structure effective from the forthcoming billing period."]], q:"Still confusing. Best follow-up?", o:["Explain it like I'm new to this: what's changing, and what do I need to do?","Summarise it again.","Use longer words."], a:0, why:"Say what you need: plain words and the practical upshot." },
+    { id:"u5-1-6", t:"tiles", q:"Tap what to ask for in a summary of a long letter.", o:["What it's about, in a sentence or two","Anything I need to do","Any deadlines","A poem about it"], a:[0,1,2], why:"The gist, the actions and the deadlines are what you'll use. Save the poetry for later." }
+  ]},
+  { id:"u5-2", title:"Emails and tone", ex:[
+    { id:"u5-2-1", t:"pick", o:["Write an email to my boss.","Draft a short, polite email to my manager asking to move our meeting to later in the week because of a dentist appointment. Friendly and professional."], a:1, why:"Who it's to, what you want, why, and the tone: everything it needs for a usable first draft." },
+    { id:"u5-2-2", t:"fix", chat:[["you","Help me reply to my neighbour about their dog barking at night."],["ai","To whom it may concern. It has come to my attention that your animal is causing a disturbance."]], q:"Too cold for a neighbour. Best follow-up?", o:["Make it warm and friendly, like a note from someone who wants to stay on good terms.","Make it longer.","Add more official-sounding words."], a:0, why:"Name the tone and the relationship. That gives it a clear target." },
+    { id:"u5-2-3", t:"mc", q:"Before you send an AI-drafted email, you should...", o:["Read it all, fix any details, and make sure it sounds like you","Send it straight away","Assume the facts in it are right"], a:0, why:"You're the one sending it. Check the facts, names and tone before it goes." },
+    { id:"u5-2-4", t:"tiles", q:"Tap the tone requests you could give.", o:["Warm","Firm but polite","Direct and businesslike","Sideways"], a:[0,1,2], why:"Tone words tell it how the message should feel. 'Sideways' doesn't tell it anything." },
+    { id:"u5-2-5", t:"order", q:"Drafting a tricky email. Put the steps in order.", steps:["Explain the situation and what you want to happen","Ask for a draft in the tone you want","Ask for changes until it's right","Check the facts and send it yourself"], why:"Situation first, then the draft, then polish. Sending stays your job." },
+    { id:"u5-2-6", t:"mc", q:"Your AI-drafted email says 'as we agreed last week'. You never agreed anything. What happened?", o:["The assistant added a plausible detail that isn't true, so remove it","You forgot a meeting","It's a standard phrase you must keep"], a:0, why:"Drafts can include invented details that sound natural. Read for anything you didn't tell it." },
+    { id:"u5-2-8", t:"need", p:"I run a small bakery and we're opening on Sundays for the first time. Write a short post announcing it to our regular customers.", q:"Tap every ingredient this prompt already has.", o:["Goal","Context","Audience","Example"], a:[0,1,2], why:"It gives the goal (announce Sunday opening), the context (a small bakery) and the audience (regulars). It has no example, which is fine for a short post." },
+    { id:"u5-2-7", t:"safe", q:"Letting an assistant draft an apology email, then reading and editing it before you send it yourself", a:0, why:"That's a good use: it gets you started, and you stay in charge of what's sent." }
+  ]},
+  { id:"u5-3", title:"Meals and plans", ex:[
+    { id:"u5-3-1", t:"pick", o:["Meal plan","Plan five simple dinners for a family of four this week. One of us is vegetarian, we have about half an hour each night, and please add a combined shopping list."], a:1, why:"How many people, dietary needs, time and the list you want all shape a plan you can actually use." },
+    { id:"u5-3-2", t:"mc", q:"You told it about a nut allergy, but the meal plan includes a recipe with nuts. What now?", o:["Point it out, ask for a replacement, and check every ingredient yourself","Cook it anyway","Assume it quietly removed the nuts"], a:0, why:"Assistants can miss or lose track of details. With allergies, you're the final check: go through every ingredient and read the labels on anything packaged." },
+    { id:"u5-3-3", t:"tiles", q:"Tap the details that help it plan your week of meals.", o:["How many people, and any dietary needs","How much time you have to cook","What's already in the cupboard","Your bank PIN"], a:[0,1,2], why:"People, time and what you have make a practical plan. Your PIN is never needed." },
+    { id:"u5-3-4", t:"fix", chat:[["you","Plan my week."],["ai","Here's a balanced week: exercise every morning, meal prep at the weekend, and early nights."]], q:"It doesn't know your week. Best follow-up?", o:["I work late on Tuesdays and Thursdays and want two evenings free. Try again as a simple table.","Plan it better.","Plan a different week."], a:0, why:"Your fixed commitments are the context it's missing. Add a format and it has what it needs." },
+    { id:"u5-3-5", t:"order", q:"Planning a busy week with help. Put the steps in order.", steps:["List your fixed commitments","Say what you want to fit in around them","Ask for a draft plan as a table","Adjust it and copy it into your own calendar"], why:"Fixed things first, then wishes, then a draft you shape into your own plan." },
+    { id:"u5-3-6", t:"mc", q:"Why ask for a combined shopping list with a meal plan?", o:["It saves gathering the ingredients from each recipe by hand","It's the only way to shop","It makes food cheaper automatically"], a:0, why:"Pulling ingredients together is tedious, and it's a job it does quickly. Still check the list against the recipes." }
+  ]},
+  { id:"u5-4", title:"Learn, compare, rewrite", ex:[
+    { id:"u5-4-1", t:"pick", o:["Teach me about the solar system.","I'm learning about the solar system. Explain one idea at a time, then quiz me with a question before moving on."], a:1, why:"Small steps and questions keep you actively learning instead of reading a wall of text." },
+    { id:"u5-4-2", t:"mc", q:"Why is being quizzed useful when learning with an assistant?", o:["Trying to recall answers helps you remember and shows what you've missed","Quizzes make the assistant smarter","It isn't useful"], a:0, why:"Practising recall is a well-established way to learn. Double-check any fact that surprises you." },
+    { id:"u5-4-3", t:"fix", chat:[["you","Compare these two vacuum cleaners. I've pasted both product pages below."],["ai","Both are great choices!"]], q:"Not helpful. Best follow-up?", o:["Compare them in a table on weight, noise and battery life, using the pages I pasted, then say which suits a small flat with pets and why.","Which one is prettier?","Thanks!"], a:0, why:"Name what you care about, point it at the details you gave, and ask for a recommendation with reasons." },
+    { id:"u5-4-4", t:"mc", q:"When an assistant compares products, where should the final details come from?", o:["The makers' current information and independent reviews","The assistant's memory","The product's colour"], a:0, why:"Prices and features change, and an assistant may have old or mixed-up details. Confirm the specifics at the source." },
+    { id:"u5-4-5", t:"pick", q:"You want a school letter explained for a parent who is still learning English.", o:["Make this simpler.","Rewrite this letter in short, simple sentences for someone learning English. Keep every date and everything parents need to do."], a:1, why:"It names the reader and says what must not be lost in the rewrite." },
+    { id:"u5-4-6", t:"tiles", q:"Tap the good uses for rewriting.", o:["Turning a formal notice into plain words","Making a long post shorter","Explaining a topic for a child","Writing fake reviews for your own shop"], a:[0,1,2], why:"Rewriting for a reader is a great use. Fake reviews mislead people, whoever writes them." },
+    { id:"u5-4-7", t:"order", q:"Learning a new topic with help. Put the steps in order.", steps:["Say what you already know and what you want to learn","Ask for one idea at a time","Ask it to quiz you","Check anything important against a trusted source"], why:"Start from where you are, build up, test yourself, and confirm what matters." }
+  ]}
+]},
+{ id:"u6", title:"Knowing the limits", color:"bubble", lessons:[
+  { id:"u6-1", title:"Prepare questions for a professional", ex:[
+    { id:"u6-1-1", t:"mc", q:"You have a worrying symptom. How can an AI chat help most safely?", o:["Help you write down your symptoms and questions for a doctor or nurse","Diagnose you so you can skip the appointment","Pick a medicine dose for you"], a:0, why:"It can help you organise what to say. Diagnosis and treatment need a qualified professional, and in an emergency, contact emergency services." },
+    { id:"u6-1-2", t:"pick", o:["Do I have something serious? Here are my symptoms.","I have a doctor's appointment about headaches that keep coming back. Help me list what to tell the doctor and what to ask."], a:1, why:"The second uses it to prepare, which is where it's safest and most useful. The diagnosis stays with the doctor." },
+    { id:"u6-1-3", t:"mc", q:"You get a formal letter from your landlord about ending your tenancy. What's the sensible use of an assistant?", o:["Summarise it in plain words and list questions for an advice service or lawyer","Rely on it alone to tell you exactly what your rights are","Write a reply threatening to sue"], a:0, why:"Rules vary from place to place and details matter. Use it to understand and prepare, then get proper advice." },
+    { id:"u6-1-4", t:"tiles", q:"Tap the tasks where an assistant helps before you see an accountant.", o:["Explaining unfamiliar terms in general","Listing questions to ask","Turning a list of your paperwork into a checklist","Deciding what goes on your tax return for you"], a:[0,1,2], why:"Preparing helps you get more from the meeting. Decisions about your tax belong with you and the professional." },
+    { id:"u6-1-5", t:"safe", q:"Stopping a prescribed medicine because an AI chat said you probably don't need it", a:1, why:"Talk to the prescriber or a pharmacist before changing prescribed medicine." },
+    { id:"u6-1-6", t:"mc", q:"If something might be an emergency, what should you do?", o:["Contact emergency services or a professional straight away","Ask the assistant and wait for its view","Keep searching online first"], a:0, why:"Emergencies need people who can act. Don't let a chat delay getting real help." }
+  ]},
+  { id:"u6-2", title:"Bias", ex:[
+    { id:"u6-2-1", t:"mc", q:"Why can AI answers reflect bias?", o:["They learn from human-written text, which contains human biases","Bias is impossible for a computer","Bias only appears in long answers"], a:0, why:"Patterns in the text it learned from, including stereotypes, can show up in its answers. Developers try to reduce this, but it can still happen." },
+    { id:"u6-2-2", t:"mc", q:"You ask for stories about a doctor and a nurse, and every time the doctor is a man and the nurse is a woman. What's going on?", o:["It's repeating a common stereotype from the text it learned from","That's the only way the story can go","It's a coincidence you can ignore"], a:0, why:"Stereotypes in its source text can show up as default choices. Noticing them is the first step." },
+    { id:"u6-2-3", t:"fix", chat:[["you","Write a short story about a doctor and a nurse."],["ai","Dr. James strode in, and Nurse Emily smiled and fetched his coffee..."]], q:"You notice the stereotypes. Best follow-up?", o:["Rewrite it without assuming anyone's gender or role from their job.","Why are you like this?","Make it longer."], a:0, why:"A clear, specific request fixes it. Saying what you want works better than scolding." },
+    { id:"u6-2-4", t:"mc", q:"How can you get a more balanced picture of a debated topic?", o:["Ask for the strongest arguments on several sides, then read trusted sources","Ask once and accept the first view","Only ask for the side you already agree with"], a:0, why:"Seeing the best case for each side, then checking sources, beats relying on a single framing." },
+    { id:"u6-2-5", t:"tiles", q:"Tap the good habits for spotting bias.", o:["Notice who is missing or stereotyped","Ask for other perspectives","Assume a neutral tone means no bias","Compare with sources from different viewpoints"], a:[0,1,3], why:"A calm, neutral tone can still carry bias. Looking for gaps and other viewpoints helps." },
+    { id:"u6-2-6", t:"pick", q:"Which request will get a fairer job advert?", o:["Write a job ad for a strong young salesman.","Write a job ad for a sales role that focuses on the skills and experience needed."], a:1, why:"Words about age or gender usually aren't about the job, and can put good people off applying." }
+  ]},
+  { id:"u6-3", title:"It may agree too easily", ex:[
+    { id:"u6-3-1", t:"mc", q:"You tell the assistant your plan is brilliant and ask what it thinks. What might happen?", o:["It may lean toward agreeing with you","It will always give a perfectly balanced view","It will refuse to answer"], a:0, why:"Assistants can tend to go along with the view you express. If you want an honest check, ask for criticism directly." },
+    { id:"u6-3-2", t:"pick", o:["My business idea is great, right?","Here's my business idea. Argue against it: list the biggest risks and reasons it might fail."], a:1, why:"The first invites a yes. The second asks for exactly the pushback you need." },
+    { id:"u6-3-3", t:"fix", chat:[["you","I'm thinking of quitting my job tomorrow to try making videos full time. Good idea?"],["ai","What an exciting plan! Follow your dreams!"]], q:"That's just cheerleading. Best follow-up?", o:["Now make the strongest case against doing it, and list what I should check first.","Thanks, I'll quit now.","Say it with more exclamation marks."], a:0, why:"Asking for the other side balances its tendency to agree. Big decisions deserve both views." },
+    { id:"u6-3-4", t:"mc", q:"You push back on a correct answer, and the assistant changes its mind. What does that tell you?", o:["Changing its answer under pressure doesn't make the new answer right","The new answer must be right","You are always right"], a:0, why:"Assistants can give in to pushback. Settle it with evidence from a trusted source, not with who argued last." },
+    { id:"u6-3-5", t:"tiles", q:"Tap the prompts that invite honest criticism.", o:["What are the weaknesses in this plan?","Argue against my position as strongly as you can.","Tell me this is perfect.","What would a sceptical expert say?"], a:[0,1,3], why:"Asking for weaknesses, counter-arguments or a sceptic's view gets you past easy agreement." },
+    { id:"u6-3-6", t:"order", q:"Stress-testing a decision. Put the steps in order.", steps:["Describe your plan and your reasons","Ask for the strongest case against it","Check the key points with trusted sources or people","Make the decision yourself"], why:"Lay it out, hear the other side, check what matters, then decide. The choice is yours." }
+  ]},
+  { id:"u6-4", title:"When to ask a human", ex:[
+    { id:"u6-4-1", t:"mc", q:"Which situation calls for a person, not a chat?", o:["You feel unsafe or in crisis","You want party theme ideas","You want another word for 'happy'"], a:0, why:"If you or someone else is in danger or crisis, contact emergency services, a crisis line or someone you trust." },
+    { id:"u6-4-2", t:"tiles", q:"Tap the times to talk to a real person with the right knowledge.", o:["A big money decision","A health worry that isn't going away","Picking a font for a flyer","A legal letter you don't understand"], a:[0,1,3], why:"High-stakes money, health and legal matters need someone accountable who knows your situation." },
+    { id:"u6-4-3", t:"mc", q:"You've gone round in circles with an assistant and still don't have a good answer. What next?", o:["Stop and ask a person who knows the subject","Keep asking the same question","Decide there is no answer"], a:0, why:"If it isn't getting there, more of the same rarely helps. A knowledgeable person can often cut straight to it." },
+    { id:"u6-4-4", t:"safe", q:"Using an assistant to prepare questions before a meeting with a financial adviser", a:0, why:"Preparing with it helps you get more from the meeting. The advice itself comes from the adviser." },
+    { id:"u6-4-5", t:"safe", q:"Signing a contract because an assistant said it looked fine, without reading it or asking anyone", a:1, why:"Read what you sign, and get proper advice on anything important. An assistant can miss or misread key terms." },
+    { id:"u6-4-6", t:"mc", q:"You tell an assistant you've been feeling low for weeks and don't know who to talk to. What's the most helpful thing it could do?", o:["Encourage you to talk to someone you trust or a professional, and help you find support","Tell you to keep it to yourself","Change the subject"], a:0, why:"Talking to someone you trust, a doctor or a support line really matters. If you're in danger, contact emergency services now." },
+    { id:"u6-4-7", t:"order", q:"Using AI well, start to finish. Put the steps in order.", steps:["Ask clearly, with your goal and context","Read the reply with a critical eye","Check what matters against trusted sources","Bring in a person for high-stakes decisions"], why:"That's the whole course in four steps. Well done!" }
+  ]}
+]}
+];
+// LESSONS-END
+
+// CORE-BEGIN
+// Pure rules, no DOM: tested in node by slicing this block out of the file.
+const HEART_MAX = 5, HEART_MS = 30 * 60 * 1000, GOAL_XP = 20, REVIEW_SIZE = 8, PRACTICE_SIZE = 6;
+// Calendar day number in the player's own time zone (DST-safe: built from local Y/M/D).
+function dayNum(d) { return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000); }
+// Called when a lesson is finished on day `today`.
+function applyStreak(s, today) {
+  if (s.lastDay === today) return s;
+  s.streak = (s.lastDay === today - 1) ? (s.streak || 0) + 1 : 1;
+  s.best = Math.max(s.best || 0, s.streak);
+  s.lastDay = today;
+  return s;
+}
+// What to display: a streak survives until the end of the day after the last lesson.
+function shownStreak(s, today) { return (s.lastDay != null && today - s.lastDay <= 1 && today >= s.lastDay) ? (s.streak || 0) : 0; }
+// Hearts come back one per HEART_MS of real time, counted from ts.
+function refill(hearts, ts, now) {
+  if (!(hearts >= 0)) hearts = HEART_MAX;
+  if (hearts >= HEART_MAX) return { hearts: HEART_MAX, ts: now };
+  if (!(ts <= now)) ts = now;              // clock went backwards, or ts missing
+  const n = Math.floor((now - ts) / HEART_MS);
+  const h = Math.min(HEART_MAX, hearts + n);
+  return { hearts: h, ts: h >= HEART_MAX ? now : ts + n * HEART_MS };
+}
+function nextHeartMs(hearts, ts, now) { return hearts >= HEART_MAX ? 0 : Math.max(0, HEART_MS - (now - ts)); }
+function kind(ex) { return (ex.t === 'tiles' || ex.t === 'need') ? 'multi' : ex.t === 'order' ? 'order' : 'single'; }
+function optionCount(ex) { return ex.t === 'order' ? ex.steps.length : ex.t === 'spot' ? ex.s.length : ex.t === 'safe' ? 2 : ex.o.length; }
+function isCorrect(ex, r) {
+  const k = kind(ex);
+  if (k === 'single') return r === ex.a;
+  if (!Array.isArray(r)) return false;
+  if (k === 'multi') {
+    const a = ex.a.slice().sort((x, y) => x - y), b = Array.from(new Set(r)).sort((x, y) => x - y);
+    return a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return r.length === ex.steps.length && r.every((v, i) => v === i);
+}
+function lessonXp(mode, perfect) {
+  const base = mode === 'review' ? 15 : mode === 'practice' ? 5 : 10;
+  return base + (perfect && mode !== 'practice' ? 5 : 0);
+}
+function isUnlocked(nodes, done, i) { return i === 0 || !!(done && done[nodes[i - 1].id]); }
+function shuffle(arr, rnd) { rnd = rnd || Math.random; const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+// CORE-END
+
+/* ------------------------------------------------------------------ *
+ *  App
+ * ------------------------------------------------------------------ */
+const $ = s => document.querySelector(s);
+const PREVIEW = !!new URLSearchParams(location.search).get('preview');
+const REDUCED = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+if (PREVIEW) { document.documentElement.classList.add('preview'); document.body.classList.add('preview'); }
+const KEY = 'promptling.v1';
+const TYPE_LABEL = { mc: 'Choose the best answer', pick: 'Which prompt is better?', spot: 'Spot the made-up part', need: 'Build the prompt', tiles: 'Pick all that apply', safe: 'Safe or not safe?', order: 'Put the steps in order', fix: 'Fix it' };
+const GOOD = ['Nice!', 'Spot on!', 'You got it!', 'Great thinking!', 'Exactly right!'];
+const BAD = ['Not quite', 'Almost', 'Good try'];
+
+function freshState() { return { v: 1, xp: 0, done: {}, streak: 0, best: 0, lastDay: null, goalDay: null, goalXp: 0, hearts: HEART_MAX, heartTs: Date.now(), seen: [], lessons: 0, muted: false, welcomed: false }; }
+let storageOk = true;
+function load() {
+  if (PREVIEW) return freshState();
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return freshState();
+    const s = JSON.parse(raw);
+    return Object.assign(freshState(), s && typeof s === 'object' ? s : {});
+  } catch (e) { storageOk = false; return freshState(); }
+}
+function save() {
+  if (PREVIEW) return;
+  try { localStorage.setItem(KEY, JSON.stringify(ST)); } catch (e) { storageOk = false; }
+}
+let ST = load();
+
+const NODES = [], EX = {};
+LESSONS.forEach((u, ui) => {
+  u.lessons.forEach((l, li) => { NODES.push({ id: l.id, unit: ui, kind: 'lesson', lesson: l, title: l.title, pos: li }); l.ex.forEach(e => { EX[e.id] = e; }); });
+  NODES.push({ id: u.id + '-review', unit: ui, kind: 'review', title: 'Unit review', pos: u.lessons.length });
+});
+const today = () => dayNum(new Date());
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmt = ms => { const s = Math.ceil(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+/* ---------------- icons and Pip ---------------- */
+const ICO = {
+  flame: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 2c.8 3.6 6 5.6 6 12a6 6 0 0 1-12 0c0-2.8 1.6-4.7 3-6 0 2 .9 3.2 2.1 3.2C11 8 10 5.6 12 2z" fill="currentColor"/></svg>',
+  heart: '<svg class="ico" viewBox="0 0 24 24"><path d="M12 21s-8.5-5.3-8.5-11.2A4.6 4.6 0 0 1 12 7.2a4.6 4.6 0 0 1 8.5 2.6C20.5 15.7 12 21 12 21z" fill="currentColor"/></svg>',
+  bolt: '<svg class="ico" viewBox="0 0 24 24"><path d="M13.5 2 4 14h7l-1.5 8L19 10h-7z" fill="currentColor"/></svg>',
+  user: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.2" fill="currentColor"/><path d="M3.5 21c0-4.6 3.8-7.3 8.5-7.3s8.5 2.7 8.5 7.3z" fill="currentColor"/></svg>',
+  sound: '<svg class="ico" viewBox="0 0 24 24"><path d="M3.5 9h4l5-4v14l-5-4h-4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  mute: '<svg class="ico" viewBox="0 0 24 24"><path d="M3.5 9h4l5-4v14l-5-4h-4z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6 6.6.8-4.9 4.5 1.3 6.5L12 17l-5.9 3.3 1.3-6.5-4.9-4.5 6.6-.8z" fill="currentColor"/></svg>',
+  crown: '<svg viewBox="0 0 24 24"><path d="M3 17.5 2 7l5.5 4.2L12 4l4.5 7.2L22 7l-1 10.5z" fill="currentColor"/><rect x="3" y="18.8" width="18" height="2.6" rx="1.2" fill="currentColor"/></svg>',
+  book: '<svg viewBox="0 0 24 24"><path d="M3 5h6.5A2.5 2.5 0 0 1 12 7a2.5 2.5 0 0 1 2.5-2H21v14h-6.5a2.5 2.5 0 0 0-2.5 2 2.5 2.5 0 0 0-2.5-2H3z" fill="currentColor"/><path d="M12 7v13" stroke="#fff" stroke-opacity=".6" stroke-width="1.5"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10.5" rx="2.5" fill="currentColor"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2.6"/></svg>',
+  x: '<svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  oops: '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/></svg>'
+};
+function starPath(cx, cy, R, r) { let d = ''; for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r : R; d += (i ? 'L' : 'M') + (cx + Math.cos(a) * rr).toFixed(1) + ' ' + (cy + Math.sin(a) * rr).toFixed(1); } return d + 'Z'; }
+const PIP_STAR = starPath(67, 9, 8, 3.6);
+// Pip: a small speech bubble with a star on its head. mood: happy | cheer | sad
+function pip(mood) {
+  const S = 'stroke="#1A1540" stroke-width="4" stroke-linecap="round" fill="none"';
+  let mouth, arms, brows = '';
+  if (mood === 'cheer') {
+    mouth = '<path d="M48 63 Q60 80 72 63 Z" fill="#1A1540" stroke="#1A1540" stroke-width="3" stroke-linejoin="round"/><path d="M54 70 Q60 75 66 70 Q60 67 54 70Z" fill="#FF4F6D"/>';
+    arms = `<path d="M22 60 Q10 48 9 32" ${S}/><path d="M98 60 Q110 48 111 32" ${S}/>`;
+  } else if (mood === 'sad') {
+    mouth = `<path d="M51 71 Q60 64 69 71" ${S}/>`;
+    arms = `<path d="M21 64 Q13 70 14 80" ${S}/><path d="M99 64 Q107 70 106 80" ${S}/>`;
+    brows = `<path d="M37 39 L49 34" ${S}/><path d="M83 39 L71 34" ${S}/>`;
+  } else {
+    mouth = `<path d="M50 64 Q60 73 70 64" ${S}/>`;
+    arms = `<path d="M21 62 Q11 64 10 74" ${S}/><path d="M99 62 Q109 64 110 74" ${S}/>`;
+  }
+  const eyeDy = mood === 'sad' ? 3 : 0;
+  return `<svg class="pip ${mood === 'cheer' ? 'cheer' : 'bob'}" viewBox="0 0 120 120" aria-hidden="true"><g class="pip-b">
+    <path d="M60 16 Q58 10 64 8" ${S}/><path d="${PIP_STAR}" fill="#FFE066" stroke="#1A1540" stroke-width="3" stroke-linejoin="round"/>
+    ${arms}
+    <path d="M60 15 C87 15 103 31 103 53 C103 75 87 91 60 91 L47 91 L32 106 L35 89 C24 83 17 69 17 53 C17 31 33 15 60 15 Z" fill="#22D3C5" stroke="#1A1540" stroke-width="4" stroke-linejoin="round"/>
+    <ellipse cx="44" cy="29" rx="12" ry="5.5" fill="#fff" opacity=".4" transform="rotate(-22 44 29)"/>
+    ${brows}
+    <g class="pip-eyes"><ellipse cx="47" cy="${49 + eyeDy}" rx="9" ry="10.5" fill="#fff" stroke="#1A1540" stroke-width="3"/><ellipse cx="73" cy="${49 + eyeDy}" rx="9" ry="10.5" fill="#fff" stroke="#1A1540" stroke-width="3"/>
+    <circle cx="49" cy="${51 + eyeDy}" r="4.6" fill="#1A1540"/><circle cx="75" cy="${51 + eyeDy}" r="4.6" fill="#1A1540"/><circle cx="50.6" cy="${49 + eyeDy}" r="1.6" fill="#fff"/><circle cx="76.6" cy="${49 + eyeDy}" r="1.6" fill="#fff"/></g>
+    <circle cx="34" cy="64" r="5.5" fill="#FF7AC8" opacity=".8"/><circle cx="86" cy="64" r="5.5" fill="#FF7AC8" opacity=".8"/>
+    ${mouth}</g></svg>`;
+}
+document.querySelectorAll('[data-ico]').forEach(el => { el.outerHTML = ICO[el.dataset.ico]; });
+$('#brandPip').innerHTML = pip('happy');
+$('#welcomePip').innerHTML = pip('cheer');
+$('#outPip').innerHTML = pip('sad');
+
+/* ---------------- sound (Web Audio, after first input) ---------------- */
+let AC = null, master = null;
+function audioInit() {
+  if (AC || PREVIEW) return;
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); master = AC.createGain(); master.gain.value = 0.22; master.connect(AC.destination); } catch (e) { AC = null; }
+}
+function tone(f, t0, dur, type, vol, f2) {
+  if (!AC || ST.muted || PREVIEW) return;
+  try {
+    if (AC.state === 'suspended') AC.resume();
+    const t = AC.currentTime + t0, o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'triangle'; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.6, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+  } catch (e) { /* audio is decoration; never break the lesson */ }
+}
+const sfx = {
+  tap() { tone(880, 0, 0.05, 'sine', 0.25); },
+  good() { tone(784, 0, 0.12, 'triangle', 0.7); tone(1175, 0.09, 0.26, 'triangle', 0.7); tone(1568, 0.09, 0.2, 'sine', 0.2); },
+  bad() { tone(330, 0, 0.16, 'sine', 0.55, 300); tone(247, 0.13, 0.28, 'sine', 0.55, 220); },
+  done() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, i * 0.09, 0.3, 'triangle', 0.6)); },
+  heart() { tone(440, 0, 0.1, 'square', 0.12, 330); }
+};
+function paintMute() { document.querySelectorAll('.muteico').forEach(el => { el.innerHTML = ST.muted ? ICO.mute : ICO.sound; }); document.querySelectorAll('.mute').forEach(b => b.setAttribute('aria-pressed', ST.muted ? 'true' : 'false')); }
+function toggleMute() { ST.muted = !ST.muted; save(); paintMute(); }
+document.querySelectorAll('.mute').forEach(b => b.addEventListener('click', () => { toggleMute(); b.blur(); }));
+paintMute();
+addEventListener('pointerdown', audioInit, true);
+
+/* ---------------- state helpers ---------------- */
+function syncHearts() { const r = refill(ST.hearts, ST.heartTs, Date.now()); ST.hearts = r.hearts; ST.heartTs = r.ts; }
+function loseHeart() { syncHearts(); if (ST.hearts >= HEART_MAX) ST.heartTs = Date.now(); ST.hearts = Math.max(0, ST.hearts - 1); }
+function goalToday() { return ST.goalDay === today() ? ST.goalXp : 0; }
+function addXp(n) { const t = today(); if (ST.goalDay !== t) { ST.goalDay = t; ST.goalXp = 0; } ST.goalXp += n; ST.xp += n; }
+function currentIndex() { const i = NODES.findIndex(n => !ST.done[n.id]); return i; }
+function markSeen(id) { if (ST.seen.indexOf(id) < 0) ST.seen.push(id); }
+
+/* ---------------- screens ---------------- */
+let SCREEN = '';
+function show(name) {
+  SCREEN = name;
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === name));
+  $('#top').hidden = name !== 'home';
+  if (name !== 'done') clearConfetti();
+  if (name !== 'home') closeSheet();
+}
+function renderTop() {
+  syncHearts();
+  const t = today();
+  $('#streakN').textContent = shownStreak(ST, t);
+  $('#stStreak').classList.toggle('lit', ST.lastDay === t);
+  $('#stStreak').title = ST.lastDay === t ? 'Day streak: done for today' : 'Day streak: finish a lesson today to keep it';
+  $('#heartN').textContent = ST.hearts;
+  $('#heartT').textContent = ST.hearts < HEART_MAX ? fmt(nextHeartMs(ST.hearts, ST.heartTs, Date.now())) : '';
+  $('#xpN').textContent = ST.xp;
+  const g = goalToday();
+  $('#ringArc').setAttribute('stroke-dashoffset', (94.25 * (1 - Math.min(1, g / GOAL_XP))).toFixed(2));
+  $('#goalN').textContent = Math.min(g, GOAL_XP);
+  $('#goal').classList.toggle('met', g >= GOAL_XP);
+  $('#goal').title = 'Daily goal: ' + Math.min(g, GOAL_XP) + ' of ' + GOAL_XP + ' XP today';
+}
+function renderPath() {
+  const cur = currentIndex();
+  let h = '', gi = 0;
+  LESSONS.forEach((u, ui) => {
+    const nodes = NODES.filter(n => n.unit === ui);
+    const doneN = nodes.filter(n => ST.done[n.id]).length;
+    h += `<section class="unit" style="--c:var(--${u.color});--cd:var(--${u.color}-d)"><div class="ubanner"><div><small>Unit ${ui + 1}</small><h2>${esc(u.title)}</h2></div><span class="uprog">${doneN} / ${nodes.length}</span></div>`;
+    nodes.forEach((n, j) => {
+      const i = NODES.indexOf(n);
+      const x = Math.round(Math.sin(j * 1.15) * 78);
+      const done = !!ST.done[n.id], open = isUnlocked(NODES, ST.done, i);
+      const cls = (done ? 'done' : open ? 'open' : 'locked') + (i === cur ? ' cur' : '') + (n.kind === 'review' ? ' review' : '');
+      const icon = done ? ICO.crown : !open ? ICO.lock : n.kind === 'review' ? ICO.book : ICO.star;
+      const label = `${n.title}, ${done ? 'finished' : open ? 'ready' : 'locked'}`;
+      h += `<div class="nrow"><button class="node ${cls}" data-n="${i}" style="transform:translateX(${x}px)" aria-label="${esc(label)}">${icon}${i === cur ? '<span class="tag">START</span>' : ''}</button>`;
+      if (i === cur) h += `<div class="pipside" style="left:calc(50% + ${x > 0 ? x - 150 : x + 62}px)">${pip('happy')}</div>`;
+      h += '</div>';
+      gi++;
+    });
+    h += '</section>';
+  });
+  if (cur < 0) h += `<div class="finale">You've finished every unit. Replay any lesson to keep your streak going.</div>`;
+  $('#path').innerHTML = h;
+}
+function scrollToCurrent(instant) {
+  const cur = currentIndex();
+  const el = document.querySelector(`.node[data-n="${cur < 0 ? NODES.length - 1 : cur}"]`);
+  if (!el) return;
+  const p = $('#path');
+  const pr = p.getBoundingClientRect(), er = el.getBoundingClientRect();
+  const k = pr.height / (p.clientHeight || 1) || 1;            // the preview stage is scaled
+  const top = p.scrollTop + (er.top - pr.top) / k - p.clientHeight / 2 + el.offsetHeight / 2;
+  const old = p.style.scrollBehavior;
+  if (instant) p.style.scrollBehavior = 'auto';
+  p.scrollTop = Math.max(0, top);
+  if (instant) p.style.scrollBehavior = old;
+}
+function goHome() {
+  S = null;
+  show('home'); renderTop(); renderPath();
+  requestAnimationFrame(() => scrollToCurrent(true));
+}
+
+/* ---------------- node sheet ---------------- */
+let sheetNode = -1;
+function openSheet(i) {
+  const n = NODES[i], u = LESSONS[n.unit];
+  const done = !!ST.done[n.id], open = isUnlocked(NODES, ST.done, i);
+  sheetNode = i;
+  $('#sheet').style.setProperty('--c', `var(--${u.color})`);
+  $('#sheetKick').textContent = `Unit ${n.unit + 1} · ${n.kind === 'review' ? 'Review' : 'Lesson ' + (n.pos + 1) + ' of ' + u.lessons.length}`;
+  $('#sheetTitle').textContent = n.title;
+  const go = $('#sheetGo');
+  if (!open) { $('#sheetNote').textContent = 'Locked. Finish the step before this one to open it.'; go.textContent = 'Locked'; go.disabled = true; }
+  else {
+    go.disabled = false;
+    const xp = lessonXp(n.kind, false);
+    $('#sheetNote').textContent = n.kind === 'review' ? `A mix of questions from the whole unit. +${xp} XP` : `${n.lesson.ex.length} quick exercises. +${xp} XP` + (done ? ' · finished, practise again any time' : '');
+    go.textContent = done ? 'Practise again' : 'Start';
+  }
+  $('#sheet').classList.add('on');
+}
+function closeSheet() { $('#sheet').classList.remove('on'); sheetNode = -1; }
+$('#path').addEventListener('click', e => {
+  const b = e.target.closest('.node');
+  if (b) { sfx.tap(); openSheet(+b.dataset.n); } else closeSheet();
+});
+$('#sheetGo').addEventListener('click', () => { if (sheetNode >= 0) begin(sheetNode); });
+
+/* ---------------- lesson session ---------------- */
+let S = null;
+const DEMO_IDS = ['u1-3-4', 'u4-1-1', 'u2-2-1'];
+function begin(i) {
+  const n = NODES[i];
+  if (!n || !isUnlocked(NODES, ST.done, i)) return;
+  syncHearts();
+  if (!PREVIEW && ST.hearts <= 0) { showOut(); return; }
+  let list, mode = n.kind;
+  if (PREVIEW) { list = DEMO_IDS.map(id => EX[id]); mode = 'demo'; }
+  else if (n.kind === 'review') {
+    const pool = []; LESSONS[n.unit].lessons.forEach(l => pool.push(...l.ex));
+    list = shuffle(pool).slice(0, REVIEW_SIZE);
+  } else list = n.lesson.ex.slice();
+  startSession(mode, i, list);
+}
+function startPractice() {
+  const pool = shuffle(ST.seen.filter(id => EX[id])).slice(0, PRACTICE_SIZE).map(id => EX[id]);
+  if (!pool.length) return;
+  startSession('practice', -1, pool);
+}
+function startSession(mode, node, list) {
+  S = { mode, node, queue: list.map(ex => ({ ex, retry: false })), total: list.length, done: 0, first: 0, missed: new Set(), checked: false, resp: null, perm: [] };
+  show('lesson');
+  renderEx();
+}
+const curEx = () => S && S.queue.length ? S.queue[0].ex : null;
+const range = n => Array.from({ length: n }, (_, i) => i);
+function optBtn(i, pos, html, cls) { return `<button class="opt ${cls || ''}" data-i="${i}"><span class="k">${pos + 1}</span><span class="tx">${html}</span></button>`; }
+function renderEx() {
+  const it = S.queue[0], ex = it.ex, k = kind(ex), n = optionCount(ex);
+  S.resp = k === 'single' ? null : []; S.checked = false;
+  let perm = range(n);
+  if (ex.t === 'mc' || ex.t === 'pick' || ex.t === 'fix' || ex.t === 'tiles') perm = shuffle(perm);
+  if (ex.t === 'order') { do { perm = shuffle(range(n)); } while (perm.every((v, i) => v === i)); }
+  S.perm = perm;
+  let h = `<div class="tlabel">${it.retry ? '<span class="again">Try again</span>' : ''}<span>${TYPE_LABEL[ex.t]}</span></div>`;
+  if (ex.t === 'mc') h += `<div class="q">${esc(ex.q)}</div><div class="opts">${perm.map((i, p) => optBtn(i, p, esc(ex.o[i]))).join('')}</div>`;
+  else if (ex.t === 'pick') h += `<div class="q">${esc(ex.q || 'Which prompt will get the better answer?')}</div><div class="opts pick">${perm.map((i, p) => `<button class="opt" data-i="${i}"><small><span class="k">${p + 1}</span>Prompt ${p ? 'B' : 'A'}</small><span class="tx">${esc(ex.o[i])}</span></button>`).join('')}</div>`;
+  else if (ex.t === 'fix') h += `<div class="chat">${ex.chat.map(([w, t]) => `<div class="bub ${w}"><span class="who">${w === 'you' ? 'You' : 'Assistant'}</span>${esc(t)}</div>`).join('')}</div><div class="q">${esc(ex.q)}</div><div class="opts">${perm.map((i, p) => optBtn(i, p, esc(ex.o[i]))).join('')}</div>`;
+  else if (ex.t === 'spot') h += `<div class="q">${esc(ex.q || 'Tap the sentence that is made up or not supported.')}</div>` + (ex.src ? `<div class="src"><b>What you gave it</b>${esc(ex.src)}</div>` : '') + `<p class="ask">${esc(ex.ask)}</p><div class="reply"><span class="who">Assistant</span>${ex.s.map((s, i) => `<button class="sent" data-i="${i}"><span class="k">${i + 1}</span><span>${esc(s)}</span></button>`).join('')}</div>`;
+  else if (ex.t === 'safe') h += `<div class="q">Is this safe to do?</div><div class="scard" id="scard">${esc(ex.q)}</div><div class="sbtns">${optBtn(0, 0, 'Safe', 'sy')}${optBtn(1, 1, 'Not safe', 'sn')}</div><p class="hint" style="text-align:center">Tip: swipe the card right for safe, left for not safe.</p>`;
+  else if (ex.t === 'need') h += `<div class="pcard"><b>The prompt</b>${esc(ex.p)}</div><div class="q">${esc(ex.q)}</div><div class="chips short">${perm.map((i, p) => optBtn(i, p, esc(ex.o[i]))).join('')}</div><p class="hint">Pick all that apply.</p>`;
+  else if (ex.t === 'tiles') h += `<div class="q">${esc(ex.q)}</div><div class="chips">${perm.map((i, p) => optBtn(i, p, esc(ex.o[i]))).join('')}</div><p class="hint">Pick all that apply.</p>`;
+  else if (ex.t === 'order') h += `<div class="q">${esc(ex.q)}</div><div class="slots" id="slots"></div><div class="opts bank">${perm.map((i, p) => optBtn(i, p, esc(ex.steps[i]))).join('')}</div>`;
+  const body = $('#lbody');
+  body.innerHTML = h; body.scrollTop = 0;
+  if (ex.t === 'order') renderSlots();
+  if (ex.t === 'safe') wireSwipe();
+  $('#fb').classList.remove('on', 'good', 'bad');
+  $('#check').hidden = false;
+  paintLessonHead();
+  updateCheck();
+}
+function paintLessonHead() {
+  $('#prog').style.width = (100 * S.done / S.total) + '%';
+  const practice = S.mode === 'practice';
+  $('#lhearts').style.visibility = practice ? 'hidden' : 'visible';
+  $('#lheartN').textContent = ST.hearts;
+}
+function renderSlots() {
+  const ex = curEx(), n = ex.steps.length;
+  let h = S.resp.map((i, k) => `<button class="slot" data-p="${i}"><span class="n">${k + 1}</span><span>${esc(ex.steps[i])}</span></button>`).join('');
+  for (let k = S.resp.length; k < n; k++) h += `<div class="slot empty" aria-hidden="true">${k === 0 ? '<span style="color:var(--dim);font-size:14px">Tap the steps below in order</span>' : ''}</div>`;
+  $('#slots').innerHTML = h;
+  document.querySelectorAll('#lbody .bank .opt').forEach(b => b.classList.toggle('used', S.resp.indexOf(+b.dataset.i) >= 0));
+}
+function ready() {
+  if (!S || S.checked) return false;
+  const ex = curEx(), k = kind(ex);
+  return k === 'single' ? S.resp !== null : k === 'multi' ? S.resp.length > 0 : S.resp.length === ex.steps.length;
+}
+function updateCheck() { $('#check').disabled = !ready(); }
+function choose(i) {
+  if (!S || S.checked) return;
+  const ex = curEx(), k = kind(ex);
+  if (!(i >= 0 && i < optionCount(ex))) return;
+  sfx.tap();
+  if (k === 'single') {
+    S.resp = i;
+    document.querySelectorAll('#lbody [data-i]').forEach(b => b.classList.toggle('sel', +b.dataset.i === i));
+    const card = $('#scard'); if (card) { card.classList.toggle('lean-y', i === 0); card.classList.toggle('lean-n', i === 1); }
+  } else if (k === 'multi') {
+    const at = S.resp.indexOf(i); if (at >= 0) S.resp.splice(at, 1); else S.resp.push(i);
+    document.querySelectorAll('#lbody [data-i]').forEach(b => b.classList.toggle('sel', S.resp.indexOf(+b.dataset.i) >= 0));
+  } else {
+    const at = S.resp.indexOf(i); if (at >= 0) S.resp.splice(at, 1); else S.resp.push(i);
+    renderSlots();
+  }
+  updateCheck();
+}
+$('#lbody').addEventListener('click', e => {
+  const b = e.target.closest('[data-i],[data-p]');
+  if (!b || !S) return;
+  choose(+(b.dataset.i != null ? b.dataset.i : b.dataset.p));
+});
+function wireSwipe() {
+  const card = $('#scard'); if (!card) return;
+  let x0 = null, dx = 0, id = null;
+  card.addEventListener('pointerdown', e => { if (S.checked) return; x0 = e.clientX; dx = 0; id = e.pointerId; card.setPointerCapture(id); card.classList.add('drag'); });
+  card.addEventListener('pointermove', e => {
+    if (x0 === null || e.pointerId !== id) return;
+    dx = e.clientX - x0;
+    card.style.transform = `translateX(${dx}px) rotate(${dx / 18}deg)`;
+    card.classList.toggle('lean-y', dx > 40); card.classList.toggle('lean-n', dx < -40);
+  });
+  const end = e => {
+    if (x0 === null) return;
+    x0 = null; card.classList.remove('drag'); card.style.transform = '';
+    if (Math.abs(dx) > 80) { choose(dx > 0 ? 0 : 1); check(); }
+    else { card.classList.remove('lean-y', 'lean-n'); if (S.resp !== null) choose(S.resp); }
+  };
+  card.addEventListener('pointerup', end); card.addEventListener('pointercancel', end);
+}
+function answerText(ex) {
+  const k = kind(ex);
+  if (ex.t === 'order') return `<div class="ans">The right order:</div><ol>${ex.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>`;
+  if (k === 'multi') return `<div class="ans">Answer: ${ex.a.map(i => esc(ex.o[i])).join(' · ')}</div>`;
+  const t = ex.t === 'spot' ? ex.s[ex.a] : ex.t === 'safe' ? ['Safe', 'Not safe'][ex.a] : ex.o[ex.a];
+  return `<div class="ans">Answer: ${esc(t)}</div>`;
+}
+function check() {
+  if (!ready()) return;
+  const it = S.queue[0], ex = it.ex, k = kind(ex);
+  const ok = isCorrect(ex, S.resp);
+  S.checked = true;
+  markSeen(ex.id);
+  // paint the options
+  if (k === 'single') {
+    document.querySelectorAll('#lbody [data-i]').forEach(b => { const i = +b.dataset.i; b.classList.remove('sel'); if (i === ex.a) b.classList.add('right'); else if (i === S.resp) b.classList.add('wrong'); });
+  } else if (k === 'multi') {
+    document.querySelectorAll('#lbody [data-i]').forEach(b => { const i = +b.dataset.i, sel = S.resp.indexOf(i) >= 0, want = ex.a.indexOf(i) >= 0; b.classList.remove('sel'); if (sel && want) b.classList.add('right'); else if (sel) b.classList.add('wrong'); else if (want) b.classList.add('missed'); });
+  } else {
+    document.querySelectorAll('#slots .slot').forEach((b, pos) => b.classList.add(+b.dataset.p === pos ? 'right' : 'wrong'));
+  }
+  if (ok) {
+    S.done++;
+    if (!S.missed.has(ex.id)) S.first++;
+    sfx.good();
+  } else {
+    S.missed.add(ex.id);
+    S.queue.push({ ex, retry: true });
+    if (S.mode === 'lesson' || S.mode === 'review') {
+      loseHeart();
+      const lh = $('#lhearts'); lh.classList.remove('hit'); void lh.offsetWidth; if (!REDUCED) lh.classList.add('hit');
+    }
+    sfx.bad();
+  }
+  save();
+  paintLessonHead();
+  const fb = $('#fb');
+  fb.classList.remove('good', 'bad'); fb.classList.add(ok ? 'good' : 'bad');
+  $('#fbIcon').innerHTML = ok ? ICO.check : ICO.oops;
+  $('#fbTitle').textContent = ok ? GOOD[Math.floor(Math.random() * GOOD.length)] : BAD[Math.floor(Math.random() * BAD.length)];
+  $('#fbWhy').innerHTML = (ok ? '' : answerText(ex)) + esc(ex.why) + (!ok && S.mode !== 'practice' && S.mode !== 'demo' ? (ST.hearts > 0 ? ' <b>It will come back at the end.</b>' : '') : '');
+  $('#cont').textContent = !ok && (S.mode === 'lesson' || S.mode === 'review') && ST.hearts <= 0 ? 'Continue' : ok ? 'Continue' : 'Got it';
+  fb.classList.add('on');
+  $('#check').disabled = true;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+function next() {
+  if (!S || !S.checked) return;
+  $('#fb').classList.remove('on');
+  S.queue.shift();
+  if ((S.mode === 'lesson' || S.mode === 'review') && ST.hearts <= 0) { save(); S = null; showOut(); return; }
+  if (!S.queue.length) { finish(); return; }
+  renderEx();
+}
+$('#check').addEventListener('click', check);
+$('#cont').addEventListener('click', next);
+$('#quit').addEventListener('click', () => {
+  if (!S) return goHome();
+  confirmBox('Quit this lesson?', 'Your progress in this lesson will be lost. Hearts you have lost stay lost.', 'Quit', 'Keep going', () => goHome());
+});
+
+function finish() {
+  const t = today();
+  const perfect = S.missed.size === 0;
+  const acc = Math.round(100 * S.first / S.total);
+  const xp = lessonXp(S.mode === 'demo' ? 'lesson' : S.mode, perfect);
+  const hadToday = ST.lastDay === t;
+  addXp(xp);
+  applyStreak(ST, t);
+  if (S.mode === 'lesson' || S.mode === 'review' || S.mode === 'demo') { const id = NODES[S.node].id; ST.done[id] = (ST.done[id] || 0) + 1; ST.lessons++; }
+  if (S.mode === 'practice') { ST.hearts = HEART_MAX; ST.heartTs = Date.now(); }
+  save();
+  $('#donePip').innerHTML = pip('cheer');
+  $('#doneTitle').textContent = S.mode === 'practice' ? 'Hearts refilled!' : S.mode === 'review' ? 'Unit review done!' : perfect ? 'Perfect lesson!' : 'Lesson complete!';
+  const goalMet = goalToday() >= GOAL_XP && goalToday() - xp < GOAL_XP;
+  $('#doneNote').textContent = !hadToday ? (ST.streak > 1 ? `Streak extended: ${ST.streak} days in a row.` : 'Streak started. Come back tomorrow to grow it.') : goalMet ? 'Daily goal reached. Nice work.' : perfect ? 'Every answer right first time.' : 'Mistakes are how this works. Well done for finishing.';
+  $('#doneAcc').textContent = acc + '%';
+  $('#doneStreak').textContent = ST.streak;
+  countUp($('#doneXp'), xp);
+  S = null;
+  show('done');
+  confetti(); sfx.done();
+}
+function countUp(el, to) {
+  if (REDUCED) { el.textContent = '+' + to; return; }
+  const t0 = performance.now(), dur = 700;
+  const step = t => { const k = Math.min(1, (t - t0) / dur); el.textContent = '+' + Math.round(to * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(step); };
+  el.textContent = '+0'; requestAnimationFrame(step);
+}
+$('#doneGo').addEventListener('click', goHome);
+
+/* ---------------- out of hearts ---------------- */
+function showOut() { show('out'); renderOut(); }
+function renderOut() {
+  syncHearts();
+  const has = ST.seen.some(id => EX[id]);
+  $('#practiseGo').disabled = !has;
+  $('#outTimer').textContent = ST.hearts > 0 ? `You have ${ST.hearts} heart${ST.hearts > 1 ? 's' : ''} back already.` : `Next heart in ${fmt(nextHeartMs(ST.hearts, ST.heartTs, Date.now()))}`;
+}
+$('#practiseGo').addEventListener('click', startPractice);
+$('#waitGo').addEventListener('click', goHome);
+
+/* ---------------- welcome, profile, confirm ---------------- */
+function welcomeGo() { ST.welcomed = true; save(); goHome(); }
+$('#welcomeGo').addEventListener('click', welcomeGo);
+function openModal(html) { $('#mbox').innerHTML = html; $('#modal').hidden = false; const f = $('#mbox button'); if (f) f.focus(); }
+function closeModal() { $('#modal').hidden = true; $('#mbox').innerHTML = ''; }
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+function confirmBox(title, text, yes, no, onYes) {
+  openModal(`<h2>${esc(title)}</h2><p>${esc(text)}</p><div class="mbtns"><button class="btn alt" id="mNo">${esc(no)}</button><button class="btn warn" id="mYes">${esc(yes)}</button></div>`);
+  $('#mNo').onclick = closeModal;
+  $('#mYes').onclick = () => { closeModal(); onYes(); };
+}
+function openProfile() {
+  const units = LESSONS.filter(u => ST.done[u.id + '-review']).length;
+  openModal(`<button class="ibtn x" id="mClose" aria-label="Close">${ICO.x}</button><h2>Your progress</h2>
+    <div class="pgrid">
+      <div><b id="pXp">${ST.xp}</b><span>Total XP</span></div>
+      <div><b id="pStreak">${shownStreak(ST, today())}</b><span>Day streak</span></div>
+      <div><b id="pBest">${ST.best}</b><span>Best streak</span></div>
+      <div><b id="pLessons">${ST.lessons}</b><span>Lessons done</span></div>
+      <div><b>${units} / ${LESSONS.length}</b><span>Units finished</span></div>
+      <div><b>${ST.seen.length}</b><span>Questions seen</span></div>
+    </div>
+    ${storageOk ? '' : '<p class="small">This browser is not letting the page save, so progress will not be kept after you close it.</p>'}
+    <div class="mbtns"><button class="btn alt" id="mHow">How it works</button><button class="btn warn" id="mReset">Reset progress</button></div>`);
+  $('#mClose').onclick = closeModal;
+  $('#mHow').onclick = () => { closeModal(); show('welcome'); };
+  $('#mReset').onclick = () => confirmBox('Reset all progress?', 'This clears your XP, streak, hearts and finished lessons. It cannot be undone.', 'Reset', 'Cancel', () => { const m = ST.muted; ST = freshState(); ST.muted = m; ST.welcomed = true; save(); goHome(); });
+}
+$('#profileBtn').addEventListener('click', openProfile);
+$('#stStreak').addEventListener('click', openProfile);
+
+/* ---------------- keyboard ---------------- */
+addEventListener('keydown', e => {
+  audioInit();
+  if (e.key === 'Escape') return;              // never handled: the host page owns Escape
+  if (e.ctrlKey || e.metaKey || e.altKey || PREVIEW) return;
+  if (e.key === 'm' || e.key === 'M') { toggleMute(); return; }
+  if (!$('#modal').hidden) return;             // native button behaviour inside dialogs
+  const ae = document.activeElement;
+  if (SCREEN === 'lesson' && S) {
+    if (/^[1-9]$/.test(e.key)) { const p = +e.key - 1; if (!S.checked && p < S.perm.length) choose(S.perm[p]); e.preventDefault(); return; }
+    if (e.key === 'Backspace' && !S.checked && kind(curEx()) === 'order' && S.resp.length) { choose(S.resp[S.resp.length - 1]); e.preventDefault(); return; }
+    if (e.key === 'Enter') {
+      if (ae && (ae.id === 'quit' || ae.classList.contains('mute'))) return;
+      e.preventDefault();
+      if (S.checked) next(); else check();
+    }
+    return;
+  }
+  if (e.key !== 'Enter') return;
+  if (ae && ae.tagName === 'BUTTON' && ae !== document.body) return;   // let the focused button do its own thing
+  e.preventDefault();
+  if (SCREEN === 'home') { if (sheetNode >= 0 && !$('#sheetGo').disabled) begin(sheetNode); else { const c = currentIndex(); begin(c < 0 ? NODES.length - 1 : c); } }
+  else if (SCREEN === 'done') goHome();
+  else if (SCREEN === 'welcome') welcomeGo();
+  else if (SCREEN === 'out') { if (!$('#practiseGo').disabled) startPractice(); else goHome(); }
+});
+
+/* ---------------- confetti ---------------- */
+const fx = $('#fx'), fctx = fx.getContext('2d');
+const COLORS = ['#FFE066', '#FF4F6D', '#C6F432', '#22D3C5', '#B45CF0', '#FF7AC8', '#8C9BFF'];
+let parts = [], fxOn = false, fxLast = 0;
+function sizeFx() { const d = Math.min(2, window.devicePixelRatio || 1); fx.width = Math.round(innerWidth * d); fx.height = Math.round(innerHeight * d); fx.style.width = innerWidth + 'px'; fx.style.height = innerHeight + 'px'; fctx.setTransform(d, 0, 0, d, 0, 0); }
+sizeFx(); addEventListener('resize', sizeFx);
+function confetti() {
+  if (REDUCED) return;
+  const W = innerWidth, H = innerHeight, sc = Math.max(0.5, Math.min(1.4, Math.min(W, H) / 600));
+  for (let i = 0; i < 150; i++) {
+    const side = i % 2 ? 1 : -1;
+    parts.push({ x: W / 2 + side * W * 0.18, y: H * 0.42, vx: side * (2 + Math.random() * 9) * sc * 60 + (Math.random() - 0.5) * 240 * sc, vy: -(6 + Math.random() * 12) * sc * 60, r: Math.random() * 6.3, vr: (Math.random() - 0.5) * 12, w: (6 + Math.random() * 6) * sc, h: (9 + Math.random() * 8) * sc, c: COLORS[i % COLORS.length], t: 0, g: 1300 * sc });
+  }
+  if (!fxOn) { fxOn = true; fxLast = performance.now(); requestAnimationFrame(fxLoop); }
+}
+function clearConfetti() { parts = []; fctx.clearRect(0, 0, innerWidth, innerHeight); }
+function fxLoop(now) {
+  const dt = Math.min(0.05, (now - fxLast) / 1000); fxLast = now;
+  fctx.clearRect(0, 0, innerWidth, innerHeight);
+  parts = parts.filter(p => p.y < innerHeight + 40 && p.t < 5);
+  for (const p of parts) {
+    p.vy += p.g * dt; p.vx *= Math.pow(0.35, dt); p.vy *= Math.pow(0.7, dt);
+    p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt; p.t += dt;
+    fctx.save(); fctx.translate(p.x, p.y); fctx.rotate(p.r); fctx.fillStyle = p.c;
+    fctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.max(0.15, Math.abs(Math.cos(p.t * 7 + p.r))));
+    fctx.restore();
+  }
+  if (parts.length) requestAnimationFrame(fxLoop); else { fxOn = false; fctx.clearRect(0, 0, innerWidth, innerHeight); }
+}
+
+/* ---------------- ticking ---------------- */
+setInterval(() => { if (SCREEN === 'home') renderTop(); else if (SCREEN === 'out') renderOut(); else if (SCREEN === 'lesson' && S) $('#lheartN').textContent = ST.hearts; }, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && SCREEN === 'home') { renderTop(); renderPath(); } });
+
+/* ---------------- test hook (read-only helpers for the check scripts) ---------------- */
+window.__promptling = {
+  get state() { return ST; }, get session() { return S; }, get screen() { return SCREEN; }, nodes: NODES, lessons: LESSONS, storageOk: () => storageOk,
+  correctKeys() { const ex = curEx(); if (!ex) return []; const k = kind(ex); const pos = i => String(S.perm.indexOf(i) + 1); if (k === 'single') return [pos(ex.a)]; if (k === 'multi') return ex.a.map(pos); return ex.steps.map((_, i) => pos(i)); },
+  wrongKeys() { const ex = curEx(); if (!ex) return []; const k = kind(ex); const pos = i => String(S.perm.indexOf(i) + 1); if (k === 'single') { const w = range(optionCount(ex)).find(i => i !== ex.a); return [pos(w)]; } if (k === 'multi') { const w = range(optionCount(ex)).find(i => ex.a.indexOf(i) < 0); return [pos(w)]; } return S.perm.map((_, p) => String(p + 1)); },
+  wrongSelectors() { const ex = curEx(); if (!ex) return []; const k = kind(ex); if (k === 'single') return [`#lbody [data-i="${range(optionCount(ex)).find(i => i !== ex.a)}"]`]; if (k === 'multi') return [`#lbody [data-i="${range(optionCount(ex)).find(i => ex.a.indexOf(i) < 0)}"]`]; return S.perm.map(i => `#lbody .bank [data-i="${i}"]`); },
+  correctSelectors() { const ex = curEx(); if (!ex) return []; const k = kind(ex); if (k === 'single') return [`#lbody [data-i="${ex.a}"]`]; if (k === 'multi') return ex.a.map(i => `#lbody [data-i="${i}"]`); return ex.steps.map((_, i) => `#lbody .bank [data-i="${i}"]`); }
+};
+
+/* ---------------- boot ---------------- */
+if (PREVIEW) bootPreview();
+else if (!ST.welcomed) show('welcome');
+else goHome();
+
+/* ---------------- preview: silent attract loop on a 2:1 stage ---------------- */
+function bootPreview() {
+  const app = $('#app'), finger = $('#finger');
+  const fit = () => { const s = Math.min(innerWidth / 640, innerHeight / 320); app.style.transform = `translate(-50%,-50%) scale(${s})`; };
+  fit(); addEventListener('resize', fit);
+  async function tap(el) {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    finger.style.left = (r.left + r.width / 2 - 19) + 'px';
+    finger.style.top = (r.top + r.height / 2 - 19) + 'px';
+    await sleep(560);
+    finger.classList.add('press'); await sleep(150); finger.classList.remove('press');
+    el.click();
+  }
+  const seed = () => { ST = freshState(); for (let i = 0; i < 6; i++) ST.done[NODES[i].id] = 1; ST.xp = 85; ST.streak = 4; ST.best = 6; ST.lastDay = today() - 1; ST.welcomed = true; };
+  (async function loop() {
+    for (;;) {
+      seed(); goHome(); await sleep(1500);
+      const ci = currentIndex();
+      await tap(document.querySelector(`.node[data-n="${ci}"]`)); await sleep(900);
+      await tap($('#sheetGo')); await sleep(900);
+      while (S && S.queue.length) {
+        const ex = curEx();
+        const sel = window.__promptling.correctSelectors();
+        for (const s of sel) { await tap(document.querySelector(s)); await sleep(250); }
+        await sleep(300);
+        await tap($('#check')); await sleep(2300);
+        await tap($('#cont')); await sleep(700);
+        if (!ex) break;
+      }
+      await sleep(3800);
+    }
+  })();
+}
+</script>
+</body>
+</html>

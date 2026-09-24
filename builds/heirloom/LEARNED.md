@@ -1,0 +1,29 @@
+# Heirloom, a family tree and legacy planner
+
+Notes from the Saxton Showcase, written for an AI helper as much as for a person. Hand this file to your agent along with `heirloom.html`, the game itself, and it gets what we learned without having to rebuild it to find out.
+
+- Built: 2026-09-23
+- Tags: tool, family tree, life sim, canvas, touch, keyboard, offline, import export
+- The game: one self contained HTML file. Open it in a current browser; it needs no install, no account and no internet, though some builds need WebGL2 or sound.
+
+## What it is
+
+A single-file browser tool for life-sim players who follow one family across generations. Each person has a drawn portrait (skin tone, six hair styles, hair colour, top colour, and five age stages from baby to elder), free-text traits, a generation number, a status (living, moved out, passed on) and notes. People link as partners (married or dating, several over a life) and as parents and children, including adoption. The tree lays itself out by generation with partners side by side and children under their parents, and pans and zooms by drag, wheel or pinch. A Legacy panel holds one typed goal per generation with a tick and a progress bar. It keeps several trees and switches between them, saves a PNG of the whole tree, exports and imports .json, and stays entirely in the browser. The empty state teaches the first three steps and offers a made-up sample family. ?preview=1 shows that sample family building itself person by person.
+
+## What we learned building it
+
+The first layout alternated sweeps (children under parents, then parents over children) with a least-squares row packer. It never overlapped, but across 300 generated trees about half the families ended up with their drop line off to one side of their children. What worked was a tidy tree over partner groups: each group hangs under the one family it descends from, subtrees pack by their outline on each row, and the group is placed so every family's drop point sits over its own children. Two kinds of family shape needed extra care. A person with children by two partners can need more room between those partners than the default gap, so the gaps stretch. A parent's own children and a child they had with someone from another branch come down from the same point, so they are centred as one block. The honest limit is cross-branch links: an in-law whose parents are also in the tree hangs under one line and gets a long connector from the other (111 such links in the sweep, reported and not asserted).
+
+## The gotcha
+
+Stretching one partner gap at a time to fit drop points failed on chains of serial partners (four people, three couples, all with children). Fixing the outer pair pulled the middle couple's drop point off its children, and 11 of 5,824 drop points still missed. It was replaced with alternating projections: move each couple's drop point into its children's span, then push partners back apart to the minimum gap, and repeat. Both steps are exact projections, so the loop settles on a fit whenever one exists, and it only runs when the rigid group cannot fit. The sweep then had zero misses. A smaller UI bug: typing a goal and then clicking its tick fired change on blur, which rebuilt the panel and swallowed the click. The trait box had the same bug. Both now update in place.
+
+## How we checked it
+
+node logic.test.js: 78 passed, 0 failed. Relationship rules: self-parent, 2- and 3-step loops, partnering an ancestor, loops through partner groups, a two-birth-parent cap, and 1800 random link attempts that never created a loop. Layout: 300 generated trees of 40 to 139 people (21,286 people in all) with 0 overlapping cards, 0 children on or above a parent's row, and 0 of 5,824 drop points outside their children; a 400-person tree laid out in 2 ms. Import: 16 bad inputs each rejected with a message, a sample export/import round trip unchanged, odd values sanitised, and inconsistent generations settled. node ui.test.js (Playwright, system Chrome): 50/50 checks. At 1280x720 by keyboard and mouse: N adds a person; the card edits name, stage, hair colour, traits and notes; a married partner is added, then a child with both parents one generation down; the parent picker never offers your own child or partner; a dating second partner is added; L opens Legacy and a typed goal ticks off; drag pans, wheel and keys zoom; M mutes; Escape is not prevented and reaches the host; the sample loads as its own tree; the switcher swaps trees; the PNG download is 2994x2468; the .json download holds 16 people; the .json re-imports as a new tree; a 45-person file imports with 0 overlaps; broken JSON and a parent-loop file are each refused with a message; trees survive a reload; delete asks, then removes. At 390x844 with touch: the bar and empty state fit with no sideways scroll; the sample loads by tap; tapping a card opens the bottom sheet; + Child adds a child linked to both parents; status and a trait are set by touch; a one-finger drag pans; a real two-finger CDP pinch zooms; the page never scrolls or zooms; a Legacy goal ticks by touch. With a localStorage that throws, it starts, adds people and says storage is blocked. ?preview=1 at 600x300: frames 3 s apart differ (27,664 sampled pixel values) as people are added; no chrome shows; after 28 s it has finished the family and restarted (1 loop); nothing is written to localStorage. Zero page errors, console errors or network requests in every run. Screenshots reviewed; fixes made after review: card scroll carried over between people, toast over the phone sheet, the family dot on top of the ring glyph, a clipped placeholder, and small names at mid zoom.
+
+## About these notes
+
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
+
+Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

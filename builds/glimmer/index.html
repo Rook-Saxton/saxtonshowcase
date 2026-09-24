@@ -1,0 +1,1378 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  GLIMMER
+  builds/glimmer/index.html
+  Built 2026-09-23. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  A match three puzzle on an 8 by 8 board of six gems. Every gem has its own shape as well as its
+  own colour (star, heart, triangle, hexagon, diamond, circle), so the board reads without colour.
+  Swap two neighbours to line up three or more. Only swaps that make a line are allowed; a bad swap
+  bounces back. Cleared gems fall, new ones drop in, and every cascade raises the combo multiplier.
+  Line up four and you get a Blaster that clears its row (made from a row) or its column (made from
+  a column) when it goes off. Line up five and you get a Prism: swap it with any gem to clear every
+  gem of that colour. Twelve levels, each with a score target and a move limit that tighten as you
+  go. Leftover moves pay a bonus. The board reshuffles itself when no move is left, and after five
+  idle seconds two gems pulse as a hint.
+
+  CONTROLS
+  Pointer or touch: drag a gem onto a neighbour, or tap one gem and then a neighbour.
+  Keyboard: arrow keys move the cursor, Enter picks a gem, then an arrow (or Enter on a neighbour)
+  swaps. H shows a hint. P or Space pauses. M mutes. Enter or a tap starts and restarts.
+  Escape is left alone for the page that hosts the game.
+  ?preview=1 hides all chrome and runs a silent autopilot that picks legal swaps forever.
+
+  HOW IT WAS CHECKED
+  The board logic sits between CORE:BEGIN and CORE:END and has no DOM, so node loads exactly that
+  block out of this file. 47 unit assertions: run finding (rows, columns, gaps, L shapes, Prisms
+  never matching), Blaster and Prism creation and placement, Blaster chains, Prism colour clears,
+  gravity and refill, a hand-built two-step cascade scored at x2, no-moves detection on a board
+  with no legal swap (confirmed by an independent brute force), shuffle, 300 fresh boards, and a
+  2,400 move autopilot soak with zero illegal swaps and zero holes. Four planted bugs in a copy of
+  the core (match needs four, no column Blaster, gravity skips a row, Prism never fires) each turn
+  the suite red. The level table was tuned by playing 400 seeds per level with a random bot and
+  with the greedy autopilot.
+  Headless Chrome (Playwright) drives the page: 1280x720 with real keys and mouse (illegal swap
+  bounces with no move spent, keyboard, drag and click swaps score, hint after idle, P, Space,
+  blur, M, game over, localStorage best, instant restart, level advance, Escape not prevented);
+  390x844 at 3x with real taps and a real touch drag (no scroll or zoom, mute and pause buttons,
+  visibilitychange pause, game over, tap restart); a run with localStorage throwing; and
+  ?preview=1 at 600x300 and 350x175 (frames change, no chrome, no storage, no audio, legal
+  swaps only, restarts itself after a forced game over). Zero page or console errors throughout.
+  window.__glimmer is the handle those checks read; they also use it to force a short move budget.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Glimmer</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #1A1540; color: #fff;
+    touch-action: none; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  canvas#c { display: block; touch-action: none; outline: none; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  html.preview, body.preview { cursor: default; pointer-events: none; }
+  body.preview .sr { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0" aria-label="Glimmer, a match three puzzle. Arrow keys move, Enter picks and swaps."></canvas>
+<div id="live" class="sr" aria-live="polite"></div>
+<script>
+"use strict";
+/*CORE:BEGIN*/
+/* Pure board logic. No DOM, no timers: the node tests load exactly this block. */
+var Core = (function () {
+  var N = 8, TYPES = 6, PRISM_T = 6;
+  var S_NONE = 0, S_ROW = 1, S_COL = 2, S_PRISM = 3;
+  var nextId = 1;
+
+  function rngFrom(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function gem(t, s) { return { id: nextId++, t: t, s: s || 0 }; }
+  function idx(r, c) { return r * N + c; }
+  function adjacent(a, b) {
+    if (a < 0 || b < 0 || a >= N * N || b >= N * N) return false;
+    return Math.abs((a >> 3) - (b >> 3)) + Math.abs((a & 7) - (b & 7)) === 1;
+  }
+  function colourOf(g) { return g && g.s !== S_PRISM ? g.t : -1; }
+
+  function findRuns(board) {
+    var runs = [], r, c, e, t, k, cells;
+    for (r = 0; r < N; r++) {
+      c = 0;
+      while (c < N) {
+        t = colourOf(board[idx(r, c)]); e = c + 1;
+        if (t >= 0) while (e < N && colourOf(board[idx(r, e)]) === t) e++;
+        if (t >= 0 && e - c >= 3) { cells = []; for (k = c; k < e; k++) cells.push(idx(r, k)); runs.push({ dir: "h", t: t, cells: cells }); }
+        c = e;
+      }
+    }
+    for (c = 0; c < N; c++) {
+      r = 0;
+      while (r < N) {
+        t = colourOf(board[idx(r, c)]); e = r + 1;
+        if (t >= 0) while (e < N && colourOf(board[idx(e, c)]) === t) e++;
+        if (t >= 0 && e - r >= 3) { cells = []; for (k = r; k < e; k++) cells.push(idx(k, c)); runs.push({ dir: "v", t: t, cells: cells }); }
+        r = e;
+      }
+    }
+    return runs;
+  }
+
+  function matchAt(board, i) {
+    var t = colourOf(board[i]); if (t < 0) return false;
+    var r = i >> 3, c = i & 7, n = 1, k;
+    for (k = c - 1; k >= 0 && colourOf(board[idx(r, k)]) === t; k--) n++;
+    for (k = c + 1; k < N && colourOf(board[idx(r, k)]) === t; k++) n++;
+    if (n >= 3) return true;
+    n = 1;
+    for (k = r - 1; k >= 0 && colourOf(board[idx(k, c)]) === t; k--) n++;
+    for (k = r + 1; k < N && colourOf(board[idx(k, c)]) === t; k++) n++;
+    return n >= 3;
+  }
+
+  function groupRuns(runs) {
+    var parent = runs.map(function (_, i) { return i; });
+    function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+    var owner = {};
+    runs.forEach(function (run, i) {
+      run.cells.forEach(function (c) {
+        if (owner[c] !== undefined) parent[find(i)] = find(owner[c]); else owner[c] = i;
+      });
+    });
+    var groups = {}, order = [];
+    runs.forEach(function (run, i) {
+      var k = find(i);
+      if (!groups[k]) { groups[k] = []; order.push(k); }
+      groups[k].push(run);
+    });
+    return order.map(function (k) {
+      var rs = groups[k], seen = {}, cells = [];
+      rs.forEach(function (r) { r.cells.forEach(function (c) { if (!seen[c]) { seen[c] = 1; cells.push(c); } }); });
+      return { runs: rs, cells: cells, t: rs[0].t };
+    });
+  }
+
+  function planSpecial(group, prefer) {
+    var best = group.runs[0], i, p;
+    for (i = 1; i < group.runs.length; i++) if (group.runs[i].cells.length > best.cells.length) best = group.runs[i];
+    var len = best.cells.length;
+    if (len < 4) return null;
+    var at = -1;
+    for (i = 0; prefer && i < prefer.length && at < 0; i++) { p = prefer[i]; if (best.cells.indexOf(p) >= 0) at = p; }
+    for (i = 0; prefer && i < prefer.length && at < 0; i++) { p = prefer[i]; if (group.cells.indexOf(p) >= 0) at = p; }
+    if (at < 0) at = best.cells[(len - 1) >> 1];
+    if (len >= 5) return { at: at, t: PRISM_T, s: S_PRISM };
+    return { at: at, t: group.t, s: best.dir === "h" ? S_ROW : S_COL };
+  }
+
+  function commonColour(board, exclude) {
+    var counts = [0, 0, 0, 0, 0, 0], k, t, best = -1, bn = 0;
+    for (k = 0; k < N * N; k++) { if (exclude[k]) continue; t = colourOf(board[k]); if (t >= 0) counts[t]++; }
+    for (t = 0; t < TYPES; t++) if (counts[t] > bn) { bn = counts[t]; best = t; }
+    return best;
+  }
+
+  /* Clear a seed set, letting every special caught in it go off, chain style. */
+  function expand(board, seed, fired) {
+    fired = fired || {};
+    var set = {}, list = [], queue = [], blasts = [], i, g, cells, kind, t, k;
+    function add(c) { if (!set[c]) { set[c] = 1; list.push(c); queue.push(c); } }
+    seed.forEach(add);
+    while (queue.length) {
+      i = queue.shift(); g = board[i];
+      if (!g || !g.s || fired[i]) continue;
+      fired[i] = 1; cells = []; t = -1;
+      if (g.s === S_ROW) { kind = "row"; for (k = 0; k < N; k++) cells.push(idx(i >> 3, k)); }
+      else if (g.s === S_COL) { kind = "col"; for (k = 0; k < N; k++) cells.push(idx(k, i & 7)); }
+      else {
+        kind = "prism"; t = commonColour(board, set);
+        for (k = 0; k < N * N; k++) if (t >= 0 && colourOf(board[k]) === t) cells.push(k);
+      }
+      blasts.push({ kind: kind, at: i, t: t, cells: cells });
+      cells.forEach(add);
+    }
+    return { cells: list, blasts: blasts };
+  }
+
+  function finish(board, seed, plans, groups, mult, fired, pre) {
+    var ex = expand(board, seed, fired);
+    var blasts = (pre || []).concat(ex.blasts);
+    var removed = [], created = [];
+    ex.cells.forEach(function (i) { if (board[i]) removed.push({ i: i, g: board[i] }); board[i] = null; });
+    plans.forEach(function (p) { var g = gem(p.t, p.s); board[p.at] = g; created.push({ i: p.at, g: g }); });
+    var pts = removed.length * 10;
+    groups.forEach(function (gr) {
+      var L = 0; gr.runs.forEach(function (r) { if (r.cells.length > L) L = r.cells.length; });
+      if (L === 4) pts += 40; else if (L >= 5) pts += 100;
+      if (gr.runs.length > 1) pts += 30;
+    });
+    pts += blasts.length * 50;
+    return { removed: removed, created: created, blasts: blasts, groups: groups, points: pts * (mult || 1), mult: mult || 1 };
+  }
+
+  /* One cascade step: find every line, plan specials, clear. Returns null when the board is still. */
+  function resolveStep(board, prefer, mult) {
+    var runs = findRuns(board);
+    if (!runs.length) return null;
+    var groups = groupRuns(runs), plans = [], seed = [];
+    groups.forEach(function (g) { var p = planSpecial(g, prefer); if (p) plans.push(p); seed.push.apply(seed, g.cells); });
+    return finish(board, seed, plans, groups, mult, null, null);
+  }
+
+  /* A swap that involves a Prism. The swap has already been applied. */
+  function resolvePrismSwap(board, a, b, mult) {
+    var p = board[a] && board[a].s === S_PRISM ? a : b, o = p === a ? b : a;
+    var fired = {}, seed = [p], t = -1, k;
+    fired[p] = 1;
+    if (board[o] && board[o].s === S_PRISM) {
+      fired[o] = 1;
+      for (k = 0; k < N * N; k++) if (board[k]) seed.push(k);
+    } else {
+      t = board[o].t;
+      for (k = 0; k < N * N; k++) if (k !== p && colourOf(board[k]) === t) seed.push(k);
+    }
+    var pre = [{ kind: "prism", at: p, t: t, cells: seed.slice() }];
+    return finish(board, seed, [], [], mult, fired, pre);
+  }
+
+  function isPrismSwap(board, a, b) {
+    return !!(board[a] && board[b] && (board[a].s === S_PRISM || board[b].s === S_PRISM));
+  }
+  function applySwap(board, a, b) { var t = board[a]; board[a] = board[b]; board[b] = t; }
+  function isLegalSwap(board, a, b) {
+    if (!adjacent(a, b) || !board[a] || !board[b]) return false;
+    if (isPrismSwap(board, a, b)) return true;
+    applySwap(board, a, b);
+    var ok = matchAt(board, a) || matchAt(board, b);
+    applySwap(board, a, b);
+    return ok;
+  }
+
+  /* Gravity then refill. Mutates the board; returns what moved for the animation. */
+  function collapse(board, rng, types) {
+    types = types || TYPES;
+    var falls = [], spawns = [], c, r, w, i, g;
+    for (c = 0; c < N; c++) {
+      w = N - 1;
+      for (r = N - 1; r >= 0; r--) {
+        i = idx(r, c);
+        if (board[i]) {
+          if (r !== w) { g = board[i]; board[idx(w, c)] = g; board[i] = null; falls.push({ g: g, c: c, from: r, to: w }); }
+          w--;
+        }
+      }
+      for (r = w; r >= 0; r--) {
+        g = gem((rng() * types) | 0);
+        board[idx(r, c)] = g;
+        spawns.push({ g: g, c: c, from: r - (w + 1), to: r });
+      }
+    }
+    return { falls: falls, spawns: spawns };
+  }
+
+  function findMoves(board, firstOnly) {
+    var out = [], i, j, r, c;
+    for (i = 0; i < N * N; i++) {
+      r = i >> 3; c = i & 7;
+      var nb = [];
+      if (c < N - 1) nb.push(i + 1);
+      if (r < N - 1) nb.push(i + N);
+      for (var q = 0; q < nb.length; q++) {
+        j = nb[q];
+        if (isLegalSwap(board, i, j)) { out.push({ a: i, b: j }); if (firstOnly) return out; }
+      }
+    }
+    return out;
+  }
+  function hasMoves(board) { return findMoves(board, true).length > 0; }
+
+  function fillFresh(rng, types) {
+    types = types || TYPES;
+    for (var tries = 0; tries < 500; tries++) {
+      var board = new Array(N * N), i, r, c, t, guard;
+      for (i = 0; i < N * N; i++) {
+        r = i >> 3; c = i & 7; guard = 0;
+        do {
+          t = (rng() * types) | 0; guard++;
+        } while (guard < 50 && ((c >= 2 && board[i - 1].t === t && board[i - 2].t === t) ||
+                                (r >= 2 && board[i - N].t === t && board[i - 2 * N].t === t)));
+        board[i] = gem(t);
+      }
+      if (!findRuns(board).length && hasMoves(board)) return board;
+    }
+    throw new Error("fillFresh: no playable board in 500 tries");
+  }
+
+  /* Rearrange the same gems until the board is still and has a move. */
+  function shuffle(board, rng) {
+    var gems = board.filter(Boolean), cells = [], i, k, tmp;
+    for (i = 0; i < N * N; i++) if (board[i]) cells.push(i);
+    for (var tries = 0; tries < 300; tries++) {
+      for (i = gems.length - 1; i > 0; i--) { k = (rng() * (i + 1)) | 0; tmp = gems[i]; gems[i] = gems[k]; gems[k] = tmp; }
+      cells.forEach(function (c, n) { board[c] = gems[n]; });
+      if (!findRuns(board).length && hasMoves(board)) return "shuffled";
+    }
+    var fresh = fillFresh(rng);
+    for (i = 0; i < N * N; i++) board[i] = fresh[i];
+    return "fresh";
+  }
+
+  function evaluateMove(board, m) {
+    var b = board.slice(), res;
+    if (isPrismSwap(b, m.a, m.b)) { applySwap(b, m.a, m.b); res = resolvePrismSwap(b, m.a, m.b, 1); }
+    else { applySwap(b, m.a, m.b); res = resolveStep(b, [m.b, m.a], 1); }
+    if (!res) return -1;
+    var v = res.points;
+    res.created.forEach(function (c) { v += c.g.s === S_PRISM ? 260 : 110; });
+    v += (N - (m.a >> 3)) * -2; /* slight preference for lower moves: they shake up more cascades */
+    return v;
+  }
+  function bestMove(board, rng, noise) {
+    var ms = findMoves(board), best = null, bv = -Infinity;
+    ms.forEach(function (m) {
+      var v = evaluateMove(board, m) + (rng ? rng() * (noise || 0) : 0);
+      if (v > bv) { bv = v; best = m; }
+    });
+    return best;
+  }
+
+  /* Twelve levels: the target climbs and the move budget shrinks. Tuned in node against two bots over 400
+     seeds each: a random legal mover clears level 1 about 98% of the time and level 12 about 13%;
+     the greedy autopilot clears level 1 always and level 12 about half the time. */
+  var LEVELS = [
+    { name: "First Light", target: 900, moves: 20 },
+    { name: "Candle Cove", target: 1100, moves: 20 },
+    { name: "Marigold Meadow", target: 1300, moves: 20 },
+    { name: "Pool Party", target: 1400, moves: 19 },
+    { name: "Grape Arcade", target: 1550, moves: 19 },
+    { name: "Bubble Row", target: 1650, moves: 18 },
+    { name: "Tomato Tower", target: 1750, moves: 18 },
+    { name: "Periwinkle Pier", target: 1800, moves: 17 },
+    { name: "Sugar Stairs", target: 1900, moves: 17 },
+    { name: "Glint Garden", target: 1950, moves: 16 },
+    { name: "Moonstone Mile", target: 2050, moves: 16 },
+    { name: "Crown of Glimmer", target: 2200, moves: 16 }
+  ];
+
+  function fromRows(rows) {
+    var map = "abcdef", board = [], ch, k;
+    rows.forEach(function (row) {
+      for (k = 0; k < N; k++) {
+        ch = row[k];
+        if (ch === ".") board.push(null);
+        else if (ch === "*") board.push(gem(PRISM_T, S_PRISM));
+        else if (map.indexOf(ch) >= 0) board.push(gem(map.indexOf(ch), S_NONE));
+        else if (map.toUpperCase().indexOf(ch) >= 0) board.push(gem(map.toUpperCase().indexOf(ch), S_ROW));
+        else if ("123456".indexOf(ch) >= 0) board.push(gem("123456".indexOf(ch), S_COL));
+        else throw new Error("bad cell " + ch);
+      }
+    });
+    return board;
+  }
+
+  return {
+    N: N, TYPES: TYPES, PRISM_T: PRISM_T, S_NONE: S_NONE, S_ROW: S_ROW, S_COL: S_COL, S_PRISM: S_PRISM,
+    rngFrom: rngFrom, gem: gem, adjacent: adjacent, findRuns: findRuns, matchAt: matchAt, groupRuns: groupRuns,
+    resolveStep: resolveStep, resolvePrismSwap: resolvePrismSwap, isPrismSwap: isPrismSwap, applySwap: applySwap,
+    isLegalSwap: isLegalSwap, collapse: collapse, findMoves: findMoves, hasMoves: hasMoves, fillFresh: fillFresh,
+    shuffle: shuffle, evaluateMove: evaluateMove, bestMove: bestMove, LEVELS: LEVELS, fromRows: fromRows
+  };
+})();
+/*CORE:END*/
+
+/* ------------------------------------------------------------------ *
+ *  Setup
+ * ------------------------------------------------------------------ */
+var qs = new URLSearchParams(location.search);
+var PREVIEW = qs.has("preview") && qs.get("preview") !== "0";
+if (PREVIEW) { document.documentElement.classList.add("preview"); document.body.classList.add("preview"); }
+var RM = false;
+try { RM = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { RM = false; }
+
+var COL = ["#FFE066", "#FF4F6D", "#C6F432", "#22D3C5", "#B45CF0", "#FF7AC8"];
+var GEM_NAMES = ["star", "heart", "triangle", "hexagon", "diamond", "circle"];
+var PERI = "#8C9BFF", INK = "#1A1540", PANEL = "#241D5A", PANEL2 = "#2B2369", DIM = "#B8B2EA";
+var FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+var cv = document.getElementById("c"), cx = cv.getContext("2d");
+var liveEl = document.getElementById("live");
+var W = 0, H = 0, DPR = 1, L = {}, sprites = [], bgCanvas = null;
+var T = 0;                                   /* game clock, frozen while paused */
+var P = [], POP = [];                        /* particles, floating text */
+var shakeAmt = 0, flash = 0;
+var screen = "title", paused = false, G = null, BTN = [];
+var best = loadBest(), muted = loadMute();
+
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, k) { return a + (b - a) * k; }
+function easeOut(k) { return 1 - (1 - k) * (1 - k); }
+function easeInOut(k) { return k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2; }
+function easeBack(k) { var c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2); }
+function fmt(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+function mix(hex, other, k) {
+  var a = parseInt(hex.slice(1), 16), b = parseInt(other.slice(1), 16);
+  var r = Math.round(lerp(a >> 16, b >> 16, k)), g = Math.round(lerp((a >> 8) & 255, (b >> 8) & 255, k)), bl = Math.round(lerp(a & 255, b & 255, k));
+  return "rgb(" + r + "," + g + "," + bl + ")";
+}
+function say(t) { if (!PREVIEW && liveEl) liveEl.textContent = t; }
+
+function loadBest() { try { var v = parseInt(localStorage.getItem("glimmer.best"), 10); return isFinite(v) ? v : 0; } catch (e) { return 0; } }
+function saveBest() { if (PREVIEW) return; try { localStorage.setItem("glimmer.best", String(best)); } catch (e) { } }
+function loadMute() { try { return localStorage.getItem("glimmer.mute") === "1"; } catch (e) { return false; } }
+function saveMute() { if (PREVIEW) return; try { localStorage.setItem("glimmer.mute", muted ? "1" : "0"); } catch (e) { } }
+
+/* ------------------------------------------------------------------ *
+ *  Sound: all synthesized, nothing starts before the first input
+ * ------------------------------------------------------------------ */
+var AC = null, MG = null, lastLand = 0;
+function unlockAudio() {
+  if (PREVIEW) return;
+  if (AC) { if (AC.state === "suspended") AC.resume(); return; }
+  try {
+    var Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return;
+    AC = new Ctor(); MG = AC.createGain(); MG.gain.value = muted ? 0 : 0.5; MG.connect(AC.destination);
+  } catch (e) { AC = null; }
+}
+function setMuted(m) {
+  muted = m; saveMute();
+  if (MG && AC) MG.gain.setTargetAtTime(muted ? 0 : 0.5, AC.currentTime, 0.02);
+  say(muted ? "Sound off" : "Sound on");
+}
+function tone(f, dur, o) {
+  if (!AC || muted) return;
+  o = o || {};
+  var t0 = AC.currentTime + (o.delay || 0), osc = AC.createOscillator(), g = AC.createGain();
+  osc.type = o.type || "sine";
+  osc.frequency.setValueAtTime(f, t0);
+  if (o.slide) osc.frequency.exponentialRampToValueAtTime(o.slide, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(o.vol || 0.15, t0 + (o.attack || 0.006));
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(MG); osc.start(t0); osc.stop(t0 + dur + 0.03);
+}
+var noiseBuf = null;
+function noise(dur, o) {
+  if (!AC || muted) return;
+  o = o || {};
+  if (!noiseBuf) {
+    noiseBuf = AC.createBuffer(1, AC.sampleRate | 0, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0); for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  var t0 = AC.currentTime + (o.delay || 0), src = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  src.buffer = noiseBuf; f.type = o.filter || "lowpass"; f.Q.value = o.q || 1;
+  f.frequency.setValueAtTime(o.f0 || 3000, t0); f.frequency.exponentialRampToValueAtTime(o.f1 || 200, t0 + dur);
+  g.gain.setValueAtTime(o.vol || 0.3, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f); f.connect(g); g.connect(MG); src.start(t0); src.stop(t0 + dur + 0.02);
+}
+var PENTA = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31];
+function note(n) { return 523.25 * Math.pow(2, n / 12); }
+function sfx(name, a) {
+  if (!AC || muted || (G && G.demo)) return;
+  switch (name) {
+    case "select": tone(880, 0.06, { type: "triangle", vol: 0.08 }); break;
+    case "swap": tone(420, 0.1, { type: "sine", vol: 0.12, slide: 640 }); noise(0.08, { vol: 0.05, filter: "bandpass", f0: 2500, f1: 900, q: 2 }); break;
+    case "bad": tone(260, 0.09, { type: "triangle", vol: 0.14, slide: 190 }); tone(200, 0.12, { type: "triangle", vol: 0.12, slide: 150, delay: 0.09 }); break;
+    case "match": {
+      var step = Math.min(PENTA.length - 1, (a || 1) * 2 - 2);
+      var f = note(PENTA[step]);
+      tone(f, 0.35, { type: "sine", vol: 0.16 }); tone(f * 2, 0.22, { type: "triangle", vol: 0.05 });
+      tone(f * 1.5, 0.3, { type: "sine", vol: 0.07, delay: 0.05 });
+      break;
+    }
+    case "make": [0, 4, 7, 12].forEach(function (s, k) { tone(note(12 + s), 0.18, { type: "triangle", vol: 0.08, delay: k * 0.045 }); }); break;
+    case "blast": noise(0.45, { vol: 0.35, f0: 5000, f1: 120 }); tone(180, 0.35, { type: "sawtooth", vol: 0.06, slide: 60 }); break;
+    case "prism":
+      noise(0.6, { vol: 0.25, filter: "bandpass", f0: 6000, f1: 400, q: 3 });
+      [0, 7, 12, 16, 19, 24].forEach(function (s, k) { tone(note(s), 0.5, { type: "sine", vol: 0.07, delay: k * 0.04 }); });
+      break;
+    case "land": tone(140 + Math.random() * 30, 0.05, { type: "sine", vol: 0.05 }); break;
+    case "shuffle": for (var k = 0; k < 7; k++) tone(500 + k * 90, 0.05, { type: "square", vol: 0.03, delay: k * 0.05 }); break;
+    case "clear": [0, 4, 7, 12, 16, 19, 24].forEach(function (s, k) { tone(note(s), 0.3, { type: "triangle", vol: 0.1, delay: k * 0.07 }); }); break;
+    case "over": [7, 3, 0, -5].forEach(function (s, k) { tone(note(s - 12), 0.4, { type: "triangle", vol: 0.12, delay: k * 0.16 }); }); break;
+    case "start": tone(note(0), 0.14, { type: "triangle", vol: 0.1 }); tone(note(7), 0.2, { type: "triangle", vol: 0.1, delay: 0.08 }); break;
+    case "hint": tone(1320, 0.12, { type: "sine", vol: 0.05 }); tone(1760, 0.14, { type: "sine", vol: 0.04, delay: 0.08 }); break;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Layout and sprites
+ * ------------------------------------------------------------------ */
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  W = Math.max(1, window.innerWidth); H = Math.max(1, window.innerHeight);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  layout(); buildSprites(); buildBg();
+}
+function layout() {
+  var pad = 12, s, cell;
+  L = {};
+  if (PREVIEW) {
+    s = Math.min(H - 14, W - 14); cell = Math.max(4, Math.floor(s / 8));
+    L.mode = "preview"; L.cell = cell; L.bs = cell * 8; L.bx = Math.round((W - L.bs) / 2); L.by = Math.round((H - L.bs) / 2);
+    return;
+  }
+  if (W > H * 1.15) {
+    var pw = clamp(Math.round(W * 0.24), 190, 300);
+    s = Math.min(H - 2 * pad - 8, W - pw - 3 * pad - 8);
+    cell = Math.max(8, Math.floor(s / 8));
+    L.mode = "land"; L.cell = cell; L.bs = cell * 8; L.pw = pw;
+    var total = pw + 2 * pad + L.bs;
+    L.px = Math.round((W - total) / 2); L.bx = L.px + pw + 2 * pad; L.by = Math.round((H - L.bs) / 2);
+    L.py = L.by; L.ph = L.bs;
+    if (screen === "title") L.bx = Math.round((W - L.bs) / 2);   /* no panel on the title: centre the demo board */
+  } else {
+    var hh = clamp(Math.round(H * 0.15), 104, 140), foot = 26;
+    s = Math.min(W - 2 * pad, H - hh - foot - 3 * pad);
+    cell = Math.max(8, Math.floor(s / 8));
+    L.mode = "port"; L.cell = cell; L.bs = cell * 8; L.hh = hh;
+    var tot = hh + pad + L.bs + foot;
+    var oy = Math.round((H - tot) / 2);
+    L.bx = Math.round((W - L.bs) / 2); L.hx = L.bx; L.hy = oy; L.hw = L.bs;
+    L.by = oy + hh + pad; L.fy = L.by + L.bs + 18;
+  }
+}
+
+function shapePath(c, t, r) {
+  var k, a;
+  c.beginPath();
+  switch (t) {
+    case 0:
+      for (k = 0; k < 10; k++) { a = -Math.PI / 2 + k * Math.PI / 5; var rr = k % 2 ? r * 0.5 : r * 1.02; c[k ? "lineTo" : "moveTo"](Math.cos(a) * rr, Math.sin(a) * rr + r * 0.06); }
+      break;
+    case 1:
+      c.moveTo(0, r * 0.9);
+      c.bezierCurveTo(-r * 1.25, r * 0.05, -r * 0.9, -r * 1.05, 0, -r * 0.42);
+      c.bezierCurveTo(r * 0.9, -r * 1.05, r * 1.25, r * 0.05, 0, r * 0.9);
+      break;
+    case 2: c.moveTo(0, -r * 0.98); c.lineTo(r * 0.98, r * 0.78); c.lineTo(-r * 0.98, r * 0.78); break;
+    case 3: for (k = 0; k < 6; k++) { a = Math.PI / 6 + k * Math.PI / 3; c[k ? "lineTo" : "moveTo"](Math.cos(a) * r * 0.95, Math.sin(a) * r * 0.95); } break;
+    case 4: c.moveTo(0, -r * 1.02); c.lineTo(r * 0.74, 0); c.lineTo(0, r * 1.02); c.lineTo(-r * 0.74, 0); break;
+    default: c.arc(0, 0, r * 0.84, 0, Math.PI * 2);
+  }
+  c.closePath();
+}
+function drawGem(c, t, s, r) {
+  c.save();
+  c.lineJoin = "round";
+  var base = t === 6 ? PERI : COL[t];
+  if (t === 6) {
+    var gr = c.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r);
+    gr.addColorStop(0, "#FFFFFF"); gr.addColorStop(0.35, mix(PERI, "#FFFFFF", 0.35)); gr.addColorStop(1, mix(PERI, INK, 0.35));
+    c.fillStyle = "rgba(0,0,0,0.3)"; c.beginPath(); c.arc(0, r * 0.1, r * 0.9, 0, Math.PI * 2); c.fill();
+    c.fillStyle = gr; c.beginPath(); c.arc(0, 0, r * 0.88, 0, Math.PI * 2); c.fill();
+    c.lineWidth = r * 0.1; c.strokeStyle = mix(PERI, INK, 0.5); c.stroke();
+    for (var k = 0; k < 6; k++) {
+      var a = k * Math.PI / 3;
+      c.save(); c.translate(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55); c.rotate(a);
+      shapePath(c, k, r * 0.2); c.fillStyle = COL[k]; c.fill(); c.lineWidth = r * 0.05; c.strokeStyle = mix(COL[k], INK, 0.5); c.stroke();
+      c.restore();
+    }
+    c.fillStyle = "#FFFFFF"; c.beginPath();
+    for (k = 0; k < 8; k++) { a = k * Math.PI / 4; var q = k % 2 ? r * 0.1 : r * 0.3; c[k ? "lineTo" : "moveTo"](Math.cos(a) * q, Math.sin(a) * q); }
+    c.closePath(); c.fill();
+    c.restore(); return;
+  }
+  c.save(); c.translate(0, r * 0.1); shapePath(c, t, r); c.fillStyle = "rgba(0,0,0,0.32)"; c.fill(); c.restore();
+  var g = c.createLinearGradient(-r * 0.6, -r, r * 0.6, r);
+  g.addColorStop(0, mix(base, "#FFFFFF", 0.5)); g.addColorStop(0.45, base); g.addColorStop(1, mix(base, INK, 0.3));
+  shapePath(c, t, r); c.fillStyle = g; c.fill();
+  c.lineWidth = Math.max(1.2, r * 0.11); c.strokeStyle = mix(base, INK, 0.5); c.stroke();
+  c.save(); c.translate(0, t === 2 ? r * 0.18 : t === 1 ? r * 0.05 : 0); c.scale(0.5, 0.5); shapePath(c, t, r);
+  c.fillStyle = "rgba(255,255,255,0.28)"; c.fill(); c.restore();
+  c.fillStyle = "rgba(255,255,255,0.8)"; c.beginPath();
+  c.ellipse(-r * 0.28, -r * 0.34, r * 0.17, r * 0.09, -0.6, 0, Math.PI * 2); c.fill();
+  if (s === 1 || s === 2) {
+    c.save(); if (s === 2) c.rotate(Math.PI / 2);
+    var bw = r * 1.9, bh = r * 0.24;
+    c.fillStyle = "rgba(255,255,255,0.92)"; c.strokeStyle = INK; c.lineWidth = Math.max(1, r * 0.07);
+    c.beginPath(); c.rect(-bw / 2 + bh, -bh / 2, bw - 2 * bh, bh); c.fill(); c.stroke();
+    [-1, 1].forEach(function (d) {
+      c.beginPath(); c.moveTo(d * bw / 2 + d * r * 0.08, 0); c.lineTo(d * (bw / 2 - r * 0.34), -r * 0.3); c.lineTo(d * (bw / 2 - r * 0.34), r * 0.3); c.closePath();
+      c.fill(); c.stroke();
+    });
+    c.restore();
+  }
+  c.restore();
+}
+function buildSprites() {
+  sprites = [];
+  var size = Math.max(8, Math.round(L.cell * DPR));
+  for (var t = 0; t < 7; t++) {
+    sprites[t] = [];
+    for (var s = 0; s < 4; s++) {
+      if ((t === 6) !== (s === 3)) continue;
+      var c = document.createElement("canvas"); c.width = c.height = size;
+      var g = c.getContext("2d"); g.translate(size / 2, size / 2);
+      drawGem(g, t, s, size * 0.4);
+      sprites[t][s] = c;
+    }
+  }
+}
+function sprite(t, s) { return t === 6 ? sprites[6][3] : sprites[t][s === 3 ? 0 : s]; }
+var sparkles = [];
+function buildBg() {
+  bgCanvas = document.createElement("canvas");
+  bgCanvas.width = cv.width; bgCanvas.height = cv.height;
+  var g = bgCanvas.getContext("2d");
+  g.fillStyle = INK; g.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+  var spots = [[0.1, 0.15, COL[4]], [0.9, 0.2, COL[3]], [0.15, 0.9, COL[5]], [0.85, 0.85, COL[0]], [0.5, 0.5, PERI]];
+  var R = Math.max(bgCanvas.width, bgCanvas.height) * 0.55;
+  spots.forEach(function (sp) {
+    var x = sp[0] * bgCanvas.width, y = sp[1] * bgCanvas.height;
+    var gr = g.createRadialGradient(x, y, 0, x, y, R);
+    gr.addColorStop(0, sp[2]); gr.addColorStop(1, "rgba(26,21,64,0)");
+    g.globalAlpha = 0.13; g.fillStyle = gr; g.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+  });
+  g.globalAlpha = 1;
+  sparkles = [];
+  var n = Math.round(clamp(W * H / 9000, 20, 90));
+  for (var i = 0; i < n; i++) sparkles.push({ x: Math.random() * W, y: Math.random() * H, p: Math.random() * 6.28, s: 0.6 + Math.random() * 1.6, c: Math.random() < 0.5 ? "#FFFFFF" : COL[i % 6] });
+}
+
+/* ------------------------------------------------------------------ *
+ *  Game state
+ * ------------------------------------------------------------------ */
+var T_SWAP = 0.15, GRAV = 60;
+function place(g, i) { if (!g) return; g.x = i & 7; g.y = i >> 3; g.vy = 0; if (g.pop === undefined) g.pop = 1; g.land = 0; }
+function makeGame(demo) {
+  var rng = Core.rngFrom((Math.random() * 4294967296) >>> 0);
+  var board = Core.fillFresh(rng);
+  board.forEach(function (g, i) { place(g, i); g.pop = 1; });
+  return {
+    demo: demo, board: board, rng: rng, level: 1, score: 0, shown: 0, levelScore: 0, target: 0, moves: 0, chain: 0,
+    phase: "idle", sel: -1, cursor: 27, showCursor: false, idleT: 0, hint: null, sw: null, timer: 0,
+    dying: [], beams: [], banner: null, overT: 0, newBest: false, bestChain: 0, ap: { t: 0, move: null, x: 3.5, y: 3.5, fx: 3.5, fy: 3.5 }
+  };
+}
+function startLevel() {
+  var spec = Core.LEVELS[G.level - 1];
+  G.levelScore = 0; G.target = spec.target; G.moves = spec.moves; G.chain = 0; G.hint = null; G.idleT = 0;
+  G.banner = { title: "Level " + G.level, sub: spec.name + ": " + fmt(spec.target) + " in " + spec.moves + " moves", t: 0, dur: 2.0 };
+  say("Level " + G.level + ", " + spec.name + ". Reach " + spec.target + " points in " + spec.moves + " moves.");
+  G.phase = "idle";
+  if (!Core.hasMoves(G.board)) startShuffle();
+}
+function startGame() {
+  G = makeGame(false); screen = "play"; paused = false; layout(); startLevel(); sfx("start");
+  P.length = 0; POP.length = 0;
+}
+function toTitle() { G = makeGame(true); screen = "title"; layout(); startLevel(); G.banner = null; }
+
+function cellCenter(i) { return { x: L.bx + ((i & 7) + 0.5) * L.cell, y: L.by + ((i >> 3) + 0.5) * L.cell }; }
+function addScore(p, lvl) { G.score += p; if (lvl !== false) G.levelScore += p; }
+function kick(a) { if (!RM) shakeAmt = Math.min(16, shakeAmt + a); }
+
+function trySwap(a, b) {
+  if (!G || G.phase !== "idle" || paused || (screen !== "play" && !G.demo)) return false;
+  if (!Core.adjacent(a, b) || !G.board[a] || !G.board[b]) return false;
+  G.sel = -1; G.hint = null; G.idleT = 0;
+  G.sw = { a: a, b: b, t: 0, legal: Core.isLegalSwap(G.board, a, b), back: false };
+  G.phase = "swap"; sfx("swap");
+  return true;
+}
+
+function applyResolution(res) {
+  G.chain = res.mult;
+  if (G.chain > G.bestChain) G.bestChain = G.chain;
+  addScore(res.points);
+  var sx = 0, sy = 0;
+  res.removed.forEach(function (r) {
+    var c = cellCenter(r.i); sx += c.x; sy += c.y;
+    var g = r.g;
+    G.dying.push({ g: g, x: g.x === undefined ? r.i & 7 : g.x, y: g.y === undefined ? r.i >> 3 : g.y, t: 0 });
+    burst(c.x, c.y, g.t === 6 ? PERI : COL[g.t], RM ? 3 : 7, L.cell * 3.2);
+  });
+  res.created.forEach(function (c) { place(c.g, c.i); c.g.pop = 0; var p = cellCenter(c.i); ring(p.x, p.y, c.g.t === 6 ? PERI : COL[c.g.t]); });
+  var n = res.removed.length || 1;
+  var fx = sx / n, fy = sy / n;
+  POP.push({ x: fx, y: fy, text: "+" + fmt(res.points), t: 0, life: 0.9, size: L.cell * (0.38 + Math.min(0.3, G.chain * 0.04)), col: "#FFFFFF" });
+  if (G.chain >= 2) {
+    POP.push({ x: L.bx + L.bs / 2, y: L.by + L.bs * 0.42, text: "Combo ×" + G.chain, t: 0, life: 1.1, size: L.cell * (0.6 + Math.min(0.4, G.chain * 0.06)), col: COL[(G.chain + 2) % 6], big: true });
+  }
+  var hasBlast = false;
+  res.blasts.forEach(function (b) {
+    hasBlast = true;
+    G.beams.push({ kind: b.kind, at: b.at, cells: b.cells, t: 0, col: b.t >= 0 ? COL[b.t] : PERI });
+    kick(b.kind === "prism" ? 10 : 6);
+  });
+  if (hasBlast) { flash = Math.max(flash, RM ? 0.15 : 0.35); sfx(res.blasts.some(function (b) { return b.kind === "prism"; }) ? "prism" : "blast"); }
+  else kick(Math.min(4, 1 + G.chain));
+  sfx("match", G.chain);
+  if (res.created.length) sfx("make");
+  G.phase = "clear"; G.timer = 0; G.clearDur = hasBlast ? 0.34 : 0.22;
+}
+
+function afterFall() {
+  var res = Core.resolveStep(G.board, null, G.chain + 1);
+  if (res) applyResolution(res); else endOfMove();
+}
+function endOfMove() {
+  G.chain = 0;
+  if (G.levelScore >= G.target) { levelClear(); return; }
+  if (G.moves <= 0) { gameOver(); return; }
+  if (!Core.hasMoves(G.board)) { startShuffle(); return; }
+  G.phase = "idle"; G.idleT = 0;
+}
+function startShuffle() {
+  G.phase = "shufwait"; G.timer = 0;
+  G.banner = { title: "No moves left", sub: "Shuffling the board", t: 0, dur: 1.4 };
+  say("No moves left. Shuffling.");
+}
+function levelClear() {
+  var bonus = G.moves * 50;
+  if (bonus) addScore(bonus, false);
+  G.phase = "levelclear"; G.timer = 0;
+  G.banner = { title: "Level " + G.level + " clear!", sub: bonus ? "+" + fmt(bonus) + " for " + G.moves + " moves left" : "Right on the wire", t: 0, dur: 2.3, big: true };
+  say("Level " + G.level + " clear. Score " + G.score + ".");
+  checkBest(); sfx("clear");
+  for (var k = 0; k < (RM ? 10 : 36); k++) burst(L.bx + Math.random() * L.bs, L.by + Math.random() * L.bs * 0.6, COL[k % 6], 2, L.cell * 4);
+}
+function gameOver() {
+  G.phase = "overwait"; G.timer = 0;
+  if (G.demo) return;
+  screen = "over"; G.overT = 0; checkBest(); sfx("over");
+  say("Out of moves. Score " + G.score + ". Best " + best + ".");
+}
+function win() {
+  G.phase = "overwait"; G.timer = 0;
+  if (G.demo) return;
+  screen = "won"; G.overT = 0; checkBest(); sfx("clear");
+  say("All twelve levels clear. Score " + G.score + ".");
+}
+function checkBest() { if (!G.demo && G.score > best) { best = G.score; G.newBest = true; saveBest(); } }
+
+/* ------------------------------------------------------------------ *
+ *  Effects
+ * ------------------------------------------------------------------ */
+function burst(x, y, col, n, spd) {
+  for (var k = 0; k < n && P.length < 700; k++) {
+    var a = Math.random() * Math.PI * 2, v = spd * (0.35 + Math.random());
+    P.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - spd * 0.4, t: 0, life: 0.45 + Math.random() * 0.4, col: col, sz: L.cell * (0.05 + Math.random() * 0.07), rot: Math.random() * 6, vr: (Math.random() - 0.5) * 12 });
+  }
+}
+function ring(x, y, col) { P.push({ ring: true, x: x, y: y, t: 0, life: 0.45, col: col, sz: L.cell * 0.9 }); }
+function updateFx(dt) {
+  for (var i = P.length - 1; i >= 0; i--) {
+    var p = P[i]; p.t += dt;
+    if (p.t >= p.life) { P.splice(i, 1); continue; }
+    if (!p.ring) { p.vy += L.cell * 9 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.985; p.rot += p.vr * dt; }
+  }
+  for (i = POP.length - 1; i >= 0; i--) { POP[i].t += dt; if (POP[i].t >= POP[i].life) POP.splice(i, 1); }
+  shakeAmt *= Math.exp(-dt * 9); if (shakeAmt < 0.05) shakeAmt = 0;
+  flash = Math.max(0, flash - dt * 1.6);
+  if (!G) return;
+  for (i = G.dying.length - 1; i >= 0; i--) { G.dying[i].t += dt; if (G.dying[i].t > 0.32) G.dying.splice(i, 1); }
+  for (i = G.beams.length - 1; i >= 0; i--) { G.beams[i].t += dt; if (G.beams[i].t > 0.45) G.beams.splice(i, 1); }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Board stepping
+ * ------------------------------------------------------------------ */
+function stepBoard(dt) {
+  var i, g;
+  for (i = 0; i < 64; i++) { g = G.board[i]; if (!g) continue; if (g.pop < 1) g.pop = Math.min(1, g.pop + dt * 4.5); if (g.land > 0) g.land = Math.max(0, g.land - dt); }
+  switch (G.phase) {
+    case "swap": {
+      var s = G.sw; s.t += dt;
+      if (s.t < T_SWAP) break;
+      if (!s.legal) {
+        if (!s.back) { s.back = true; s.t = 0; sfx("bad"); kick(2); }
+        else { G.phase = "idle"; G.sw = null; }
+        break;
+      }
+      Core.applySwap(G.board, s.a, s.b);
+      place(G.board[s.a], s.a); place(G.board[s.b], s.b);
+      G.sw = null; G.moves--; G.chain = 0;
+      var res = Core.isPrismSwap(G.board, s.a, s.b) ? Core.resolvePrismSwap(G.board, s.a, s.b, 1) : Core.resolveStep(G.board, [s.b, s.a], 1);
+      if (res) applyResolution(res); else endOfMove();
+      break;
+    }
+    case "clear":
+      G.timer += dt;
+      if (G.timer >= G.clearDur) {
+        var mv = Core.collapse(G.board, G.rng);
+        mv.spawns.forEach(function (sp) { sp.g.x = sp.c; sp.g.y = sp.from; sp.g.vy = 3; sp.g.pop = 1; sp.g.land = 0; });
+        mv.falls.forEach(function (f) { f.g.vy = 3; });
+        G.phase = "fall";
+      }
+      break;
+    case "fall": {
+      var moving = false, landed = 0;
+      for (i = 0; i < 64; i++) {
+        g = G.board[i]; if (!g) continue;
+        var ty = i >> 3;
+        if (g.y < ty) {
+          g.vy += GRAV * dt; g.y += g.vy * dt;
+          if (g.y >= ty) { g.y = ty; g.vy = 0; g.land = 0.14; landed++; } else moving = true;
+        }
+      }
+      if (landed && T - lastLand > 0.06) { lastLand = T; sfx("land"); }
+      if (!moving) afterFall();
+      break;
+    }
+    case "shufwait":
+      G.timer += dt;
+      if (G.timer > 0.75) {
+        var old = {};
+        G.board.forEach(function (gg, k) { old[gg.id] = { x: gg.x === undefined ? (k & 7) : gg.x, y: gg.y === undefined ? (k >> 3) : gg.y }; });
+        Core.shuffle(G.board, G.rng);
+        G.board.forEach(function (gg, k) { var o = old[gg.id] || { x: 3.5, y: 3.5 }; gg.sx = o.x; gg.sy = o.y; gg.tx = k & 7; gg.ty = k >> 3; if (gg.pop === undefined) gg.pop = 1; });
+        G.phase = "shuffle"; G.timer = 0; sfx("shuffle");
+      }
+      break;
+    case "shuffle": {
+      G.timer += dt;
+      var k = Math.min(1, G.timer / 0.6), e = easeInOut(k);
+      G.board.forEach(function (gg) { gg.x = lerp(gg.sx, gg.tx, e); gg.y = lerp(gg.sy, gg.ty, e) - Math.sin(k * Math.PI) * 0.6; });
+      if (k >= 1) { G.board.forEach(function (gg, n) { place(gg, n); }); G.phase = "idle"; G.idleT = 0; }
+      break;
+    }
+    case "levelclear":
+      G.timer += dt;
+      if (G.timer > 2.3 || (G.skip && G.timer > 0.6)) {
+        G.skip = false;
+        if (G.level >= Core.LEVELS.length) { win(); break; }
+        G.level++; startLevel(); sfx("start");
+      }
+      break;
+    case "overwait":
+      G.timer += dt;
+      if (G.demo && G.timer > 1.6) { var wasTitle = screen === "title"; G = makeGame(true); startLevel(); if (wasTitle) G.banner = null; }
+      break;
+  }
+}
+
+/* Autopilot: glides a cursor to a legal swap, holds it, then swaps. */
+function autopilot(dt) {
+  var ap = G.ap;
+  if (G.phase !== "idle" || paused) { ap.t = 0; return; }
+  ap.t += dt;
+  if (!ap.move) {
+    if (ap.t < 0.3) return;
+    ap.move = G.rng() < 0.12 ? (function () { var ms = Core.findMoves(G.board); return ms[(G.rng() * ms.length) | 0]; })() : Core.bestMove(G.board, G.rng, 60);
+    ap.t = 0; ap.fx = ap.x; ap.fy = ap.y;
+    if (!ap.move) return;
+  }
+  var a = ap.move.a, e = easeInOut(Math.min(1, ap.t / 0.38));
+  ap.x = lerp(ap.fx, a & 7, e); ap.y = lerp(ap.fy, a >> 3, e);
+  if (ap.t > 0.38 && G.sel !== a) G.sel = a;
+  if (ap.t > 0.62) {
+    var m = ap.move; ap.move = null; ap.t = 0;
+    ap.x = m.b & 7; ap.y = m.b >> 3;
+    trySwap(m.a, m.b);
+  }
+}
+
+function update(dt) {
+  T += dt;
+  updateFx(dt);
+  if (!G) return;
+  if (G.banner) { G.banner.t += dt; if (G.banner.t > G.banner.dur) G.banner = null; }
+  stepBoard(dt);
+  if (G.demo) autopilot(dt);
+  else if (screen === "play" && G.phase === "idle") {
+    G.idleT += dt;
+    if (G.idleT > 5 && !G.hint) showHint();
+  }
+  if (screen === "over" || screen === "won") G.overT += dt;
+  G.shown = G.shown < G.score ? Math.min(G.score, G.shown + Math.max(8, (G.score - G.shown) * dt * 8)) : G.score;
+}
+function showHint() {
+  var ms = Core.findMoves(G.board);
+  if (ms.length) { G.hint = ms[(G.rng() * ms.length) | 0]; sfx("hint"); }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Drawing
+ * ------------------------------------------------------------------ */
+function rr(x, y, w, h, r) {
+  cx.beginPath(); cx.moveTo(x + r, y); cx.arcTo(x + w, y, x + w, y + h, r); cx.arcTo(x + w, y + h, x, y + h, r);
+  cx.arcTo(x, y + h, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath();
+}
+function font(px, w) { cx.font = (w || 800) + " " + Math.round(px) + "px " + FONT; }
+function text(s, x, y, px, col, align, w) { font(px, w); cx.fillStyle = col; cx.textAlign = align || "left"; cx.textBaseline = "middle"; cx.fillText(s, x, y); }
+function fitFont(s, px, maxW, w) { font(px, w); var m = cx.measureText(s).width; if (m > maxW) { px = Math.max(8, px * maxW / m); font(px, w); } return px; }
+function wrapLines(s, maxW) {
+  var words = s.split(" "), lines = [], cur = "";
+  words.forEach(function (w) { var t = cur ? cur + " " + w : w; if (cur && cx.measureText(t).width > maxW) { lines.push(cur); cur = w; } else cur = t; });
+  if (cur) lines.push(cur);
+  return lines;
+}
+function rainbowText(s, x, y, px) {
+  font(px, 900); cx.textBaseline = "middle"; cx.textAlign = "left";
+  var w = cx.measureText(s).width, x0 = x - w / 2;
+  for (var k = 0; k < s.length; k++) {
+    var ch = s[k], cw = cx.measureText(ch).width, bob = Math.sin(T * 3 + k * 0.7) * px * 0.04;
+    cx.fillStyle = "rgba(0,0,0,0.35)"; cx.fillText(ch, x0, y + px * 0.07 + bob);
+    cx.fillStyle = COL[k % 6]; cx.fillText(ch, x0, y + bob);
+    x0 += cw;
+  }
+}
+
+function draw() {
+  cx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (bgCanvas) cx.drawImage(bgCanvas, 0, 0, W, H); else { cx.fillStyle = INK; cx.fillRect(0, 0, W, H); }
+  for (var i = 0; i < sparkles.length; i++) {
+    var sp = sparkles[i], a = 0.25 + 0.35 * Math.sin(T * sp.s + sp.p);
+    if (a <= 0) continue;
+    cx.globalAlpha = a; cx.fillStyle = sp.c; cx.fillRect(sp.x, sp.y, 1.6, 1.6);
+  }
+  cx.globalAlpha = 1;
+  if (PREVIEW && L.bx > L.cell) {
+    /* the 2:1 card has wide side margins: let a few faint gems drift up through them */
+    var mw = L.bx - 8, gsz = Math.min(L.cell * 1.1, mw * 0.5);
+    for (var d = 0; d < 10; d++) {
+      var side = d % 2, mx = side ? L.bx + L.bs + 8 + mw / 2 : mw / 2;
+      var span = H + gsz * 2, yy = span - ((T * (10 + d * 1.7) + d * span / 5) % span) - gsz;
+      cx.save(); cx.globalAlpha = 0.3;
+      cx.translate(mx + Math.sin(T * 0.6 + d) * mw * 0.28, yy); cx.rotate(Math.sin(T * 0.8 + d) * 0.4);
+      cx.drawImage(sprite(d % 6, 0), -gsz / 2, -gsz / 2, gsz, gsz); cx.restore();
+    }
+  }
+  BTN = [];
+  if (!G) return;
+  var ox = 0, oy = 0;
+  if (shakeAmt > 0 && !RM) { ox = (Math.random() - 0.5) * shakeAmt * 2; oy = (Math.random() - 0.5) * shakeAmt * 2; }
+  cx.save(); cx.translate(ox, oy);
+  drawBoard();
+  cx.restore();
+  if (flash > 0) { cx.fillStyle = "rgba(255,255,255," + (flash * 0.35).toFixed(3) + ")"; cx.fillRect(0, 0, W, H); }
+  if (PREVIEW) return;
+  if (screen === "play" || screen === "over" || screen === "won") drawHud();
+  if (G.banner && screen === "play") drawBanner(G.banner);
+  if (screen === "title") drawTitle();
+  if (screen === "over" || screen === "won") drawOver();
+  if (paused && screen === "play") drawPaused();
+  if (screen === "title") muteButton(W - 50, 10, 40);
+}
+
+function gemPos(i, g) {
+  var s = G.sw;
+  if (s && (i === s.a || i === s.b)) {
+    var k = easeInOut(Math.min(1, s.t / T_SWAP)), from = i, to = i === s.a ? s.b : s.a;
+    if (s.back) { var tmp = from; from = to; to = tmp; }
+    return { x: lerp(from & 7, to & 7, k), y: lerp(from >> 3, to >> 3, k) };
+  }
+  return { x: g.x === undefined ? (i & 7) : g.x, y: g.y === undefined ? (i >> 3) : g.y };
+}
+
+function drawBoard() {
+  var c = L.cell, bx = L.bx, by = L.by, bs = L.bs, i, g, k;
+  cx.fillStyle = "rgba(0,0,0,0.25)"; rr(bx - 6, by - 2, bs + 12, bs + 12, c * 0.3); cx.fill();
+  cx.fillStyle = PANEL; rr(bx - 6, by - 6, bs + 12, bs + 12, c * 0.3); cx.fill();
+  cx.lineWidth = 2; cx.strokeStyle = "rgba(140,155,255,0.35)"; cx.stroke();
+  cx.fillStyle = PANEL2;
+  for (i = 0; i < 64; i++) if (((i >> 3) + (i & 7)) % 2 === 0) { cx.fillRect(bx + (i & 7) * c, by + (i >> 3) * c, c, c); }
+
+  cx.save(); cx.beginPath(); cx.rect(bx - 6, by - 6, bs + 12, bs + 12); cx.clip();
+
+  /* glow under specials */
+  cx.globalCompositeOperation = "lighter";
+  for (i = 0; i < 64; i++) {
+    g = G.board[i]; if (!g || !g.s) continue;
+    var gp = gemPos(i, g), gx = bx + (gp.x + 0.5) * c, gy = by + (gp.y + 0.5) * c;
+    var gr = cx.createRadialGradient(gx, gy, 0, gx, gy, c * 0.7);
+    gr.addColorStop(0, g.t === 6 ? "rgba(140,155,255,0.55)" : "rgba(255,255,255,0.35)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    cx.globalAlpha = 0.6 + 0.4 * Math.sin(T * 5 + i); cx.fillStyle = gr; cx.fillRect(gx - c, gy - c, c * 2, c * 2);
+  }
+  cx.globalAlpha = 1; cx.globalCompositeOperation = "source-over";
+
+  /* hint */
+  var hintOn = G.hint && G.phase === "idle" && screen === "play" && !G.demo;
+  for (i = 0; i < 64; i++) {
+    g = G.board[i]; if (!g) continue;
+    var p = gemPos(i, g), x = bx + (p.x + 0.5) * c, y = by + (p.y + 0.5) * c;
+    if (y < by - c) continue;
+    var sc = g.pop < 1 ? Math.max(0.01, easeBack(g.pop)) : 1, sx = 1, sy = 1, rot = 0;
+    if (g.land > 0) { var q = g.land / 0.14; sx = 1 + 0.12 * q; sy = 1 - 0.14 * q; y += c * 0.06 * q; }
+    if (i === G.sel && G.phase === "idle") { sc *= 1.1 + 0.04 * Math.sin(T * 10); }
+    if (hintOn && (i === G.hint.a || i === G.hint.b)) sc *= 1 + 0.1 * Math.max(0, Math.sin(T * 7));
+    if (g.t === 6) rot = T * 1.4;
+    cx.save(); cx.translate(x, y); if (rot) cx.rotate(rot); cx.scale(sc * sx, sc * sy);
+    cx.drawImage(sprite(g.t, g.s), -c / 2, -c / 2, c, c);
+    cx.restore();
+  }
+  /* dying gems: white flash, swell, fade */
+  G.dying.forEach(function (d) {
+    var kk = d.t / 0.32, x2 = bx + (d.x + 0.5) * c, y2 = by + (d.y + 0.5) * c, s2 = 1 + 0.45 * easeOut(kk);
+    cx.save(); cx.translate(x2, y2); cx.scale(s2, s2); cx.globalAlpha = Math.max(0, 1 - kk);
+    cx.drawImage(sprite(d.g.t, d.g.s), -c / 2, -c / 2, c, c);
+    if (kk < 0.5) { cx.globalCompositeOperation = "lighter"; cx.globalAlpha = (0.5 - kk) * 1.6; cx.drawImage(sprite(d.g.t, d.g.s), -c / 2, -c / 2, c, c); }
+    cx.restore();
+  });
+  cx.restore();
+
+  /* beams */
+  cx.save(); cx.globalCompositeOperation = "lighter";
+  G.beams.forEach(function (b) {
+    var kk = b.t / 0.45, a = 1 - kk, ctr = cellCenter(b.at);
+    if (b.kind === "row" || b.kind === "col") {
+      var th = c * (0.9 - 0.6 * kk);
+      var gr2 = b.kind === "row" ? cx.createLinearGradient(0, ctr.y - th / 2, 0, ctr.y + th / 2) : cx.createLinearGradient(ctr.x - th / 2, 0, ctr.x + th / 2, 0);
+      gr2.addColorStop(0, "rgba(255,255,255,0)"); gr2.addColorStop(0.5, "rgba(255,255,255," + a.toFixed(3) + ")"); gr2.addColorStop(1, "rgba(255,255,255,0)");
+      cx.fillStyle = gr2;
+      if (b.kind === "row") cx.fillRect(bx - 6, ctr.y - th / 2, bs + 12, th); else cx.fillRect(ctr.x - th / 2, by - 6, th, bs + 12);
+      cx.globalAlpha = a * 0.6; cx.fillStyle = b.col;
+      if (b.kind === "row") cx.fillRect(bx - 6, ctr.y - th * 0.12, bs + 12, th * 0.24); else cx.fillRect(ctr.x - th * 0.12, by - 6, th * 0.24, bs + 12);
+      cx.globalAlpha = 1;
+    } else {
+      cx.strokeStyle = b.col; cx.lineWidth = Math.max(1.5, c * 0.08) * a; cx.globalAlpha = a;
+      b.cells.forEach(function (ci) {
+        if (ci === b.at) return;
+        var e = cellCenter(ci), mx = (ctr.x + e.x) / 2 + (Math.random() - 0.5) * c * 0.4, my = (ctr.y + e.y) / 2 + (Math.random() - 0.5) * c * 0.4;
+        cx.beginPath(); cx.moveTo(ctr.x, ctr.y); cx.lineTo(mx, my); cx.lineTo(e.x, e.y); cx.stroke();
+      });
+      cx.globalAlpha = 1;
+    }
+  });
+  cx.restore();
+
+  /* selection, keyboard cursor, hint arrow, autopilot hand */
+  if (G.sel >= 0 && G.board[G.sel]) {
+    var sc2 = cellCenter(G.sel);
+    cx.lineWidth = Math.max(2, c * 0.07); cx.strokeStyle = "#FFFFFF"; cx.globalAlpha = 0.85 + 0.15 * Math.sin(T * 10);
+    rr(sc2.x - c * 0.47, sc2.y - c * 0.47, c * 0.94, c * 0.94, c * 0.2); cx.stroke(); cx.globalAlpha = 1;
+  }
+  if (G.showCursor && !G.demo && screen === "play") {
+    var cc = cellCenter(G.cursor);
+    cx.lineWidth = Math.max(2, c * 0.06); cx.strokeStyle = PERI; cx.setLineDash([c * 0.16, c * 0.1]); cx.lineDashOffset = -T * c;
+    rr(cc.x - c * 0.5 + 2, cc.y - c * 0.5 + 2, c - 4, c - 4, c * 0.18); cx.stroke(); cx.setLineDash([]);
+  }
+  if (hintOn) {
+    var ha = cellCenter(G.hint.a), hb = cellCenter(G.hint.b), pul = 0.5 + 0.5 * Math.sin(T * 7);
+    cx.strokeStyle = "rgba(255,255,255," + (0.4 + 0.5 * pul).toFixed(3) + ")"; cx.lineWidth = Math.max(2, c * 0.06);
+    [ha, hb].forEach(function (h) { rr(h.x - c * 0.46, h.y - c * 0.46, c * 0.92, c * 0.92, c * 0.2); cx.stroke(); });
+  }
+  if (G.demo && (G.ap.move || G.phase === "swap")) {
+    var hx = bx + (G.ap.x + 0.5) * c, hy = by + (G.ap.y + 0.5) * c;
+    cx.save(); cx.globalCompositeOperation = "lighter";
+    var hg = cx.createRadialGradient(hx, hy, 0, hx, hy, c * 0.7);
+    hg.addColorStop(0, "rgba(255,255,255,0.45)"); hg.addColorStop(1, "rgba(255,255,255,0)");
+    cx.fillStyle = hg; cx.fillRect(hx - c, hy - c, c * 2, c * 2); cx.restore();
+    cx.beginPath(); cx.arc(hx + c * 0.22, hy + c * 0.24, Math.max(3, c * 0.13), 0, Math.PI * 2);
+    cx.fillStyle = "#FFFFFF"; cx.fill(); cx.lineWidth = Math.max(1.5, c * 0.05); cx.strokeStyle = INK; cx.stroke();
+  }
+
+  /* particles */
+  cx.save(); cx.globalCompositeOperation = "lighter";
+  P.forEach(function (p) {
+    var a = 1 - p.t / p.life;
+    if (p.ring) {
+      cx.globalAlpha = a; cx.strokeStyle = p.col; cx.lineWidth = Math.max(2, L.cell * 0.08) * a;
+      cx.beginPath(); cx.arc(p.x, p.y, p.sz * (0.3 + easeOut(p.t / p.life)), 0, Math.PI * 2); cx.stroke();
+      return;
+    }
+    cx.globalAlpha = a; cx.fillStyle = p.col;
+    cx.save(); cx.translate(p.x, p.y); cx.rotate(p.rot); cx.fillRect(-p.sz, -p.sz * 0.5, p.sz * 2, p.sz); cx.restore();
+  });
+  cx.restore(); cx.globalAlpha = 1;
+
+  /* floating text */
+  POP.forEach(function (p) {
+    var k2 = p.t / p.life, a = k2 < 0.7 ? 1 : 1 - (k2 - 0.7) / 0.3, y = p.y - (p.big ? 0 : L.cell * 0.9 * easeOut(k2));
+    var s = p.big ? (k2 < 0.15 ? easeBack(k2 / 0.15) : 1) : 1;
+    font(p.size * s, 900); cx.textAlign = "center"; cx.textBaseline = "middle";
+    cx.globalAlpha = Math.max(0, a); cx.lineWidth = Math.max(3, p.size * 0.18); cx.strokeStyle = INK; cx.lineJoin = "round";
+    cx.strokeText(p.text, p.x, y); cx.fillStyle = p.col; cx.fillText(p.text, p.x, y);
+  });
+  cx.globalAlpha = 1;
+}
+
+function button(id, x, y, s, drawIcon) {
+  BTN.push({ id: id, x: x, y: y, w: s, h: s });
+  cx.fillStyle = "rgba(140,155,255,0.18)"; rr(x, y, s, s, s * 0.3); cx.fill();
+  cx.lineWidth = 1.5; cx.strokeStyle = "rgba(140,155,255,0.55)"; cx.stroke();
+  cx.save(); cx.translate(x + s / 2, y + s / 2); drawIcon(s * 0.5); cx.restore();
+}
+function muteButton(x, y, s) {
+  button("mute", x, y, s, function (r) {
+    cx.fillStyle = "#FFFFFF"; cx.strokeStyle = "#FFFFFF"; cx.lineWidth = Math.max(1.5, r * 0.13); cx.lineCap = "round";
+    cx.beginPath(); cx.moveTo(-r * 0.62, -r * 0.22); cx.lineTo(-r * 0.3, -r * 0.22); cx.lineTo(r * 0.05, -r * 0.55); cx.lineTo(r * 0.05, r * 0.55); cx.lineTo(-r * 0.3, r * 0.22); cx.lineTo(-r * 0.62, r * 0.22); cx.closePath(); cx.fill();
+    if (muted) { cx.beginPath(); cx.moveTo(r * 0.25, -r * 0.25); cx.lineTo(r * 0.65, r * 0.25); cx.moveTo(r * 0.65, -r * 0.25); cx.lineTo(r * 0.25, r * 0.25); cx.stroke(); }
+    else { cx.beginPath(); cx.arc(r * 0.1, 0, r * 0.32, -0.9, 0.9); cx.stroke(); cx.beginPath(); cx.arc(r * 0.1, 0, r * 0.58, -0.9, 0.9); cx.stroke(); }
+  });
+}
+function pauseButton(x, y, s) {
+  button("pause", x, y, s, function (r) {
+    cx.fillStyle = "#FFFFFF";
+    if (paused) { cx.beginPath(); cx.moveTo(-r * 0.3, -r * 0.45); cx.lineTo(r * 0.5, 0); cx.lineTo(-r * 0.3, r * 0.45); cx.closePath(); cx.fill(); }
+    else { cx.fillRect(-r * 0.4, -r * 0.45, r * 0.28, r * 0.9); cx.fillRect(r * 0.12, -r * 0.45, r * 0.28, r * 0.9); }
+  });
+}
+function progressBar(x, y, w, h) {
+  var k = clamp(G.levelScore / Math.max(1, G.target), 0, 1);
+  cx.fillStyle = "rgba(0,0,0,0.35)"; rr(x, y, w, h, h / 2); cx.fill();
+  if (k > 0) {
+    var gr = cx.createLinearGradient(x, 0, x + w, 0);
+    gr.addColorStop(0, COL[0]); gr.addColorStop(0.5, COL[5]); gr.addColorStop(1, COL[3]);
+    cx.fillStyle = gr; rr(x, y, Math.max(h, w * k), h, h / 2); cx.fill();
+    cx.fillStyle = "rgba(255,255,255,0.35)"; rr(x + 2, y + 2, Math.max(0, w * k - 4), h * 0.3, h * 0.15); cx.fill();
+  }
+}
+function drawHud() {
+  var spec = Core.LEVELS[G.level - 1], lowMoves = G.moves <= 3 && screen === "play";
+  var movesCol = lowMoves ? (Math.sin(T * 8) > 0 ? COL[1] : "#FFFFFF") : "#FFFFFF";
+  if (L.mode === "port") {
+    var x = L.hx, y = L.hy, w = L.hw, h = L.hh;
+    cx.fillStyle = "rgba(36,29,90,0.85)"; rr(x, y, w, h, 16); cx.fill();
+    cx.lineWidth = 1.5; cx.strokeStyle = "rgba(140,155,255,0.3)"; cx.stroke();
+    var bsz = 36;
+    pauseButton(x + w - bsz * 2 - 18, y + 10, bsz); muteButton(x + w - bsz - 10, y + 10, bsz);
+    text("LEVEL " + G.level, x + 14, y + 20, 12, DIM, "left", 800);
+    fitFont(spec.name, 15, w - bsz * 2 - 44, 800); cx.fillStyle = "#FFFFFF"; cx.textAlign = "left"; cx.fillText(spec.name, x + 14, y + 38);
+    text("SCORE", x + 14, y + 62, 11, DIM, "left", 800);
+    text(fmt(G.shown), x + 14, y + 84, 26, "#FFFFFF", "left", 900);
+    text("MOVES", x + w - 14, y + 62, 11, DIM, "right", 800);
+    text(String(G.moves), x + w - 14, y + 84, 28, movesCol, "right", 900);
+    var by2 = y + h - 18;
+    progressBar(x + 14, by2, w - 28, 10);
+    text(fmt(Math.min(G.levelScore, G.target)) + " / " + fmt(G.target), x + w / 2, by2 - 12, 11, DIM, "center", 700);
+    if (!PREVIEW) text("Drag or tap two gems. Keys: arrows, Enter, H hint", W / 2, L.fy, 12, DIM, "center", 600);
+  } else {
+    var px = L.px, py = L.py, pw = L.pw, ph = L.ph, pad = 18, cy = py + pad;
+    cx.fillStyle = "rgba(36,29,90,0.85)"; rr(px, py, pw, ph, 18); cx.fill();
+    cx.lineWidth = 1.5; cx.strokeStyle = "rgba(140,155,255,0.3)"; cx.stroke();
+    var f = clamp(ph / 640, 0.72, 1.15);
+    rainbowText("Glimmer", px + pw / 2, cy + 18 * f, 32 * f); cy += 50 * f;
+    text("LEVEL " + G.level + " OF " + Core.LEVELS.length, px + pad, cy, 12 * f, DIM, "left", 800); cy += 22 * f;
+    fitFont(spec.name, 18 * f, pw - pad * 2, 800); cx.fillStyle = "#FFFFFF"; cx.textAlign = "left"; cx.fillText(spec.name, px + pad, cy); cy += 38 * f;
+    text("SCORE", px + pad, cy, 12 * f, DIM, "left", 800); cy += 28 * f;
+    fitFont(fmt(G.shown), 36 * f, pw - pad * 2, 900); cx.fillStyle = "#FFFFFF"; cx.fillText(fmt(G.shown), px + pad, cy); cy += 34 * f;
+    progressBar(px + pad, cy, pw - pad * 2, 12 * f); cy += 26 * f;
+    text("Target " + fmt(G.target), px + pad, cy, 13 * f, DIM, "left", 700);
+    text(fmt(Math.min(G.levelScore, G.target)), px + pw - pad, cy, 13 * f, DIM, "right", 700); cy += 40 * f;
+    text("MOVES LEFT", px + pad, cy, 12 * f, DIM, "left", 800); cy += 32 * f;
+    text(String(G.moves), px + pad, cy, 46 * f, movesCol, "left", 900); cy += 44 * f;
+    text("Best " + fmt(Math.max(best, G.demo ? 0 : G.score)), px + pad, cy, 14 * f, DIM, "left", 700);
+    var bsz2 = Math.round(44 * f), byy = py + ph - pad - bsz2;
+    var lines = ["Drag, or tap two gems", "Arrows + Enter to swap", "H hint, P pause, M mute"];
+    var ly = byy - 12 - (lines.length - 1) * 18 * f;
+    if (ly > cy + 20 * f) lines.forEach(function (l, n) { text(l, px + pad, ly + n * 18 * f, 12.5 * f, DIM, "left", 600); });
+    pauseButton(px + pad, byy, bsz2); muteButton(px + pad + bsz2 + 10, byy, bsz2);
+  }
+}
+function drawBanner(b) {
+  var k = b.t / b.dur, a = k < 0.12 ? k / 0.12 : k > 0.8 ? (1 - k) / 0.2 : 1;
+  var w = Math.min(L.bs * 0.92, 440), h = L.cell * 1.9, x = L.bx + (L.bs - w) / 2, y = L.by + L.bs * 0.5 - h / 2;
+  if (b.big) y = L.by + L.bs * 0.5 - h / 2;
+  cx.globalAlpha = clamp(a, 0, 1);
+  cx.fillStyle = "rgba(26,21,64,0.88)"; rr(x, y, w, h, 16); cx.fill();
+  cx.lineWidth = 2; cx.strokeStyle = b.big ? COL[0] : PERI; cx.stroke();
+  var tp = fitFont(b.title, Math.min(34, L.cell * 0.62), w - 24, 900);
+  text(b.title, x + w / 2, y + h * 0.36, tp, b.big ? COL[0] : "#FFFFFF", "center", 900);
+  var sp = fitFont(b.sub, Math.min(16, L.cell * 0.34), w - 24, 700);
+  text(b.sub, x + w / 2, y + h * 0.72, sp, DIM, "center", 700);
+  cx.globalAlpha = 1;
+}
+function card(w, h) {
+  var x = Math.round((W - w) / 2), y = Math.round((H - h) / 2);
+  cx.fillStyle = "rgba(0,0,0,0.35)"; rr(x, y + 6, w, h, 22); cx.fill();
+  cx.fillStyle = "rgba(26,21,64,0.94)"; rr(x, y, w, h, 22); cx.fill();
+  cx.lineWidth = 2; cx.strokeStyle = "rgba(140,155,255,0.6)"; cx.stroke();
+  return { x: x, y: y };
+}
+function pill(label, cxm, cym, px) {
+  font(px, 900); var w = cx.measureText(label).width + px * 2.2, h = px * 2.3, pulse = 1 + 0.03 * Math.sin(T * 5);
+  cx.save(); cx.translate(cxm, cym); cx.scale(pulse, pulse);
+  var gr = cx.createLinearGradient(-w / 2, 0, w / 2, 0); gr.addColorStop(0, COL[0]); gr.addColorStop(1, COL[5]);
+  cx.fillStyle = gr; rr(-w / 2, -h / 2, w, h, h / 2); cx.fill();
+  cx.fillStyle = INK; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(label, 0, 1);
+  cx.restore();
+  return h;
+}
+function drawTitle() {
+  cx.fillStyle = "rgba(26,21,64,0.45)"; cx.fillRect(0, 0, W, H);
+  var w = Math.min(W - 24, 470), inner = w - 44, fs = clamp(w / 30, 13, 15.5);
+  var rows = [
+    { g: [0, 0], t: "Swap two neighbouring gems to line up three or more." },
+    { g: [1, 1], t: "Line up four for a Blaster. It clears its row or column." },
+    { g: [6, 3], t: "Line up five for a Prism. Swap it to clear a colour." },
+    { g: [3, 2], t: "Cascades raise the combo. Beat the target in the moves you have." }
+  ];
+  font(fs, 600);
+  var laid = rows.map(function (r) { return { g: r.g, lines: wrapLines(r.t, inner - fs * 2.4) }; });
+  var lh = fs * 1.35, bodyH = 0;
+  laid.forEach(function (r) { bodyH += Math.max(fs * 2, r.lines.length * lh) + fs * 0.55; });
+  var tsize = clamp(w / 7.5, 40, 62);
+  var h = Math.min(H - 20, 22 + tsize + 26 + 40 + 16 + bodyH + 24 + 50 + 36);
+  var o = card(w, h), y = o.y + 22 + tsize / 2;
+  rainbowText("Glimmer", W / 2, y, tsize); y += tsize / 2 + 18;
+  text("Match gems. Chase the glow.", W / 2, y, fs, DIM, "center", 700); y += 30;
+  var gs = Math.min(34, inner / 7), gx = W / 2 - gs * 3;
+  for (var k = 0; k < 6; k++) cx.drawImage(sprite(k, 0), gx + k * gs, y - gs / 2 + Math.sin(T * 3 + k) * 2, gs, gs);
+  y += gs / 2 + 18;
+  laid.forEach(function (r) {
+    var rowH = Math.max(fs * 2, r.lines.length * lh);
+    var is = fs * 1.9;
+    cx.drawImage(sprite(r.g[0], r.g[1]), o.x + 22, y + rowH / 2 - is / 2, is, is);
+    r.lines.forEach(function (l, n) { text(l, o.x + 22 + fs * 2.4, y + (rowH - r.lines.length * lh) / 2 + lh * (n + 0.5), fs, "#FFFFFF", "left", 600); });
+    y += rowH + fs * 0.55;
+  });
+  y += 6;
+  var cl = fitFont("Drag, or tap two gems. Arrows + Enter. P pause, M mute.", fs * 0.9, inner, 600);
+  text("Drag, or tap two gems. Arrows + Enter. P pause, M mute.", W / 2, y, cl, DIM, "center", 600); y += 36;
+  pill(("ontouchstart" in window) ? "Tap to play" : "Press Enter or click to play", W / 2, y, fs * 1.05); y += 36;
+  text("Best " + fmt(best), W / 2, y, fs * 0.9, DIM, "center", 700);
+}
+function drawOver() {
+  var won = screen === "won", w = Math.min(W - 24, 400), h = 250, o = card(w, h), y = o.y + 44;
+  var t = won ? "All levels lit!" : "Out of moves";
+  text(t, W / 2, y, fitFont(t, 34, w - 30, 900), won ? COL[0] : COL[1], "center", 900); y += 40;
+  text(won ? "Twelve for twelve." : "Level " + G.level + ": " + fmt(G.levelScore) + " of " + fmt(G.target), W / 2, y, 15, DIM, "center", 700); y += 40;
+  text(fmt(G.score), W / 2, y, 40, "#FFFFFF", "center", 900); y += 32;
+  text(G.newBest ? "New best!" : "Best " + fmt(best), W / 2, y, 15, G.newBest ? COL[2] : DIM, "center", 800); y += 44;
+  if (G.overT > 0.6) pill(("ontouchstart" in window) ? "Tap to play again" : "Enter to play again", W / 2, y, 15);
+}
+function drawPaused() {
+  cx.fillStyle = "rgba(26,21,64,0.55)"; cx.fillRect(0, 0, W, H);
+  var w = Math.min(W - 24, 340), o = card(w, 150);
+  text("Paused", W / 2, o.y + 52, 34, "#FFFFFF", "center", 900);
+  text("Tap, or press P or Space to resume", W / 2, o.y + 102, fitFont("Tap, or press P or Space to resume", 15, w - 30, 700), DIM, "center", 700);
+}
+
+/* ------------------------------------------------------------------ *
+ *  Input
+ * ------------------------------------------------------------------ */
+function setPaused(p) {
+  if (screen !== "play" || PREVIEW) return;
+  if (paused === p) return;
+  paused = p; say(p ? "Paused" : "Resumed");
+}
+function cellAt(x, y) {
+  var c = Math.floor((x - L.bx) / L.cell), r = Math.floor((y - L.by) / L.cell);
+  if (c < 0 || c > 7 || r < 0 || r > 7) return -1;
+  return r * 8 + c;
+}
+var drag = null;
+function pointerPos(e) { var rct = cv.getBoundingClientRect(); return { x: e.clientX - rct.left, y: e.clientY - rct.top }; }
+function onDown(e) {
+  if (PREVIEW) return;
+  e.preventDefault();
+  try { cv.focus({ preventScroll: true }); } catch (er) { }
+  unlockAudio();
+  var p = pointerPos(e);
+  for (var k = 0; k < BTN.length; k++) {
+    var b = BTN[k];
+    if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+      if (b.id === "mute") setMuted(!muted);
+      if (b.id === "pause") setPaused(!paused);
+      return;
+    }
+  }
+  if (screen === "title") { startGame(); return; }
+  if (screen === "over" || screen === "won") { if (G.overT > 0.6) startGame(); return; }
+  if (paused) { setPaused(false); return; }
+  if (G.phase === "levelclear") { G.skip = true; return; }
+  var i = cellAt(p.x, p.y);
+  G.showCursor = false; G.idleT = 0; G.hint = null;
+  if (i < 0) { G.sel = -1; return; }
+  G.cursor = i;
+  drag = { id: e.pointerId, i: i, x: p.x, y: p.y, done: false, wasSel: G.sel === i };
+  if (G.sel >= 0 && G.sel !== i && Core.adjacent(G.sel, i)) { trySwap(G.sel, i); drag.done = true; return; }
+  if (G.sel !== i) { G.sel = i; sfx("select"); }
+  try { cv.setPointerCapture(e.pointerId); } catch (er) { }
+}
+function onMove(e) {
+  if (!drag || drag.done || e.pointerId !== drag.id) return;
+  var p = pointerPos(e), dx = p.x - drag.x, dy = p.y - drag.y, th = L.cell * 0.38;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < th) return;
+  var i = drag.i, r = i >> 3, c = i & 7, j = -1;
+  if (Math.abs(dx) > Math.abs(dy)) j = dx > 0 ? (c < 7 ? i + 1 : -1) : (c > 0 ? i - 1 : -1);
+  else j = dy > 0 ? (r < 7 ? i + 8 : -1) : (r > 0 ? i - 8 : -1);
+  drag.done = true;
+  if (j >= 0) trySwap(i, j);
+}
+function onUp(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (!drag.done && drag.wasSel) G.sel = -1;
+  drag = null;
+}
+cv.addEventListener("pointerdown", onDown);
+cv.addEventListener("pointermove", onMove);
+cv.addEventListener("pointerup", onUp);
+cv.addEventListener("pointercancel", function () { drag = null; });
+document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+cv.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+var DIRS = { ArrowLeft: [0, -1], ArrowRight: [0, 1], ArrowUp: [-1, 0], ArrowDown: [1, 0] };
+window.addEventListener("keydown", function (e) {
+  if (PREVIEW) return;
+  if (e.key === "Escape" || e.ctrlKey || e.metaKey || e.altKey) return;
+  unlockAudio();
+  var k = e.key;
+  if (k === "m" || k === "M") { setMuted(!muted); return; }
+  if (screen === "title") {
+    if (k === "Enter" || k === " ") { e.preventDefault(); startGame(); }
+    return;
+  }
+  if (screen === "over" || screen === "won") {
+    if ((k === "Enter" || k === " ") && G.overT > 0.6) { e.preventDefault(); startGame(); }
+    if (DIRS[k]) e.preventDefault();
+    return;
+  }
+  if (k === "p" || k === "P" || k === " ") { e.preventDefault(); setPaused(!paused); return; }
+  if (paused) { if (DIRS[k] || k === "Enter") e.preventDefault(); return; }
+  if (G.phase === "levelclear" && k === "Enter") { e.preventDefault(); G.skip = true; return; }
+  G.idleT = 0;
+  if (k === "h" || k === "H") { showHint(); return; }
+  if (DIRS[k]) {
+    e.preventDefault(); G.hint = null;
+    var d = DIRS[k], from = G.sel >= 0 ? G.sel : G.cursor, r = (from >> 3) + d[0], c = (from & 7) + d[1];
+    if (!G.showCursor && G.sel < 0) { G.showCursor = true; return; }
+    G.showCursor = true;
+    if (r < 0 || r > 7 || c < 0 || c > 7) return;
+    var j = r * 8 + c;
+    if (G.sel >= 0) {
+      var a = G.sel;
+      if (trySwap(a, j)) G.cursor = G.sw.legal ? j : a; else G.cursor = j;
+    } else G.cursor = j;
+    return;
+  }
+  if (k === "Enter") {
+    e.preventDefault(); G.showCursor = true; G.hint = null;
+    if (G.sel === G.cursor) G.sel = -1;
+    else if (G.sel >= 0 && Core.adjacent(G.sel, G.cursor)) trySwap(G.sel, G.cursor);
+    else if (G.board[G.cursor]) { G.sel = G.cursor; sfx("select"); }
+  }
+});
+window.addEventListener("blur", function () { setPaused(true); });
+document.addEventListener("visibilitychange", function () { if (document.hidden) setPaused(true); });
+window.addEventListener("resize", resize);
+
+/* ------------------------------------------------------------------ *
+ *  Boot
+ * ------------------------------------------------------------------ */
+resize();
+if (PREVIEW) { G = makeGame(true); screen = "play"; startLevel(); G.banner = null; }
+else toTitle();
+var lastT = performance.now();
+function frame(now) {
+  var dt = Math.min(0.05, Math.max(0, (now - lastT) / 1000)); lastT = now;
+  if (!paused) update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+/* Read-only handle for the headless checks. */
+window.__glimmer = { Core: Core, get G() { return G; }, get screen() { return screen; }, get paused() { return paused; }, get layout() { return L; }, get audio() { return !!AC; }, get muted() { return muted; } };
+</script>
+</body>
+</html>

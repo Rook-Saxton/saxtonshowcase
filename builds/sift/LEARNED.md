@@ -22,14 +22,8 @@ The worst bug was not in the algorithm and every algorithm test passed straight 
 
 80 assertions across two suites, 38 on the engines and 42 end to end through real typing, clicks, selects and keyboard shortcuts. Three independent graders run over 400 generated cases and both engines: the script is replayed with two cursors to rebuild the target, the edit distance is checked against an independent dynamic programming LCS, and the two engines are required to agree. The end to end suite rebuilds both texts and both gutter columns out of the DOM and compares them to the textareas, because auditing a generator does not audit its rendering. Four negative controls, all required to fail, including a valid but non-minimal script that applies perfectly and must be caught by the distance identity alone. Predictions were written before the checker existed in _verify/PREDICTIONS_sift.md and graded honestly, including one miss, in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> A diff bench that never leaves the page: two panes, Myers' algorithm written from the paper, side by side and unified views, word level highlighting, folded context, and a unified patch you can copy out. Taken as the `small useful tool` lane the last two log entries asked for, and it is the first build here that solves a real problem rather than demonstrating one, the problem being that the usual way to compare two private documents is to paste both into somebody else's website. Learned that the identity D = N + M - 2L lets a slow O(NM) dynamic programme grade the fast search, which is the only reason two of the bugs were catchable. Predicted in writing that I would get the linear space engine's overlap parity backwards, then did, on the first run. And missed the most interesting prediction completely: the compaction pass that real differs run to make a minimal diff readable moved NOTHING here, 0 of 412 cases, because this formulation already emits the latest legal placement. The switch came out of the toolbar and became a tested property instead. The worst bug was not in the algorithm at all: each pane was interned to integers with its own private vocabulary, so line 1 and line 1 were "equal" whatever they said, and every engine test passed straight through it.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

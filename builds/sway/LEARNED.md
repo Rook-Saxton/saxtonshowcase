@@ -22,14 +22,8 @@ The bending model was correct geometry and the wrong parameterisation, and it to
 
 Predictions written first in PREDICTIONS_sway.md, before either checker existed. Divergence differenced out of the field itself, not read from a parameter: exactly 0 at all 1600 points at the field's own step, 1.67e-5 at a different step, against 0.833 for the gradient control, and still 0 with the pointer eddy live. Rest angles measured with acos on settled positions: error 1.5e-6 degrees at 150, 165 and 179 degrees, where the span form is stuck at 1.96. Anchors bit for bit identical after 5000 steps, scenes bit for bit reproducible from a seed after 3000. Three predictions MISSED and recorded rather than edited away, and the suite asserts the miss set so a new one cannot hide; the worst of them uncovered two defects in the checker and a reference value that was wrong even after both. 45 assertions across two suites, six negative controls, receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> A meadow at dusk you can stand in: grass that leans and springs back, gusts you can watch cross the field, petals carried off the flowers, pollen that drifts and never settles, and a small eddy that follows the pointer. Built to take the standing note below at its word and make something pleasant rather than instructive, and picked curl noise because I could describe it and had never written one. Learned that a velocity taken as the perpendicular gradient of a scalar potential is not divergence free to second order but EXACTLY, measured as zero at all 1600 sample points, and that the property is the entire look: the same noise wired as a gradient instead sucks tracers into sinks. Learned the expensive way that a correct closed form can still be the wrong parameterisation, when the span form of a bending constraint turned out to have zero sensitivity exactly where grass lives and could only resist a bend by stretching the blade. Three predictions missed, one of which was the checker's fault twice over.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

@@ -1,0 +1,1764 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  HEIRLOOM
+  builds/heirloom/index.html
+  Built 2026-09-23. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  A family tree and legacy planner for people who play life-simulation games and follow one
+  household across generations. Add people with a little drawn portrait (skin tone, hair, hair
+  colour, top colour, age stage), free-text traits, a generation number, a status (living,
+  moved out, passed on) and notes. Link them as partners (married or dating, more than one over a
+  life) and as parents and children, adoption included. The tree lays itself out by generation:
+  partners side by side, children under their parents. The Legacy panel holds one goal per
+  generation that you type and tick off. Keep several trees, one per save or household, and
+  export any of them as a picture (.png) or a file (.json), and import .json back.
+  Everything stays in this browser: nothing is uploaded, there is no account, no network at all.
+
+  CONTROLS
+  Pointer or touch: drag to pan, wheel or pinch to zoom, tap a person to open their card.
+  The card edits everything and adds partners, children and parents.
+  Keyboard (outside text boxes): N adds a person, L opens Legacy, arrow keys pan, + and - zoom,
+  0 fits the whole tree, M mutes. Escape is left alone for the page around this one.
+
+  HOW IT WAS CHECKED
+  The rules and the layout live in one pure block (between LOGIC-BEGIN and LOGIC-END) that node loads
+  with no DOM: 78 assertions. Relationship rules: nobody is their own parent, no two- or three-step
+  loops, no partnering your own ancestor, no loop through partner groups, two birth parents at most,
+  and 1800 random link attempts on generated trees never produced a loop. Layout: 300 generated
+  households of 40 to 139 people (21,286 people in all) had zero overlapping cards, every child on a
+  row below its parents, and every family's drop point over its own children; a 400-person tree lays
+  out in a few milliseconds. Import: 16 kinds of bad file (broken JSON, wrong format, missing names,
+  duplicate ids, self-parent, parent loop, dangling links, too big) are each rejected with a message,
+  and the sample family survives an export and import round trip unchanged.
+  Headless Chrome (Playwright, 50 checks): mouse and keyboard at 1280x720 (add, rename, look, traits,
+  partners, child with both parents, legacy goal ticked, pan, wheel zoom, mute, Escape untouched,
+  sample, tree switching, real PNG and .json downloads, import of a 45-person file, broken files
+  refused, reload keeps everything), touch at 390x844 (tap a card, add a child, drag, a real
+  two-finger pinch, legacy, page never scrolls), a localStorage that throws, and ?preview=1 at 600x300
+  running 28 seconds through a full build and restart. Zero page errors, console errors or network
+  requests.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Heirloom</title>
+<style>
+  :root {
+    --mari: #FFE066; --tomato: #FF4F6D; --grass: #C6F432; --pool: #22D3C5; --grape: #B45CF0;
+    --bubble: #FF7AC8; --lav: #B9A8FF; --tang: #FF8A3D; --peri: #8C9BFF; --ink: #1A1540;
+    --paper: #F7F4FF; --ink2: #5B5486; --line: #E4DEFA; --card: #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink);
+    font: 15px/1.35 ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+  canvas#cv { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: grab; }
+  canvas#cv.dragging { cursor: grabbing; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  [hidden] { display: none !important; }
+  svg.i { width: 20px; height: 20px; flex: none; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+  #bar { position: fixed; top: 10px; left: 10px; right: 10px; display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px 7px 12px; background: rgba(255,255,255,.94); border-radius: 20px;
+    box-shadow: 0 4px 0 var(--line), 0 10px 30px rgba(26,21,64,.08); z-index: 5; }
+  .brand { display: flex; align-items: center; gap: 7px; font-weight: 800; font-size: 18px; letter-spacing: .2px; white-space: nowrap; }
+  .brand svg { width: 28px; height: 28px; }
+  #treeSel { flex: 1 1 auto; min-width: 0; max-width: 300px; height: 40px; border: 2px solid var(--line); border-radius: 14px;
+    padding: 0 10px; background: var(--paper); font-weight: 700; margin-left: 6px; }
+  .grow { flex: 1 1 0; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 40px; min-width: 40px; padding: 0 13px;
+    border: 0; border-radius: 14px; background: #EFEAFF; font-weight: 700; white-space: nowrap; }
+  .btn:hover { background: #E4DCFF; }
+  .btn:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--peri); outline-offset: 1px; }
+  .btn.primary { background: var(--tomato); color: #fff; box-shadow: 0 3px 0 #C9304F; }
+  .btn.primary:hover { background: #FF6680; }
+  .btn.icon { padding: 0; width: 40px; }
+  .btn.on { background: var(--mari); }
+  .btn.danger { background: #FFE3E8; color: #B0183A; }
+  .btn.small { height: 34px; padding: 0 11px; border-radius: 12px; font-size: 14px; }
+
+  .pop { position: fixed; top: 66px; right: 10px; width: 290px; max-width: calc(100vw - 20px); background: #fff; border-radius: 18px; padding: 8px;
+    box-shadow: 0 4px 0 var(--line), 0 16px 40px rgba(26,21,64,.16); z-index: 8; }
+  .pop button { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; background: none; padding: 10px 10px; border-radius: 12px; text-align: left; font-weight: 650; }
+  .pop button:hover, .pop button:focus-visible { background: #F1ECFF; }
+  .pop hr { border: 0; border-top: 2px dashed var(--line); margin: 6px 4px; }
+  .privacy { font-size: 13px; color: var(--ink2); margin: 6px 10px 4px; }
+
+  #zoom { position: fixed; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; z-index: 4; }
+  #zoom .btn { width: 44px; height: 44px; background: #fff; box-shadow: 0 3px 0 var(--line), 0 6px 18px rgba(26,21,64,.1); }
+
+  #empty { position: fixed; left: 50%; top: 52%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 28px));
+    background: #fff; border-radius: 26px; padding: 20px 22px 18px; text-align: center; z-index: 3;
+    box-shadow: 0 5px 0 var(--line), 0 20px 50px rgba(26,21,64,.12); }
+  #empty h1 { margin: 6px 0 6px; font-size: 24px; }
+  #empty ol { text-align: left; margin: 10px 0 14px; padding-left: 22px; }
+  #empty li { margin: 5px 0; }
+  #empty .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  #empty .privacy { margin: 14px 0 0; }
+  #emptyArt { width: 180px; height: 70px; }
+
+  .sheet { position: fixed; top: 70px; bottom: 10px; width: 380px; background: #fff; border-radius: 22px; z-index: 6;
+    box-shadow: 0 5px 0 var(--line), 0 18px 48px rgba(26,21,64,.16); display: flex; flex-direction: column; overflow: hidden; }
+  .sheet.right { right: 10px; } .sheet.left { left: 10px; width: 340px; }
+  .sheet .head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; border-bottom: 2px dashed var(--line); }
+  .sheet .body { overflow-y: auto; padding: 4px 16px 20px; flex: 1; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .sheet h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink2); margin: 16px 0 8px; }
+  .sheet h3 { margin: 0; font-size: 19px; }
+  .nameIn { flex: 1; min-width: 0; font-size: 20px; font-weight: 800; border: 2px solid transparent; border-radius: 12px; padding: 5px 8px; background: var(--paper); }
+  .nameIn:hover { border-color: var(--line); }
+  .field { width: 100%; border: 2px solid var(--line); border-radius: 12px; padding: 9px 11px; background: #fff; font-size: 16px; }
+  textarea.field { min-height: 90px; resize: vertical; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg button { border: 2px solid var(--line); background: #fff; border-radius: 12px; padding: 6px 10px; font-weight: 650; font-size: 14px; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .sw { display: flex; flex-wrap: wrap; gap: 7px; }
+  .sw button { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px var(--line); padding: 0; }
+  .sw button[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--ink); }
+  .stepper { display: inline-flex; align-items: center; gap: 4px; background: var(--paper); border-radius: 14px; padding: 3px; }
+  .stepper b { min-width: 34px; text-align: center; font-size: 18px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; background: #F1ECFF; border-radius: 999px; padding: 4px 6px 4px 11px; font-size: 14px; font-weight: 650; }
+  .chip button { border: 0; background: #fff; border-radius: 50%; width: 22px; height: 22px; padding: 0; line-height: 1; font-weight: 800; }
+  .rel { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #F0ECFB; }
+  .rel .who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 2px; text-align: left; font-weight: 700; border-radius: 10px; }
+  .rel .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rel label { font-size: 13px; display: inline-flex; align-items: center; gap: 4px; color: var(--ink2); }
+  .rel .x { border: 0; background: #FFE3E8; color: #B0183A; width: 30px; height: 30px; border-radius: 10px; font-weight: 800; flex: none; }
+  .face { width: 36px; height: 36px; flex: none; border-radius: 50%; }
+  .none { color: var(--ink2); font-size: 14px; margin: 2px 0 6px; }
+  .adds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .hint { font-size: 13px; color: var(--ink2); margin: 6px 0 0; }
+  .spacer { height: 10px; }
+
+  .gen { border: 2px solid var(--line); border-radius: 18px; padding: 10px 12px 12px; margin: 10px 0; }
+  .gen.done { border-color: var(--grass); background: #FAFFEB; }
+  .gen .top { display: flex; align-items: center; gap: 8px; }
+  .gen .top b { font-size: 16px; flex: 1; }
+  .gen .count { font-size: 13px; color: var(--ink2); }
+  .faces { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+  .faces button { border: 0; padding: 0; background: none; border-radius: 50%; }
+  .goal { display: flex; gap: 8px; align-items: center; }
+  .tick { width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--line); background: #fff; flex: none; padding: 0; display: grid; place-items: center; }
+  .tick[aria-pressed="true"] { background: var(--grass); border-color: #8DB81A; }
+  .tick svg { width: 22px; height: 22px; stroke: var(--ink); stroke-width: 3; fill: none; opacity: .15; }
+  .tick[aria-pressed="true"] svg { opacity: 1; }
+  .prog { height: 12px; background: #F1ECFF; border-radius: 99px; overflow: hidden; margin: 6px 0 2px; }
+  .prog i { display: block; height: 100%; background: linear-gradient(90deg, var(--grass), var(--pool)); border-radius: 99px; transition: width .3s; }
+
+  #modal { position: fixed; inset: 0; background: rgba(26,21,64,.38); z-index: 10; display: grid; place-items: center; padding: 14px; }
+  .mbox { background: #fff; border-radius: 24px; width: min(440px, 100%); max-height: calc(100% - 20px); overflow-y: auto; padding: 18px;
+    box-shadow: 0 6px 0 var(--line), 0 24px 60px rgba(26,21,64,.25); }
+  .mbox h3 { margin: 0 0 10px; font-size: 20px; }
+  .mbox p { margin: 6px 0 12px; }
+  .mbox .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+  .plist { max-height: 250px; overflow-y: auto; border: 2px solid var(--line); border-radius: 14px; margin-top: 8px; }
+  .plist button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: #fff; padding: 7px 10px; text-align: left; font-weight: 700; }
+  .plist button:hover, .plist button:focus-visible { background: #F4F0FF; }
+  .plist small { color: var(--ink2); font-weight: 500; margin-left: auto; }
+  .mrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translate(-50%, 30px); opacity: 0;
+    background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 14px; font-weight: 650; z-index: 12; pointer-events: none;
+    transition: opacity .2s, transform .2s; max-width: calc(100vw - 30px); text-align: center; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 760px) {
+    #bar { gap: 6px; padding: 6px 6px 6px 10px; top: 8px; left: 8px; right: 8px; }
+    .brand b, #bar .btn span { display: none; }
+    #bar .btn { padding: 0; width: 40px; }
+    #treeSel { max-width: none; margin-left: 0; }
+    .sheet, .sheet.left, .sheet.right { left: 0; right: 0; bottom: 0; top: auto; width: auto; height: 74vh; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+    .pop { top: 62px; right: 8px; }
+    #zoom { bottom: calc(14px + env(safe-area-inset-bottom)); }
+    body.sheetOpen #zoom { display: none; }
+    body.sheetOpen #toast { bottom: auto; top: 70px; }
+  }
+  html.preview .chrome, body.preview .chrome { display: none !important; }
+  html.preview canvas#cv { cursor: default; }
+</style>
+</head>
+<body>
+<canvas id="cv" aria-label="Family tree. Drag to pan, pinch or scroll to zoom, tap a person to open their card."></canvas>
+
+<header id="bar" class="chrome">
+  <div class="brand" aria-label="Heirloom"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="#FFE066"/><path d="M16 26V14" stroke="#1A1540" stroke-width="2.6" stroke-linecap="round"/><path d="M16 17c-5 0-7-4-7-7 4 0 7 2 7 7zM16 15c0-5 3-8 8-8 0 4-3 8-8 8z" fill="#C6F432" stroke="#1A1540" stroke-width="2" stroke-linejoin="round"/></svg><b>Heirloom</b></div>
+  <label class="sr" for="treeSel">Choose a tree</label>
+  <select id="treeSel" title="Switch between your trees"></select>
+  <span class="grow"></span>
+  <button id="bAdd" class="btn primary" title="Add a person (N)"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Add person</span></button>
+  <button id="bLegacy" class="btn" title="Legacy goals per generation (L)" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.8z"/></svg><span>Legacy</span></button>
+  <button id="bMenu" class="btn icon" title="Trees, pictures, import and export" aria-haspopup="true" aria-expanded="false"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <button id="bMute" class="btn icon" title="Sound on (M)" aria-pressed="false"><svg class="i" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="muteWave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path id="muteX" d="M16 9l5 6M21 9l-5 6" style="display:none"/></svg></button>
+</header>
+
+<div id="menu" class="chrome pop" role="menu" hidden>
+  <button data-act="newTree" role="menuitem"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New tree</button>
+  <button data-act="renameTree" role="menuitem"><svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Rename this tree</button>
+  <button data-act="sample" role="menuitem"><svg class="i" viewBox="0 0 24 24"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 20c1-4 9-4 10 0M11 20c1-4 9-4 10 0"/></svg>Load the sample family</button>
+  <hr>
+  <button data-act="png" role="menuitem"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 8"/></svg>Save picture (.png)</button>
+  <button data-act="json" role="menuitem"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Export tree (.json)</button>
+  <button data-act="import" role="menuitem"><svg class="i" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5M5 20h14"/></svg>Import tree (.json)</button>
+  <hr>
+  <button data-act="deleteTree" role="menuitem" style="color:#B0183A"><svg class="i" viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/></svg>Delete this tree</button>
+  <p class="privacy">Everything stays in this browser. Nothing is uploaded, there is no account, and this page never uses the network. Export a .json file to keep a copy or move it.</p>
+</div>
+
+<div id="zoom" class="chrome">
+  <button class="btn icon" id="zIn" title="Zoom in (+)"><svg class="i" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg></button>
+  <button class="btn icon" id="zOut" title="Zoom out (-)"><svg class="i" viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
+  <button class="btn icon" id="zFit" title="Fit the whole tree (0)"><svg class="i" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+</div>
+
+<section id="empty" class="chrome" hidden aria-labelledby="emptyH">
+  <canvas id="emptyArt" width="180" height="70" aria-hidden="true"></canvas>
+  <h1 id="emptyH">Start your family tree</h1>
+  <ol>
+    <li>Add the first person of your household, the founder.</li>
+    <li>Tap anyone on the tree to open their card, then add a partner, children or parents.</li>
+    <li>Open <b>Legacy</b> to give each generation a goal and tick it off when it is done.</li>
+  </ol>
+  <div class="row">
+    <button class="btn primary" id="eAdd"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add the first person</button>
+    <button class="btn" id="eSample">Load a sample family</button>
+  </div>
+  <p class="privacy">Everything stays in this browser. Nothing is uploaded and there is no account.</p>
+</section>
+
+<aside id="card" class="chrome sheet right" hidden aria-label="Person card"></aside>
+<aside id="legacy" class="chrome sheet left" hidden aria-label="Legacy goals"></aside>
+<div id="modal" class="chrome" hidden><div class="mbox" role="dialog" aria-modal="true"></div></div>
+<div id="toast" class="chrome" role="status" aria-live="polite"></div>
+<input type="file" id="fileIn" class="chrome" accept=".json,application/json" hidden>
+
+<script>
+// LOGIC-BEGIN
+// Pure rules: no DOM, no storage. Node tests load this block on its own.
+var Heirloom = (function () {
+  'use strict';
+  var FORMAT = 'heirloom-tree';
+  var STAGES = ['baby', 'child', 'teen', 'adult', 'elder'];
+  var STAGE_LABEL = { baby: 'Baby', child: 'Child', teen: 'Teen', adult: 'Adult', elder: 'Elder' };
+  var STATUSES = ['living', 'moved', 'passed'];
+  var STATUS_LABEL = { living: 'Living', moved: 'Moved out', passed: 'Passed on' };
+  var HAIRS = ['short', 'long', 'curly', 'bun', 'spiky', 'bald'];
+  var HAIR_LABEL = { short: 'Short', long: 'Long', curly: 'Curly', bun: 'Bun', spiky: 'Spiky', bald: 'Bald' };
+  var SKINS = ['#FFE4CF', '#F8D1AE', '#EEBB8E', '#D99C6C', '#BD7E52', '#98613C', '#744629', '#4E2F1D'];
+  var HAIR_COLS = ['#221B33', '#4A2F21', '#7A4A2A', '#A34E2A', '#E0753A', '#F2C94C', '#F6E8C3', '#A9A3B8', '#F4F2F8', '#FF7AC8', '#22D3C5', '#B9A8FF'];
+  var HAIR_COL_NAMES = ['Black', 'Dark brown', 'Brown', 'Auburn', 'Ginger', 'Golden', 'Platinum', 'Grey', 'White', 'Pink', 'Teal', 'Lavender'];
+  var TOPS = ['#FF4F6D', '#FF8A3D', '#FFE066', '#C6F432', '#22D3C5', '#8C9BFF', '#B45CF0', '#FF7AC8', '#B9A8FF', '#1A1540'];
+  var TOP_NAMES = ['Tomato', 'Tangerine', 'Marigold', 'Grass', 'Pool', 'Periwinkle', 'Grape', 'Bubble', 'Lavender', 'Ink'];
+  var NAMES = ['Ada', 'Alba', 'Arlo', 'Bea', 'Bram', 'Cleo', 'Cosmo', 'Dara', 'Eli', 'Edie', 'Ezra', 'Fern', 'Finn', 'Gus', 'Hana',
+    'Hugo', 'Iris', 'Ivo', 'Jude', 'Juno', 'Kit', 'Lark', 'Leo', 'Lila', 'Mabel', 'Milo', 'Nell', 'Nico', 'Noor', 'Olive', 'Otto',
+    'Pearl', 'Quinn', 'Remy', 'Rosa', 'Rumi', 'Sage', 'Silas', 'Tess', 'Teo', 'Uma', 'Vera', 'Wes', 'Wren', 'Xavi', 'Yara', 'Zadie',
+    'Amos', 'Bo', 'Coral', 'Dev', 'Elsie', 'Faye', 'Gio', 'Hattie', 'Inez', 'Joss', 'Kaia', 'Luca', 'Mira', 'Ned', 'Orla', 'Pim'];
+  // Card and spacing geometry, in world units. Partners sit PG apart, siblings GAP, different families FGAP.
+  var G = { CW: 120, CH: 158, PG: 34, GAP: 24, FGAP: 60, ROWGAP: 112 };
+  G.RH = G.CH + G.ROWGAP;
+  var LIMITS = { people: 2000, gen: 99, name: 40, trait: 28, traits: 12, notes: 2000, goal: 140, treeName: 60, parents: 4, bytes: 5e6 };
+
+  var idN = 0;
+  function makeId(pre) { idN++; return (pre || 'p') + '-' + Date.now().toString(36) + idN.toString(36) + Math.floor(Math.random() * 1679616).toString(36); }
+  function cleanText(v, max, multi) {
+    if (typeof v === 'number' && isFinite(v)) v = String(v);
+    if (typeof v !== 'string') return '';
+    v = multi ? v.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+              : v.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return v.slice(0, max);
+  }
+  function clampInt(v, lo, hi, def) {
+    if (typeof v === 'string' && v.trim() !== '') v = Number(v);
+    if (typeof v !== 'number' || !isFinite(v)) return def;
+    v = Math.round(v); return v < lo ? lo : v > hi ? hi : v;
+  }
+  function cleanTraits(a) {
+    if (!Array.isArray(a)) return [];
+    var out = [], seen = {};
+    for (var i = 0; i < a.length && out.length < LIMITS.traits; i++) {
+      var t = cleanText(a[i], LIMITS.trait), k = t.toLowerCase();
+      if (t && !seen[k]) { seen[k] = 1; out.push(t); }
+    }
+    return out;
+  }
+  function rint(n, rng) { return Math.floor((rng || Math.random)() * n); }
+  function randomLook(rng) { return { skin: rint(SKINS.length, rng), hair: HAIRS[rint(HAIRS.length - 1, rng)], hairColor: rint(7, rng), top: rint(TOPS.length - 1, rng) }; }
+  function cleanLook(l, rng) {
+    var d = randomLook(rng);
+    if (!l || typeof l !== 'object') return d;
+    return { skin: clampInt(l.skin, 0, SKINS.length - 1, d.skin), hair: HAIRS.indexOf(l.hair) >= 0 ? l.hair : d.hair,
+      hairColor: clampInt(l.hairColor, 0, HAIR_COLS.length - 1, d.hairColor), top: clampInt(l.top, 0, TOPS.length - 1, d.top) };
+  }
+  function makePerson(o, rng) {
+    o = o || {};
+    return { id: typeof o.id === 'string' && o.id ? o.id : makeId('p'), name: cleanText(o.name, LIMITS.name) || NAMES[rint(NAMES.length, rng)],
+      gen: clampInt(o.gen, 0, LIMITS.gen, 1), stage: STAGES.indexOf(o.stage) >= 0 ? o.stage : 'adult',
+      status: STATUSES.indexOf(o.status) >= 0 ? o.status : 'living', look: cleanLook(o.look, rng),
+      traits: cleanTraits(o.traits), notes: cleanText(o.notes, LIMITS.notes, true) };
+  }
+  function newTree(name) {
+    var now = Date.now();
+    return { id: makeId('t'), name: cleanText(name, LIMITS.treeName) || 'My household', people: [], partners: [], parents: [], goals: {}, created: now, updated: now };
+  }
+  function freshName(tree, rng) {
+    var used = {}; tree.people.forEach(function (p) { used[p.name.toLowerCase()] = 1; });
+    var free = NAMES.filter(function (n) { return !used[n.toLowerCase()]; });
+    var list = free.length ? free : NAMES;
+    return list[rint(list.length, rng)];
+  }
+
+  // ---- lookups ----
+  function find(tree, id) { for (var i = 0; i < tree.people.length; i++) if (tree.people[i].id === id) return tree.people[i]; return null; }
+  function parentLinks(tree, id) { return tree.parents.filter(function (l) { return l.child === id; }); }
+  function childLinks(tree, id) { return tree.parents.filter(function (l) { return l.parent === id; }); }
+  function partnerLinks(tree, id) { return tree.partners.filter(function (l) { return l.a === id || l.b === id; }); }
+  function partnerIds(tree, id) { return partnerLinks(tree, id).map(function (l) { return l.a === id ? l.b : l.a; }); }
+  function arePartners(tree, a, b) { return tree.partners.some(function (l) { return (l.a === a && l.b === b) || (l.a === b && l.b === a); }); }
+  // Is a an ancestor of b? Walks up from b through parent links.
+  function isAncestor(tree, a, b) {
+    var seen = {}, stack = [b];
+    while (stack.length) {
+      var x = stack.pop();
+      var ps = parentLinks(tree, x);
+      for (var i = 0; i < ps.length; i++) {
+        var p = ps[i].parent;
+        if (p === a) return true;
+        if (!seen[p]) { seen[p] = 1; stack.push(p); }
+      }
+    }
+    return false;
+  }
+  // The layout puts everyone joined by partner links on one row, so the rule that keeps rows possible
+  // is: after merging partners into groups, parent links between groups must never form a loop.
+  function hasLoop(tree, extraParent, extraPartner) {
+    var ids = tree.people.map(function (p) { return p.id; }), up = {};
+    ids.forEach(function (id) { up[id] = id; });
+    function root(x) { while (up[x] !== x) { up[x] = up[up[x]]; x = up[x]; } return x; }
+    function join(a, b) { if (up[a] === undefined || up[b] === undefined) return; var ra = root(a), rb = root(b); if (ra !== rb) up[ra] = rb; }
+    tree.partners.forEach(function (l) { join(l.a, l.b); });
+    if (extraPartner) join(extraPartner.a, extraPartner.b);
+    var edges = tree.parents.slice(); if (extraParent) edges.push(extraParent);
+    var out = {}, indeg = {}, nodes = {};
+    ids.forEach(function (id) { var r = root(id); nodes[r] = 1; out[r] = out[r] || []; indeg[r] = indeg[r] || 0; });
+    for (var i = 0; i < edges.length; i++) {
+      var e = edges[i]; if (up[e.parent] === undefined || up[e.child] === undefined) continue;
+      var a = root(e.parent), b = root(e.child);
+      if (a === b) return true;
+      out[a].push(b); indeg[b]++;
+    }
+    var q = Object.keys(nodes).filter(function (k) { return indeg[k] === 0; }), done = 0;
+    while (q.length) { var k = q.pop(); done++; out[k].forEach(function (m) { if (--indeg[m] === 0) q.push(m); }); }
+    return done !== Object.keys(nodes).length;
+  }
+  function checkParent(tree, parentId, childId, adopted) {
+    if (parentId === childId) return 'Nobody can be their own parent.';
+    var P = find(tree, parentId), C = find(tree, childId);
+    if (!P || !C) return 'Both people need to be in this tree first.';
+    if (tree.parents.some(function (l) { return l.parent === parentId && l.child === childId; })) return P.name + ' is already a parent of ' + C.name + '.';
+    var ps = parentLinks(tree, childId);
+    if (ps.length >= LIMITS.parents) return C.name + ' already has ' + LIMITS.parents + ' parents listed.';
+    if (!adopted && ps.filter(function (l) { return !l.adopted; }).length >= 2) return C.name + ' already has two birth parents. Tick "adopted" to add another parent.';
+    if (isAncestor(tree, childId, parentId)) return 'That would make ' + C.name + ' their own ancestor.';
+    if (arePartners(tree, parentId, childId)) return P.name + ' and ' + C.name + ' are partners, so one cannot be the other\'s parent.';
+    if (hasLoop(tree, { parent: parentId, child: childId }, null)) return 'That would loop the family line back on itself.';
+    return null;
+  }
+  function checkPartner(tree, a, b) {
+    if (a === b) return 'Nobody can partner themselves.';
+    var A = find(tree, a), B = find(tree, b);
+    if (!A || !B) return 'Both people need to be in this tree first.';
+    if (arePartners(tree, a, b)) return A.name + ' and ' + B.name + ' are already partners.';
+    if (isAncestor(tree, a, b) || isAncestor(tree, b, a)) return 'A parent or grandparent cannot be linked as a partner of their own descendant.';
+    if (hasLoop(tree, null, { a: a, b: b })) return 'That would loop the family line back on itself.';
+    return null;
+  }
+  // Keep generation numbers consistent: every child sits at least one generation below each parent.
+  function settleGens(tree, fromId) {
+    var moved = [], q = [fromId], guard = 0;
+    while (q.length && guard++ < 100000) {
+      var x = find(tree, q.shift()); if (!x) continue;
+      childLinks(tree, x.id).forEach(function (l) {
+        var c = find(tree, l.child);
+        if (c && c.gen <= x.gen) { c.gen = Math.min(LIMITS.gen, x.gen + 1); moved.push(c.id); q.push(c.id); }
+      });
+    }
+    return moved;
+  }
+  function linkParent(tree, parentId, childId, adopted) {
+    var e = checkParent(tree, parentId, childId, adopted); if (e) return { error: e };
+    tree.parents.push({ parent: parentId, child: childId, adopted: !!adopted });
+    return { error: null, moved: settleGens(tree, parentId) };
+  }
+  function linkPartner(tree, a, b, kind) {
+    var e = checkPartner(tree, a, b); if (e) return { error: e };
+    tree.partners.push({ a: a, b: b, kind: kind === 'dating' ? 'dating' : 'married' });
+    return { error: null };
+  }
+  function unlinkParent(tree, parentId, childId) { tree.parents = tree.parents.filter(function (l) { return !(l.parent === parentId && l.child === childId); }); }
+  function unlinkPartner(tree, a, b) { tree.partners = tree.partners.filter(function (l) { return !((l.a === a && l.b === b) || (l.a === b && l.b === a)); }); }
+  function removePerson(tree, id) {
+    tree.people = tree.people.filter(function (p) { return p.id !== id; });
+    tree.parents = tree.parents.filter(function (l) { return l.parent !== id && l.child !== id; });
+    tree.partners = tree.partners.filter(function (l) { return l.a !== id && l.b !== id; });
+  }
+  // Lowest generation a person may take without sitting level with or above a parent.
+  function minGenFor(tree, id) {
+    var m = 0; parentLinks(tree, id).forEach(function (l) { var p = find(tree, l.parent); if (p) m = Math.max(m, p.gen + 1); });
+    return Math.min(m, LIMITS.gen);
+  }
+
+  // ---- layout ----
+  // Rows: partner groups share a row; a group sits at least one row below every group holding a parent
+  // of one of its members, and never above its own stored generation. Across a row, subtrees are packed
+  // by their per-row outlines, so cards cannot overlap however the tree is shaped.
+  function layout(tree) {
+    var people = tree.people, n = people.length, CW = G.CW, PG = G.PG, i, k;
+    var ix = {}; people.forEach(function (p, j) { ix[p.id] = j; });
+    var up = []; for (i = 0; i < n; i++) up.push(i);
+    function root(x) { while (up[x] !== x) { up[x] = up[up[x]]; x = up[x]; } return x; }
+    var padj = people.map(function () { return []; }), pars = people.map(function () { return []; }), kids = people.map(function () { return []; });
+    var adoptedPair = {};
+    tree.partners.forEach(function (l) {
+      var a = ix[l.a], b = ix[l.b]; if (a === undefined || b === undefined || a === b) return;
+      padj[a].push(b); padj[b].push(a);
+      var ra = root(a), rb = root(b); if (ra !== rb) up[Math.max(ra, rb)] = Math.min(ra, rb);
+    });
+    tree.parents.forEach(function (l) {
+      var p = ix[l.parent], c = ix[l.child]; if (p === undefined || c === undefined || p === c) return;
+      pars[c].push(p); kids[p].push(c); if (l.adopted) adoptedPair[p + ',' + c] = 1;
+    });
+    var gOf = new Array(n), groups = [], byRoot = {};
+    for (i = 0; i < n; i++) {
+      var r0 = root(i);
+      if (byRoot[r0] === undefined) { byRoot[r0] = groups.length; groups.push({ members: [], first: i, base: -1e9 }); }
+      gOf[i] = byRoot[r0]; groups[gOf[i]].members.push(i);
+      groups[gOf[i]].base = Math.max(groups[gOf[i]].base, people[i].gen);
+    }
+    var gOut = groups.map(function () { return []; }), indeg = groups.map(function () { return 0; });
+    for (i = 0; i < n; i++) pars[i].forEach(function (p) { var a = gOf[p], b = gOf[i]; if (a !== b) { gOut[a].push(b); indeg[b]++; } });
+    var grow = groups.map(function (g) { return g.base; }), q = [];
+    indeg.forEach(function (d, j) { if (d === 0) q.push(j); });
+    while (q.length) {
+      var gq = q.shift();
+      gOut[gq].forEach(function (b) { if (grow[gq] + 1 > grow[b]) grow[b] = grow[gq] + 1; if (--indeg[b] === 0) q.push(b); });
+    }
+    var minR = Infinity, maxR = -Infinity;
+    grow.forEach(function (r) { minR = Math.min(minR, r); maxR = Math.max(maxR, r); });
+    var R = n ? maxR - minR + 1 : 0, rowsU = [];
+    for (i = 0; i < R; i++) rowsU.push([]);
+    groups.forEach(function (g, j) { g.r = grow[j] - minR; rowsU[g.r].push(j); });
+
+    // Order people inside a partner group: the most-partnered person in the middle, partners either side.
+    groups.forEach(function (g) {
+      var order;
+      if (g.members.length === 1) order = g.members.slice();
+      else {
+        var rt = g.members.slice().sort(function (a, b) {
+          return (padj[b].length - padj[a].length) || ((pars[b].length > 0) - (pars[a].length > 0)) || a - b; })[0];
+        var seen = {}, tk = {}, qq = [rt]; seen[rt] = 1;
+        while (qq.length) {
+          var x = qq.shift(); tk[x] = [];
+          padj[x].slice().sort(function (a, b) { return a - b; }).forEach(function (y) { if (!seen[y]) { seen[y] = 1; tk[x].push(y); qq.push(y); } });
+        }
+        var walk = function (x) {
+          var ch = tk[x], h = Math.floor(ch.length / 2), out = [], j;
+          for (j = 0; j < h; j++) out = out.concat(walk(ch[j]));
+          out.push(x);
+          for (j = h; j < ch.length; j++) out = out.concat(walk(ch[j]));
+          return out;
+        };
+        order = walk(rt);
+      }
+      g.order = order; g.off = {}; g.pos = {}; g.gaps = [];
+      order.forEach(function (m, j) { g.pos[m] = j; if (j) g.gaps.push(PG); });
+      setOffsets(g); g.left = 0;
+    });
+    function setOffsets(g) { var x = 0; g.order.forEach(function (m, j) { g.off[m] = x; x += CW + (g.gaps[j] || 0); }); g.w = g.off[g.order[g.order.length - 1]] + CW; }
+
+    // Families: everyone with the same set of parents. A family lives in the partner group holding most
+    // of its parents. Each partner group hangs under one family (the deepest line it descends from), which
+    // turns the groups into a forest that is laid out as a tidy tree.
+    var famByKey = {}, fams = [], famOf = new Array(n);
+    for (i = 0; i < n; i++) {
+      famOf[i] = -1;
+      if (!pars[i].length) continue;
+      var ps = pars[i].slice().sort(function (a, b) { return a - b; }), key = ps.join(',');
+      if (famByKey[key] === undefined) { famByKey[key] = fams.length; fams.push({ parents: ps, children: [] }); }
+      famOf[i] = famByKey[key]; fams[famOf[i]].children.push(i);
+    }
+    fams.forEach(function (f) {
+      var cnt = {}, best = -1, bc = 0;
+      f.parents.forEach(function (p) { cnt[gOf[p]] = (cnt[gOf[p]] || 0) + 1; });
+      f.parents.forEach(function (p) { if (cnt[gOf[p]] > bc) { bc = cnt[gOf[p]]; best = gOf[p]; } });
+      f.home = best; f.homeParents = f.parents.filter(function (p) { return gOf[p] === best; });
+    });
+    var uorder = groups.map(function (g, j) { return j; }).sort(function (a, b) { return groups[a].r - groups[b].r || groups[a].first - groups[b].first; });
+    var kidsOf = groups.map(function () { return {}; });
+    uorder.forEach(function (u) {
+      var g = groups[u], best = -1, bd = -1;
+      g.order.forEach(function (m) {
+        var f = famOf[m]; if (f < 0) return;
+        var hu = groups[fams[f].home]; if (hu.r >= g.r || hu.depth === undefined) return;
+        if (hu.depth > bd) { bd = hu.depth; best = f; }
+      });
+      g.homeFam = best; g.parentU = best >= 0 ? fams[best].home : -1; g.depth = best >= 0 ? bd + 1 : 0;
+      if (best >= 0) (kidsOf[g.parentU][best] = kidsOf[g.parentU][best] || []).push(u);
+    });
+    kidsOf.forEach(function (m) { Object.keys(m).forEach(function (f) { m[f].sort(function (a, b) { return groups[a].first - groups[b].first; }); }); });
+    function mean(a) { var s = 0; for (var j = 0; j < a.length; j++) s += a[j]; return s / a.length; }
+    function anchor(g, f) { return mean(fams[f].homeParents.map(function (p) { return g.off[p] + CW / 2; })); }
+    function mergeCont(acc, C, dx) {
+      Object.keys(C).forEach(function (r) {
+        var lo = C[r][0] + dx, hi = C[r][1] + dx;
+        if (acc[r]) { acc[r][0] = Math.min(acc[r][0], lo); acc[r][1] = Math.max(acc[r][1], hi); } else acc[r] = [lo, hi];
+      });
+    }
+    // Put subtrees side by side, each as far left as its per-row outline allows, keeping their order.
+    function packSubtrees(list, famOfItem) {
+      var acc = {}, xs = [];
+      list.forEach(function (u, j) {
+        var C = groups[u].cont, x = -Infinity, same = j > 0 && famOfItem(j) >= 0 && famOfItem(j) === famOfItem(j - 1);
+        Object.keys(C).forEach(function (r) {
+          if (!acc[r]) return;
+          var gap = (same && +r === groups[u].r) ? G.GAP : G.FGAP;
+          x = Math.max(x, acc[r][1] + gap - C[r][0]);
+        });
+        if (j > 0) x = Math.max(x, xs[j - 1]);
+        if (x === -Infinity) x = 0;
+        xs.push(x); mergeCont(acc, C, x);
+      });
+      return xs;
+    }
+    // Lay out the subtree under group u. Children are packed family by family (families ordered by where
+    // their parents sit in u), then u is placed so every family's drop point lands over its own children.
+    // When one person has children with two partners and the subtrees are wide, the gap between those
+    // partners stretches until both drop points fit.
+    function place(u) {
+      var g = groups[u], fl = Object.keys(kidsOf[u]).map(Number);
+      g.cont = {}; g.cont[g.r] = [0, g.w];
+      if (!fl.length) return;
+      fl.sort(function (a, b) { return anchor(g, a) - anchor(g, b) || a - b; });
+      var list = [], lf = [];
+      fl.forEach(function (f) { kidsOf[u][f].forEach(function (c) { place(c); list.push(c); lf.push(f); }); });
+      var xs = packSubtrees(list, function (j) { return lf[j]; }), xOf = {};
+      list.forEach(function (c, j) { xOf[c] = xs[j]; });
+      // Families that come down from the same point (the same parents in u) are centred as one block.
+      var ag = {}, agl = [];
+      fl.forEach(function (f) {
+        var key = fams[f].homeParents.join(',');
+        if (!ag[key]) { ag[key] = { hp: fams[f].homeParents, cs: [] }; agl.push(ag[key]); }
+        fams[f].children.forEach(function (k) { var cu = gOf[k]; if (xOf[cu] !== undefined && groups[cu].homeFam === f) ag[key].cs.push(xOf[cu] + groups[cu].off[k] + CW / 2); });
+      });
+      var aAnchor = function (a) { return mean(a.hp.map(function (p) { return g.off[p] + CW / 2; })); };
+      var ivals = function () {
+        return agl.map(function (a) {
+          var x = aAnchor(a), c = a.cs;
+          return { a: a, lo: Math.min.apply(null, c) - CW / 2 + 20 - x, hi: Math.max.apply(null, c) + CW / 2 - 20 - x, d: mean(c) - x };
+        });
+      };
+      var iv = ivals(), lo = -Infinity, hi = Infinity, d = mean(iv.map(function (v) { return v.d; }));
+      iv.forEach(function (v) { lo = Math.max(lo, v.lo); hi = Math.min(hi, v.hi); });
+      var left = lo <= hi ? Math.min(hi, Math.max(lo, d)) : d;
+      if (lo > hi + 1e-6 && g.order.length > 1) {
+        // The rigid group cannot fit every drop point. Let the partner gaps grow: alternate between
+        // moving each drop point into its children's span and pushing partners back to the minimum
+        // gap (both are exact projections onto convex sets, so this settles on a fit if one exists).
+        var D = CW + PG, mp = g.order.map(function (m) { return left + g.off[m] + CW / 2; });
+        var sp = agl.map(function (a) { return { idx: a.hp.map(function (p) { return g.pos[p]; }), lo: Math.min.apply(null, a.cs) - CW / 2 + 20, hi: Math.max.apply(null, a.cs) + CW / 2 - 20 }; });
+        for (var it = 0; it < 400; it++) {
+          var worst = 0;
+          sp.forEach(function (q) {
+            var x = mean(q.idx.map(function (j) { return mp[j]; })), sh = x < q.lo ? q.lo - x : x > q.hi ? q.hi - x : 0;
+            if (sh) { worst = Math.max(worst, Math.abs(sh)); q.idx.forEach(function (j) { mp[j] += sh; }); }
+          });
+          for (var j = 0; j + 1 < mp.length; j++) { var dd = mp[j + 1] - mp[j]; if (dd < D) { worst = Math.max(worst, D - dd); mp[j] -= (D - dd) / 2; mp[j + 1] += (D - dd) / 2; } }
+          if (worst < 1e-3) break;
+        }
+        for (j = 0; j + 1 < mp.length; j++) g.gaps[j] = Math.max(PG, mp[j + 1] - mp[j] - CW);
+        setOffsets(g);
+        left = mp[0] - CW / 2;
+      }
+      g.cont = {}; g.cont[g.r] = [0, g.w];
+      list.forEach(function (c) { groups[c].rel = xOf[c] - left; mergeCont(g.cont, groups[c].cont, groups[c].rel); });
+    }
+    var roots = uorder.filter(function (u) { return groups[u].parentU < 0; }).sort(function (a, b) { return groups[a].first - groups[b].first; });
+    roots.forEach(function (u) { place(u); });
+    var rx = packSubtrees(roots, function () { return -1; });
+    function setAbs(u, x) {
+      groups[u].left = x;
+      Object.keys(kidsOf[u]).forEach(function (f) { kidsOf[u][f].forEach(function (c) { setAbs(c, x + groups[c].rel); }); });
+    }
+    roots.forEach(function (u, j) { setAbs(u, rx[j]); });
+    function cx(m) { var g = groups[gOf[m]]; return g.left + g.off[m] + CW / 2; }
+
+    var minX = Infinity; groups.forEach(function (g) { minX = Math.min(minX, g.left); });
+    if (!isFinite(minX)) minX = 0;
+    var pos = {}, maxX = -Infinity;
+    for (i = 0; i < n; i++) {
+      var gg = groups[gOf[i]], X = cx(i) - minX;
+      pos[people[i].id] = { x: X, y: gg.r * G.RH, row: gg.r, gen: gg.r + minR };
+      maxX = Math.max(maxX, X + CW / 2);
+    }
+    var famsOut = fams.map(function (f, j) {
+      var hg = groups[f.home], hp = f.homeParents;
+      return { id: j, parents: f.parents.map(function (p) { return people[p].id; }),
+        home: hp.map(function (p) { return people[p].id; }),
+        others: f.parents.filter(function (p) { return gOf[p] !== f.home; }).map(function (p) { return people[p].id; }),
+        children: f.children.map(function (c) { return people[c].id; }),
+        main: f.children.map(function (c) { return groups[gOf[c]].homeFam === j; }),
+        adopted: f.children.map(function (c) { return f.parents.every(function (p) { return adoptedPair[p + ',' + c]; }); }),
+        x: mean(hp.map(cx)) - minX,
+        couple: hp.length === 2 && Math.abs(hg.pos[hp[0]] - hg.pos[hp[1]]) === 1 };
+    });
+    var partnersOut = tree.partners.filter(function (l) { return ix[l.a] !== undefined && ix[l.b] !== undefined; }).map(function (l) {
+      var a = ix[l.a], b = ix[l.b], g = groups[gOf[a]];
+      return { a: l.a, b: l.b, kind: l.kind, adjacent: gOf[a] === gOf[b] && Math.abs(g.pos[a] - g.pos[b]) === 1 };
+    });
+    var rows = []; for (k = 0; k < R; k++) rows.push({ row: k, gen: k + minR, y: k * G.RH });
+    return { pos: pos, fams: famsOut, partners: partnersOut, rows: rows,
+      bounds: n ? { minX: 0, maxX: maxX, minY: 0, maxY: (R - 1) * G.RH + G.CH } : { minX: 0, maxX: 0, minY: 0, maxY: 0 } };
+  }
+
+  // ---- import / export ----
+  function exportJSON(tree) {
+    return JSON.stringify({ format: FORMAT, version: 1, app: 'Heirloom', exported: new Date().toISOString(), tree: tree }, null, 2);
+  }
+  function bad(msg) { return { ok: false, error: msg }; }
+  function parseImport(text) {
+    if (typeof text !== 'string' || !text.trim()) return bad('The file is empty.');
+    if (text.length > LIMITS.bytes) return bad('That file is too big to be a family tree (over 5 MB).');
+    var data;
+    try { data = JSON.parse(text); } catch (e) { return bad('That file is not valid JSON, so it could not be read. ' + (e && e.message ? '(' + String(e.message).slice(0, 120) + ')' : '')); }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return bad('That JSON is not a Heirloom tree: it should be an object.');
+    if (data.format !== FORMAT || !data.tree || typeof data.tree !== 'object') return bad('That JSON is not a Heirloom tree export (its "format" is not "' + FORMAT + '").');
+    if (typeof data.version === 'number' && data.version > 1) return bad('That tree was saved by a newer version of Heirloom.');
+    var t = data.tree;
+    if (!Array.isArray(t.people)) return bad('The tree has no "people" list.');
+    if (t.people.length > LIMITS.people) return bad('That tree has more than ' + LIMITS.people + ' people, which is more than Heirloom can hold.');
+    var out = newTree(t.name);
+    if (typeof t.id === 'string' && /^[\w-]{1,64}$/.test(t.id)) out.id = t.id;
+    var seen = {};
+    for (var i = 0; i < t.people.length; i++) {
+      var p = t.people[i];
+      if (!p || typeof p !== 'object' || Array.isArray(p)) return bad('Person ' + (i + 1) + ' is not a valid entry.');
+      var id = typeof p.id === 'number' ? String(p.id) : p.id;
+      if (typeof id !== 'string' || !id || id.length > 64) return bad('Person ' + (i + 1) + ' has no usable id.');
+      if (seen[id]) return bad('Two people share the id "' + id.slice(0, 30) + '".');
+      if (typeof p.name !== 'string' || !cleanText(p.name, LIMITS.name)) return bad('Person ' + (i + 1) + ' has no name.');
+      seen[id] = 1;
+      var q = makePerson(p); q.id = id; out.people.push(q);
+    }
+    var links = [];
+    if (t.partners !== undefined && !Array.isArray(t.partners)) return bad('"partners" should be a list.');
+    if (t.parents !== undefined && !Array.isArray(t.parents)) return bad('"parents" should be a list.');
+    (t.partners || []).forEach(function (l) { links.push({ type: 'partner', l: l }); });
+    (t.parents || []).forEach(function (l) { links.push({ type: 'parent', l: l }); });
+    for (var j = 0; j < links.length; j++) {
+      var L = links[j].l, res;
+      if (!L || typeof L !== 'object') return bad('A link in the file is not a valid entry.');
+      if (links[j].type === 'partner') {
+        var a = String(L.a), b = String(L.b);
+        if (!seen[a] || !seen[b]) return bad('A partner link points at someone who is not in the file.');
+        res = linkPartner(out, a, b, L.kind);
+      } else {
+        var pa = String(L.parent), ch = String(L.child);
+        if (!seen[pa] || !seen[ch]) return bad('A parent link points at someone who is not in the file.');
+        var pb = checkParent(out, pa, ch, !!L.adopted);
+        if (pb) return bad('A link in the file breaks the family rules: ' + pb);
+        out.parents.push({ parent: pa, child: ch, adopted: !!L.adopted });
+        res = { error: null };
+      }
+      if (res.error) return bad('A link in the file breaks the family rules: ' + res.error);
+    }
+    // Stored generations may be inconsistent in a hand-edited file; settle them from the top.
+    out.people.forEach(function (p) { settleGens(out, p.id); });
+    if (t.goals && typeof t.goals === 'object' && !Array.isArray(t.goals)) {
+      Object.keys(t.goals).slice(0, 200).forEach(function (g) {
+        var gi = clampInt(g, 0, LIMITS.gen, null), v = t.goals[g];
+        if (gi === null || !v || typeof v !== 'object') return;
+        var text = cleanText(v.text, LIMITS.goal);
+        if (text) out.goals[gi] = { text: text, done: !!v.done };
+      });
+    }
+    if (typeof t.created === 'number' && isFinite(t.created)) out.created = t.created;
+    return { ok: true, tree: out };
+  }
+
+  // ---- the sample family (ours, made up) ----
+  // [key, name, gen, stage, status, [skin, hair, hairColour, top], traits, notes, links]
+  var SAMPLE = [
+    ['rosa', 'Rosa', 1, 'elder', 'living', [2, 'bun', 8, 6], ['bakes at midnight', 'collects teacups'], 'Founded the household with one suitcase and a jar of sourdough starter.', {}],
+    ['theo', 'Theo', 1, 'elder', 'passed', [5, 'short', 7, 5], ['tells long stories'], 'Planted the first apple tree in the back garden.', { partner: 'rosa', kind: 'married' }],
+    ['june', 'June', 2, 'adult', 'living', [3, 'long', 2, 0], ['sings in the shower'], '', { parents: ['rosa', 'theo'] }],
+    ['felix', 'Felix', 2, 'adult', 'moved', [3, 'curly', 1, 4], ['terrible at chess', 'always late'], 'Moved across town, still visits on Sundays.', { parents: ['rosa', 'theo'] }],
+    ['ivy', 'Ivy', 2, 'adult', 'living', [7, 'curly', 0, 7], ['knits scarves'], 'Adopted as a toddler.', { parents: ['rosa', 'theo'], adopted: true }],
+    ['omar', 'Omar', 2, 'adult', 'living', [6, 'short', 0, 2], ['grows tomatoes'], '', { partner: 'june', kind: 'married' }],
+    ['priya', 'Priya', 2, 'adult', 'moved', [4, 'long', 0, 8], ['loves thunderstorms'], '', { partner: 'felix', kind: 'dating' }],
+    ['lena', 'Lena', 2, 'adult', 'living', [0, 'bun', 5, 3], ['skateboards'], '', { partner: 'felix', kind: 'married' }],
+    ['sam', 'Sam', 2, 'adult', 'living', [1, 'spiky', 9, 1], ['plays the ukulele badly'], '', { partner: 'ivy', kind: 'dating' }],
+    ['wren', 'Wren', 3, 'adult', 'living', [4, 'long', 1, 4], ['draws on every wall'], '', { parents: ['june', 'omar'] }],
+    ['arlo', 'Arlo', 3, 'teen', 'living', [5, 'spiky', 0, 0], ['reads under the covers'], '', { parents: ['june', 'omar'] }],
+    ['nico', 'Nico', 3, 'teen', 'living', [4, 'curly', 0, 6], ['fixes old radios'], '', { parents: ['felix', 'priya'] }],
+    ['maya', 'Maya', 3, 'child', 'living', [1, 'bun', 4, 7], ['talks to the cat'], '', { parents: ['felix', 'lena'] }],
+    ['sol', 'Sol', 3, 'child', 'living', [1, 'short', 5, 2], [], '', { parents: ['felix', 'lena'] }],
+    ['kai', 'Kai', 3, 'adult', 'living', [6, 'short', 0, 5], ['runs before sunrise'], '', { partner: 'wren', kind: 'married' }],
+    ['pip', 'Pip', 4, 'baby', 'living', [5, 'bald', 0, 3], [], 'The newest arrival.', { parents: ['wren', 'kai'] }]
+  ];
+  var SAMPLE_GOALS = { 1: { text: 'Build the family home', done: true }, 2: { text: 'Every sibling learns one family recipe', done: true },
+    3: { text: 'Grow a garden big enough to feed everyone', done: false }, 4: { text: 'Open a little bakery on the corner', done: false } };
+  function sampleStep(tree, k) {
+    var s = SAMPLE[k]; if (!s) return null;
+    var id = 'smp-' + s[0];
+    var p = makePerson({ id: id, name: s[1], gen: s[2], stage: s[3], status: s[4], look: { skin: s[5][0], hair: s[5][1], hairColor: s[5][2], top: s[5][3] }, traits: s[6], notes: s[7] });
+    tree.people.push(p);
+    var L = s[8];
+    if (L.partner) linkPartner(tree, 'smp-' + L.partner, id, L.kind);
+    (L.parents || []).forEach(function (q) { linkParent(tree, 'smp-' + q, id, !!L.adopted); });
+    if (SAMPLE_GOALS[s[2]] && !tree.goals[s[2]]) tree.goals[s[2]] = { text: SAMPLE_GOALS[s[2]].text, done: SAMPLE_GOALS[s[2]].done };
+    return p;
+  }
+  function sampleTree(count) {
+    var t = newTree('The Applewood family (sample)');
+    var c = count === undefined ? SAMPLE.length : count;
+    for (var k = 0; k < c; k++) sampleStep(t, k);
+    return t;
+  }
+
+  return { FORMAT: FORMAT, G: G, LIMITS: LIMITS, STAGES: STAGES, STAGE_LABEL: STAGE_LABEL, STATUSES: STATUSES, STATUS_LABEL: STATUS_LABEL,
+    HAIRS: HAIRS, HAIR_LABEL: HAIR_LABEL, SKINS: SKINS, HAIR_COLS: HAIR_COLS, HAIR_COL_NAMES: HAIR_COL_NAMES, TOPS: TOPS, TOP_NAMES: TOP_NAMES,
+    NAMES: NAMES, SAMPLE_SIZE: SAMPLE.length, makeId: makeId, cleanText: cleanText, clampInt: clampInt, cleanTraits: cleanTraits,
+    randomLook: randomLook, makePerson: makePerson, newTree: newTree, freshName: freshName, find: find, parentLinks: parentLinks,
+    childLinks: childLinks, partnerLinks: partnerLinks, partnerIds: partnerIds, arePartners: arePartners, isAncestor: isAncestor,
+    hasLoop: hasLoop, checkParent: checkParent, checkPartner: checkPartner, linkParent: linkParent, linkPartner: linkPartner,
+    unlinkParent: unlinkParent, unlinkPartner: unlinkPartner, removePerson: removePerson, settleGens: settleGens, minGenFor: minGenFor,
+    layout: layout, exportJSON: exportJSON, parseImport: parseImport, sampleStep: sampleStep, sampleTree: sampleTree };
+})();
+// LOGIC-END
+
+(function () {
+  'use strict';
+  var H = Heirloom, G = H.G, TAU = Math.PI * 2;
+  var qs = new URLSearchParams(location.search);
+  var PREVIEW = !!qs.get('preview');
+  var REDUCE = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var $ = function (id) { return document.getElementById(id); };
+  var cv = $('cv'), ctx = cv.getContext('2d');
+  var W = 0, HT = 0, DPR = 1;
+  var S = { store: null, tree: null, lay: null, disp: {}, cam: { x: 0, y: 0, z: 0.7 }, camT: null, sel: null,
+    muted: false, storeWarned: false, dirty: true, parts: [], rings: [], lastT: 0, legacyOpen: false };
+  if (PREVIEW) { document.documentElement.classList.add('preview'); document.body.classList.add('preview'); }
+
+  // ---------- storage (every access guarded; preview never writes) ----------
+  var KEY = 'heirloom.v1', MKEY = 'heirloom.muted';
+  function lsGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { if (PREVIEW) return true; try { window.localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+  function loadStore() {
+    var st = { v: 1, current: null, order: [], trees: {} }, raw = lsGet(KEY);
+    if (raw) {
+      try {
+        var d = JSON.parse(raw);
+        if (d && d.trees && typeof d.trees === 'object') {
+          (Array.isArray(d.order) ? d.order : Object.keys(d.trees)).forEach(function (id) {
+            var t = d.trees[id]; if (!t || st.trees[id]) return;
+            var r = H.parseImport(JSON.stringify({ format: H.FORMAT, version: 1, tree: t }));
+            if (r.ok) { r.tree.updated = t.updated || Date.now(); st.trees[r.tree.id] = r.tree; st.order.push(r.tree.id); }
+          });
+          st.current = d.current;
+        }
+      } catch (e) { /* unreadable storage: start fresh, the old value is left in place untouched */ }
+    }
+    if (!st.order.length) { var t0 = H.newTree('My household'); st.trees[t0.id] = t0; st.order.push(t0.id); }
+    if (!st.trees[st.current]) st.current = st.order[0];
+    return st;
+  }
+  var saveT = 0;
+  function save() { if (PREVIEW) return; clearTimeout(saveT); saveT = setTimeout(saveNow, 250); }
+  function saveNow() {
+    if (PREVIEW) return;
+    clearTimeout(saveT);
+    if (S.tree) S.tree.updated = Date.now();
+    var ok = lsSet(KEY, JSON.stringify(S.store));
+    if (!ok && !S.storeWarned) { S.storeWarned = true; toast('This browser is blocking storage, so changes last only until the tab closes. Export .json to keep them.', 5000); }
+  }
+
+  // ---------- sound (Web Audio, only after the first input, never in preview) ----------
+  var AC = null;
+  function audio() {
+    if (PREVIEW || S.muted) return null;
+    try {
+      if (!AC) { var C = window.AudioContext || window.webkitAudioContext; if (!C) return null; AC = new C(); }
+      if (AC.state === 'suspended') AC.resume();
+    } catch (e) { return null; }
+    return AC;
+  }
+  function tone(freq, t0, dur, type, vol) {
+    var a = audio(); if (!a) return;
+    var o = a.createOscillator(), g = a.createGain(), t = a.currentTime + t0;
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.12, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur + 0.05);
+  }
+  var SFX = {
+    add: function () { [523.3, 659.3, 784, 1046.5].forEach(function (f, i) { tone(f, i * 0.07, 0.35, 'triangle', 0.1); }); tone(1568, 0.3, 0.4, 'sine', 0.04); },
+    link: function () { tone(587.3, 0, 0.25, 'sine', 0.1); tone(880, 0.09, 0.35, 'sine', 0.09); },
+    tick: function () { [784, 988, 1175, 1568].forEach(function (f, i) { tone(f, i * 0.05, 0.3, 'sine', 0.07); }); },
+    soft: function () { tone(440, 0, 0.12, 'triangle', 0.06); },
+    remove: function () { tone(392, 0, 0.2, 'triangle', 0.08); tone(262, 0.08, 0.3, 'triangle', 0.07); },
+    nope: function () { tone(220, 0, 0.18, 'square', 0.03); }
+  };
+  function sfx(n) { if (!PREVIEW && !S.muted && AC) SFX[n](); }
+  function wakeAudio() { if (!PREVIEW && !S.muted && !AC) audio(); }
+  function setMute(m, persist) {
+    S.muted = m;
+    if (m && AC) { try { AC.suspend(); } catch (e) {} } else if (!m && AC) { try { AC.resume(); } catch (e) {} }
+    var b = $('bMute'); b.setAttribute('aria-pressed', m ? 'true' : 'false'); b.title = m ? 'Sound off (M)' : 'Sound on (M)';
+    $('muteWave').style.display = m ? 'none' : ''; $('muteX').style.display = m ? '' : 'none';
+    if (persist) lsSet(MKEY, m ? '1' : '0');
+  }
+
+  // ---------- colour helpers ----------
+  function hexRgb(h) { var n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+  function mix(h, to, t) { var a = hexRgb(h), b = hexRgb(to); return 'rgb(' + a.map(function (v, i) { return Math.round(v + (b[i] - v) * t); }).join(',') + ')'; }
+  var LINE_COLS = ['#B45CF0', '#FF4F6D', '#1FB5A9', '#FF8A3D', '#6F7EEA', '#E0569F', '#7FA81A'];
+
+  // ---------- portraits ----------
+  function drawPortrait(c, p, x, y, r, dim) {
+    var L = p.look, st = H.STAGES.indexOf(p.stage); if (st < 0) st = 3;
+    var skin = H.SKINS[L.skin] || H.SKINS[2], hc = H.HAIR_COLS[L.hairColor] || H.HAIR_COLS[1], top = H.TOPS[L.top] || H.TOPS[0];
+    var hs = [0.5, 0.46, 0.43, 0.42, 0.42][st], hy = [0.04, -0.05, -0.1, -0.12, -0.1][st], bw = [0.52, 0.66, 0.78, 0.88, 0.88][st];
+    var hr = r * hs, hx = x, hcy = y + hy * r;
+    c.save();
+    c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = mix(top, '#FFFFFF', 0.8); c.fill(); c.clip();
+    // back hair
+    if (st > 0 && (L.hair === 'long' || L.hair === 'curly')) {
+      c.fillStyle = hc; c.beginPath();
+      if (L.hair === 'long') { c.ellipse(hx, hcy + hr * 0.55, hr * 1.18, hr * 1.35, 0, 0, TAU); }
+      else { for (var k = 0; k < 7; k++) { var a = Math.PI * (0.85 + k * 0.22); c.moveTo(hx + Math.cos(a) * hr * 1.05, hcy + Math.sin(a) * hr * 1.05); c.arc(hx + Math.cos(a) * hr * 0.98, hcy + Math.sin(a) * hr * 0.98 + hr * 0.1, hr * 0.42, 0, TAU); } }
+      c.fill();
+    }
+    // body
+    c.fillStyle = top; c.beginPath(); c.ellipse(x, y + r * 1.0, r * bw, r * 0.56, 0, 0, TAU); c.fill();
+    c.fillStyle = mix(top, '#1A1540', 0.18); c.beginPath(); c.ellipse(x, y + r * 0.47, r * bw * 0.34, r * 0.1, 0, 0, Math.PI); c.fill();
+    // neck and head
+    c.fillStyle = mix(skin, '#1A1540', 0.1); c.fillRect(hx - hr * 0.26, hcy + hr * 0.6, hr * 0.52, r * 0.28);
+    c.fillStyle = skin;
+    c.beginPath(); c.arc(hx - hr * 0.98, hcy + hr * 0.1, hr * 0.2, 0, TAU); c.arc(hx + hr * 0.98, hcy + hr * 0.1, hr * 0.2, 0, TAU); c.fill();
+    c.beginPath(); c.arc(hx, hcy, hr, 0, TAU); c.fill();
+    // front hair
+    c.fillStyle = hc;
+    var capPath = function (fr) {
+      c.beginPath(); c.arc(hx, hcy, hr * 1.07, Math.PI * 0.98, Math.PI * 2.02);
+      c.quadraticCurveTo(hx + hr * 0.55, hcy - hr * fr, hx - hr * 0.05, hcy - hr * (fr - 0.08));
+      c.quadraticCurveTo(hx - hr * 0.7, hcy - hr * (fr - 0.25), hx - hr * 1.07, hcy + hr * 0.05);
+      c.closePath(); c.fill();
+    };
+    if (st === 0) {
+      if (L.hair !== 'bald') { c.lineWidth = hr * 0.13; c.strokeStyle = hc; c.lineCap = 'round'; c.beginPath(); c.arc(hx + hr * 0.12, hcy - hr * 0.86, hr * 0.2, Math.PI * 0.9, Math.PI * 2.3); c.stroke(); }
+    } else if (L.hair === 'short') { capPath(0.42); }
+    else if (L.hair === 'long') { capPath(0.3); }
+    else if (L.hair === 'curly') { capPath(0.45); for (var j = 0; j < 6; j++) { c.beginPath(); c.arc(hx - hr * 0.75 + j * hr * 0.3, hcy - hr * (0.72 + (j % 2) * 0.12), hr * 0.3, 0, TAU); c.fill(); } }
+    else if (L.hair === 'bun') { capPath(0.36); c.beginPath(); c.arc(hx, hcy - hr * 1.12, hr * 0.42, 0, TAU); c.fill(); }
+    else if (L.hair === 'spiky') {
+      c.beginPath(); c.moveTo(hx - hr * 1.05, hcy - hr * 0.05);
+      for (var s = 0; s <= 6; s++) { var ax = hx - hr * 1.05 + s * hr * 0.35; c.lineTo(ax, hcy - hr * (s % 2 ? 1.45 : 0.75)); }
+      c.lineTo(hx + hr * 1.05, hcy - hr * 0.05); c.quadraticCurveTo(hx, hcy - hr * 0.6, hx - hr * 1.05, hcy - hr * 0.05); c.fill();
+    } else if (L.hair === 'bald') { c.fillStyle = 'rgba(255,255,255,.35)'; c.beginPath(); c.ellipse(hx - hr * 0.35, hcy - hr * 0.55, hr * 0.28, hr * 0.14, -0.5, 0, TAU); c.fill(); }
+    // face
+    var er = hr * (st === 0 ? 0.12 : st === 1 ? 0.11 : 0.095), ey = hcy + hr * 0.1;
+    c.fillStyle = '#1A1540';
+    c.beginPath(); c.arc(hx - hr * 0.36, ey, er, 0, TAU); c.arc(hx + hr * 0.36, ey, er, 0, TAU); c.fill();
+    c.fillStyle = '#fff'; c.beginPath(); c.arc(hx - hr * 0.33, ey - er * 0.35, er * 0.35, 0, TAU); c.arc(hx + hr * 0.39, ey - er * 0.35, er * 0.35, 0, TAU); c.fill();
+    c.fillStyle = 'rgba(255,90,120,.28)'; c.beginPath(); c.arc(hx - hr * 0.58, ey + hr * 0.3, hr * 0.16, 0, TAU); c.arc(hx + hr * 0.58, ey + hr * 0.3, hr * 0.16, 0, TAU); c.fill();
+    c.strokeStyle = '#1A1540'; c.lineWidth = Math.max(1, hr * 0.08); c.lineCap = 'round';
+    c.beginPath(); c.arc(hx, ey + hr * 0.2, hr * 0.22, Math.PI * 0.18, Math.PI * 0.82); c.stroke();
+    if (st === 4) {
+      c.lineWidth = Math.max(1, hr * 0.06); c.strokeStyle = '#5B5486';
+      c.beginPath(); c.arc(hx - hr * 0.36, ey, hr * 0.22, 0, TAU); c.moveTo(hx + hr * 0.58, ey); c.arc(hx + hr * 0.36, ey, hr * 0.22, 0, TAU);
+      c.moveTo(hx - hr * 0.14, ey); c.lineTo(hx + hr * 0.14, ey); c.stroke();
+    }
+    c.restore();
+    if (dim) { c.save(); c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = 'rgba(238,234,247,.45)'; c.fill(); c.restore(); }
+  }
+  function faceCanvas(p, size) {
+    var d = Math.min(3, window.devicePixelRatio || 1), c = document.createElement('canvas');
+    c.width = Math.round(size * d); c.height = Math.round(size * d); c.style.width = size + 'px'; c.style.height = size + 'px';
+    c.className = 'face'; c.setAttribute('aria-hidden', 'true');
+    var x = c.getContext('2d'); x.scale(d, d); drawPortrait(x, p, size / 2, size / 2, size / 2, p.status === 'passed');
+    return c;
+  }
+
+  // ---------- drawing the tree ----------
+  var ellCache = {};
+  function ellipsize(c, text, max) {
+    var k = c.font + '|' + max + '|' + text; if (ellCache[k] !== undefined) return ellCache[k];
+    var t = text; if (c.measureText(t).width > max) { while (t.length > 1 && c.measureText(t + '…').width > max) t = t.slice(0, -1); t += '…'; }
+    if (Object.keys(ellCache).length > 3000) ellCache = {};
+    return (ellCache[k] = t);
+  }
+  function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+  function heart(c, x, y, s) { c.beginPath(); c.moveTo(x, y + s * 0.35); c.bezierCurveTo(x - s, y - s * 0.3, x - s * 0.45, y - s, x, y - s * 0.45); c.bezierCurveTo(x + s * 0.45, y - s, x + s, y - s * 0.3, x, y + s * 0.35); c.fill(); }
+  var FONT = 'ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+  function drawCard(c, p, x, y, sc, selected, zoom) {
+    var CW = G.CW, CH = G.CH, L = x - CW / 2;
+    c.save();
+    if (sc !== 1) { c.translate(x, y + CH / 2); c.scale(sc, sc); c.translate(-x, -(y + CH / 2)); }
+    var passed = p.status === 'passed', moved = p.status === 'moved', top = H.TOPS[p.look.top] || H.TOPS[0];
+    c.fillStyle = selected ? '#FFB3C1' : '#E4DEFA'; rr(c, L, y + 5, CW, CH, 20); c.fill();
+    c.fillStyle = passed ? '#EFEBF8' : '#FFFFFF'; rr(c, L, y, CW, CH, 20); c.fill();
+    c.save(); rr(c, L, y, CW, CH, 20); c.clip(); c.fillStyle = mix(top, '#FFFFFF', passed ? 0.8 : 0.55); c.fillRect(L, y, CW, 30); c.restore();
+    if (selected) { c.lineWidth = 5; c.strokeStyle = '#FF4F6D'; rr(c, L - 1, y - 1, CW + 2, CH + 2, 21); c.stroke(); }
+    else if (moved) { c.lineWidth = 2.5; c.strokeStyle = '#8C9BFF'; c.setLineDash([7, 6]); rr(c, L + 1, y + 1, CW - 2, CH - 2, 19); c.stroke(); c.setLineDash([]); }
+    drawPortrait(c, p, x, y + 52, 38, passed);
+    if (zoom > 0.3) {
+      c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillStyle = '#1A1540';
+      c.font = '800 17px ' + FONT; c.fillText(ellipsize(c, p.name, CW - 14), x, y + 114);
+      c.font = '600 12.5px ' + FONT; c.fillStyle = passed ? '#7A7399' : moved ? '#5A68D6' : '#5B5486';
+      var sub = passed ? 'Passed on' : moved ? 'Moved out' : H.STAGE_LABEL[p.stage];
+      c.fillText(ellipsize(c, 'Gen ' + p.gen + ' · ' + sub, CW - 12), x, y + 132);
+      if (p.traits.length && zoom > 0.35) {
+        c.font = '600 11.5px ' + FONT;
+        var tt = ellipsize(c, p.traits[0], CW - 30), tw = c.measureText(tt).width + 14;
+        c.fillStyle = '#F1ECFF'; rr(c, x - tw / 2, y + 138, tw, 16, 8); c.fill();
+        c.fillStyle = '#5B5486'; c.fillText(tt, x, y + 150);
+      }
+    } else {
+      c.fillStyle = '#1A1540'; c.textAlign = 'center'; c.font = '800 30px ' + FONT; c.fillText(ellipsize(c, p.name, CW - 6), x, y + 130);
+    }
+    if (passed) { c.fillStyle = '#B9A8FF'; star(c, L + CW - 16, y + 16, 8); }
+    if (moved) { c.fillStyle = '#8C9BFF'; c.beginPath(); c.moveTo(L + CW - 24, y + 22); c.lineTo(L + CW - 16, y + 12); c.lineTo(L + CW - 8, y + 22); c.closePath(); c.fill(); c.fillRect(L + CW - 21, y + 21, 10, 7); }
+    c.restore();
+  }
+  function star(c, x, y, r) { c.beginPath(); for (var i = 0; i < 10; i++) { var a = -Math.PI / 2 + i * Math.PI / 5, rr2 = i % 2 ? r * 0.45 : r; c.lineTo(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2); } c.closePath(); c.fill(); }
+
+  // Draws the whole scene in world coordinates onto c. getPos(id) returns {x, y, s}.
+  function drawScene(c, lay, tree, getPos, opt) {
+    opt = opt || {};
+    var CW = G.CW, CH = G.CH, b = lay.bounds, byId = {};
+    tree.people.forEach(function (p) { byId[p.id] = p; });
+    // generation bands and labels
+    var bx0 = b.minX - 170, bx1 = b.maxX + 60;
+    lay.rows.forEach(function (row, i) {
+      var yy = row.y - G.ROWGAP * 0.42;
+      c.fillStyle = i % 2 ? 'rgba(185,168,255,0.10)' : 'rgba(255,224,102,0.13)';
+      rr(c, bx0, yy, bx1 - bx0, G.RH - 6, 28); c.fill();
+      var goal = tree.goals[row.gen];
+      c.fillStyle = '#FFFFFF'; rr(c, bx0 + 18, row.y + CH / 2 - 26, 118, 52, 18); c.fill();
+      c.fillStyle = '#1A1540'; c.textAlign = 'center'; c.font = '800 22px ' + FONT; c.fillText('Gen ' + row.gen, bx0 + 77, row.y + CH / 2 + 2);
+      if (goal && goal.text) {
+        c.font = '700 12px ' + FONT; c.fillStyle = goal.done ? '#5E8A00' : '#8C84B8';
+        c.fillText(goal.done ? 'goal done ✓' : 'goal set', bx0 + 77, row.y + CH / 2 + 19);
+      }
+    });
+    // family lines
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    lay.fams.forEach(function (f, fi) {
+      var ps = f.home.map(getPos), os = f.others.map(getPos), ks = f.children.map(getPos);
+      if (!ps.length || !ks.length || ps.concat(os, ks).some(function (q) { return !q; })) return;
+      var col = LINE_COLS[fi % LINE_COLS.length], conn = 0, py = -Infinity, ky = Infinity;
+      ps.forEach(function (q) { conn += q.x; py = Math.max(py, q.y); }); conn /= ps.length;
+      ks.forEach(function (q) { ky = Math.min(ky, q.y); });
+      var bar = ky - 30 - (fi % 3) * 9, sy;
+      c.strokeStyle = col; c.lineWidth = 4; c.setLineDash([]);
+      if (f.couple) sy = py + 62; // just under the ring or heart on the partner line
+      else if (ps.length === 1) sy = py + CH;
+      else {
+        sy = py + CH + 14;
+        ps.forEach(function (q) { c.beginPath(); c.moveTo(q.x, q.y + CH); c.lineTo(q.x, sy); c.lineTo(conn, sy); c.stroke(); });
+      }
+      var minx = conn, maxx = conn;
+      ks.concat(os).forEach(function (q) { minx = Math.min(minx, q.x); maxx = Math.max(maxx, q.x); });
+      c.beginPath(); c.moveTo(conn, sy); c.lineTo(conn, bar); c.moveTo(minx, bar); c.lineTo(maxx, bar); c.stroke();
+      // a parent from another branch joins the same bar from their own card
+      os.forEach(function (q) { c.beginPath(); c.moveTo(q.x, q.y + CH); c.lineTo(q.x, bar); c.stroke(); });
+      ks.forEach(function (q, j) {
+        if (f.adopted[j]) c.setLineDash([2, 9]); else c.setLineDash([]);
+        c.beginPath(); c.moveTo(q.x, bar); c.lineTo(q.x, q.y); c.stroke();
+      });
+      c.setLineDash([]);
+      if (!f.couple) { c.fillStyle = col; c.beginPath(); c.arc(conn, sy, 6, 0, TAU); c.fill(); }
+    });
+    // partner lines
+    lay.partners.forEach(function (l) {
+      var a = getPos(l.a), bb = getPos(l.b); if (!a || !bb) return;
+      var dating = l.kind === 'dating';
+      c.strokeStyle = dating ? '#FF7AC8' : '#B45CF0'; c.lineWidth = 4; c.setLineDash(dating ? [8, 7] : []);
+      var mx, my;
+      if (l.adjacent && Math.abs(a.y - bb.y) < 2) {
+        var lft = a.x < bb.x ? a : bb, rgt = a.x < bb.x ? bb : a;
+        c.beginPath(); c.moveTo(lft.x + CW / 2, lft.y + 52); c.lineTo(rgt.x - CW / 2, rgt.y + 52); c.stroke();
+        mx = (lft.x + rgt.x) / 2; my = (lft.y + rgt.y) / 2 + 52;
+      } else {
+        var top2 = Math.min(a.y, bb.y) - 46;
+        c.beginPath(); c.moveTo(a.x, a.y); c.bezierCurveTo(a.x, top2, bb.x, top2, bb.x, bb.y); c.stroke();
+        mx = (a.x + bb.x) / 2; my = top2 + 12;
+      }
+      c.setLineDash([]);
+      if (dating) { c.fillStyle = '#FF7AC8'; heart(c, mx, my + 2, 10); }
+      else { c.lineWidth = 3; c.strokeStyle = '#E0A800'; c.beginPath(); c.arc(mx - 4, my, 6, 0, TAU); c.stroke(); c.beginPath(); c.arc(mx + 4, my, 6, 0, TAU); c.stroke(); }
+    });
+    // cards
+    tree.people.forEach(function (p) {
+      var q = getPos(p.id); if (!q || q.s <= 0.01) return;
+      drawCard(c, p, q.x, q.y, q.s === undefined ? 1 : q.s, opt.sel === p.id, opt.zoom === undefined ? 1 : opt.zoom);
+    });
+  }
+
+  // ---------- canvas, camera and render loop ----------
+  function resize() {
+    DPR = Math.min(3, window.devicePixelRatio || 1); W = window.innerWidth; HT = window.innerHeight;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(HT * DPR);
+    S.dirty = true;
+  }
+  function view() {
+    // The part of the screen not covered by the bar or an open side panel.
+    var top = PREVIEW ? 0 : 64, left = 0, right = W, bottom = HT;
+    var narrow = W <= 760;
+    if (!PREVIEW) {
+      if (!$('card').hidden) { if (narrow) bottom = HT * 0.26 + 10; else right = W - 400; }
+      if (!$('legacy').hidden) { if (narrow) bottom = HT * 0.26 + 10; else left = 360; }
+    }
+    return { x0: left, y0: top, x1: right, y1: bottom };
+  }
+  function fitCam(animate, maxZ) {
+    var lay = S.lay, v = view(), b = lay.bounds;
+    if (!S.tree.people.length) { setCam({ x: 0, y: 0, z: 0.8 }, animate); return; }
+    var pad = PREVIEW ? 18 : 30, w = (b.maxX - b.minX) + 170 + 40, h = (b.maxY - b.minY) + G.ROWGAP * 0.5;
+    var z = Math.min((v.x1 - v.x0 - pad * 2) / w, (v.y1 - v.y0 - pad * 2) / h);
+    z = Math.max(0.1, Math.min(maxZ || 1.1, z));
+    var cxw = (b.minX - 170 + b.maxX + 40) / 2, cyw = (b.minY - G.ROWGAP * 0.3 + b.maxY) / 2;
+    setCam(camFor(cxw, cyw, z, v), animate);
+  }
+  function camFor(wx, wy, z, v) {
+    // camera centre such that world point (wx, wy) lands in the centre of the visible area v
+    var sx = (v.x0 + v.x1) / 2, sy = (v.y0 + v.y1) / 2;
+    return { x: wx - (sx - W / 2) / z, y: wy - (sy - HT / 2) / z, z: z };
+  }
+  function setCam(c, animate) { if (animate && !REDUCE) S.camT = c; else { S.cam = c; S.camT = null; } S.dirty = true; }
+  function toWorld(sx, sy) { return { x: (sx - W / 2) / S.cam.z + S.cam.x, y: (sy - HT / 2) / S.cam.z + S.cam.y }; }
+  function zoomAt(sx, sy, factor) {
+    var c = S.camT || S.cam, z = Math.max(0.1, Math.min(2.6, c.z * factor));
+    var w = { x: (sx - W / 2) / c.z + c.x, y: (sy - HT / 2) / c.z + c.y };
+    S.cam = { x: w.x - (sx - W / 2) / z, y: w.y - (sy - HT / 2) / z, z: z }; S.camT = null; S.dirty = true;
+  }
+  function showPerson(id, animate) {
+    var q = S.lay.pos[id]; if (!q) return;
+    var v = view(), c = S.camT || S.cam;
+    var sx = (q.x - c.x) * c.z + W / 2, sy = (q.y + G.CH / 2 - c.y) * c.z + HT / 2;
+    var m = 40;
+    if (sx < v.x0 + m || sx > v.x1 - m || sy < v.y0 + m || sy > v.y1 - m || c.z < 0.3) {
+      setCam(camFor(q.x, q.y + G.CH / 2, Math.max(c.z, 0.55), v), animate);
+    }
+  }
+  function relayout(spawnFrom) {
+    S.lay = H.layout(S.tree);
+    var seen = {};
+    S.tree.people.forEach(function (p) {
+      seen[p.id] = 1;
+      var t = S.lay.pos[p.id];
+      if (!S.disp[p.id]) {
+        var from = spawnFrom && S.disp[spawnFrom] ? S.disp[spawnFrom] : t;
+        S.disp[p.id] = REDUCE ? { x: t.x, y: t.y, s: 1 } : { x: from.x, y: from.y, s: 0 };
+      } else if (REDUCE) { S.disp[p.id].x = t.x; S.disp[p.id].y = t.y; }
+    });
+    Object.keys(S.disp).forEach(function (id) { if (!seen[id]) delete S.disp[id]; });
+    S.dirty = true;
+  }
+  function burst(id, n) {
+    if (REDUCE) return;
+    var q = S.lay.pos[id]; if (!q) return;
+    var cols = ['#FFE066', '#FF4F6D', '#C6F432', '#22D3C5', '#B45CF0', '#FF7AC8', '#FF8A3D', '#8C9BFF'];
+    for (var i = 0; i < (n || 34); i++) {
+      var a = Math.random() * TAU, sp = 160 + Math.random() * 360;
+      S.parts.push({ x: q.x, y: q.y + G.CH / 2, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 180, life: 0.9 + Math.random() * 0.6, t: 0,
+        col: cols[i % cols.length], sz: 5 + Math.random() * 7, rot: Math.random() * TAU, vr: (Math.random() - 0.5) * 12, shape: i % 3 });
+    }
+    S.rings.push({ x: q.x, y: q.y + G.CH / 2, t: 0 });
+  }
+  function drawBackground() {
+    ctx.fillStyle = '#F7F4FF'; ctx.fillRect(0, 0, W, HT);
+    var z = S.cam.z, step = 48; while (step * z < 22) step *= 2;
+    var w0 = toWorld(0, 0), w1 = toWorld(W, HT);
+    ctx.fillStyle = 'rgba(140,155,255,0.22)';
+    var r = Math.max(1, 1.6 * Math.min(1, z * 1.4));
+    for (var gx = Math.floor(w0.x / step) * step; gx <= w1.x; gx += step)
+      for (var gy = Math.floor(w0.y / step) * step; gy <= w1.y; gy += step) {
+        var sx = (gx - S.cam.x) * z + W / 2, sy = (gy - S.cam.y) * z + HT / 2;
+        ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+      }
+  }
+  function frame(t) {
+    var dt = Math.min(0.05, S.lastT ? (t - S.lastT) / 1000 : 0.016); S.lastT = t;
+    if (PREVIEW) previewTick(dt);
+    var moving = false, k = 1 - Math.exp(-dt * 11);
+    if (S.lay) {
+      S.tree.people.forEach(function (p) {
+        var d = S.disp[p.id], q = S.lay.pos[p.id]; if (!d || !q) return;
+        if (Math.abs(d.x - q.x) > 0.3 || Math.abs(d.y - q.y) > 0.3) { d.x += (q.x - d.x) * k; d.y += (q.y - d.y) * k; moving = true; } else { d.x = q.x; d.y = q.y; }
+        if (d.s < 1) { d.s = Math.min(1, d.s + dt * 3.2); moving = true; }
+      });
+    }
+    if (S.camT) {
+      var c = S.cam, T = S.camT, kc = 1 - Math.exp(-dt * 7);
+      c.x += (T.x - c.x) * kc; c.y += (T.y - c.y) * kc; c.z += (T.z - c.z) * kc;
+      if (Math.abs(T.x - c.x) * c.z < 0.4 && Math.abs(T.y - c.y) * c.z < 0.4 && Math.abs(T.z - c.z) < 0.001) { S.cam = { x: T.x, y: T.y, z: T.z }; S.camT = null; }
+      moving = true;
+    }
+    if (S.parts.length || S.rings.length) moving = true;
+    if (moving || S.dirty) { render(dt); S.dirty = false; }
+    requestAnimationFrame(frame);
+  }
+  function easeBack(s) { var c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(s - 1, 3) + c1 * Math.pow(s - 1, 2); }
+  function render(dt) {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drawBackground();
+    if (!S.lay || !S.tree.people.length) return;
+    ctx.save();
+    ctx.translate(W / 2, HT / 2); ctx.scale(S.cam.z, S.cam.z); ctx.translate(-S.cam.x, -S.cam.y);
+    drawScene(ctx, S.lay, S.tree, function (id) { var d = S.disp[id]; return d ? { x: d.x, y: d.y, s: d.s >= 1 ? 1 : Math.max(0, easeBack(d.s)) } : null; },
+      { sel: S.sel, zoom: S.cam.z });
+    // celebration rings and confetti
+    S.rings = S.rings.filter(function (r) {
+      r.t += dt; if (r.t > 0.7) return false;
+      ctx.strokeStyle = 'rgba(255,79,109,' + (0.6 * (1 - r.t / 0.7)) + ')'; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.arc(r.x, r.y, 40 + r.t * 220, 0, TAU); ctx.stroke(); return true;
+    });
+    S.parts = S.parts.filter(function (q) {
+      q.t += dt; if (q.t > q.life) return false;
+      q.vy += 700 * dt; q.vx *= 0.985; q.x += q.vx * dt; q.y += q.vy * dt; q.rot += q.vr * dt;
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - q.t / q.life); ctx.translate(q.x, q.y); ctx.rotate(q.rot); ctx.fillStyle = q.col;
+      if (q.shape === 0) ctx.fillRect(-q.sz / 2, -q.sz / 4, q.sz, q.sz / 2);
+      else if (q.shape === 1) { ctx.beginPath(); ctx.arc(0, 0, q.sz / 2.4, 0, TAU); ctx.fill(); }
+      else star(ctx, 0, 0, q.sz / 1.6);
+      ctx.restore(); return true;
+    });
+    ctx.restore();
+  }
+
+  // ---------- pointer input: pan, wheel, pinch, tap ----------
+  var ptrs = {}, gesture = null;
+  function hitTest(sx, sy) {
+    var w = toWorld(sx, sy), people = S.tree.people;
+    for (var i = people.length - 1; i >= 0; i--) {
+      var d = S.disp[people[i].id]; if (!d) continue;
+      if (w.x >= d.x - G.CW / 2 && w.x <= d.x + G.CW / 2 && w.y >= d.y && w.y <= d.y + G.CH) return people[i].id;
+    }
+    return null;
+  }
+  cv.addEventListener('pointerdown', function (e) {
+    if (PREVIEW) return;
+    wakeAudio(); closeMenu();
+    try { cv.setPointerCapture(e.pointerId); } catch (er) {}
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    var ids = Object.keys(ptrs);
+    if (S.camT) { S.cam = { x: S.cam.x, y: S.cam.y, z: S.cam.z }; S.camT = null; }
+    if (ids.length === 1) gesture = { type: 'pan', sx: e.clientX, sy: e.clientY, cam: { x: S.cam.x, y: S.cam.y, z: S.cam.z }, moved: false };
+    else if (ids.length === 2) {
+      var a = ptrs[ids[0]], b = ptrs[ids[1]], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      gesture = { type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: S.cam.z, w: toWorld(mx, my), moved: true };
+    }
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (PREVIEW || !ptrs[e.pointerId]) return;
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (!gesture) return;
+    var ids = Object.keys(ptrs);
+    if (gesture.type === 'pan' && ids.length === 1) {
+      var dx = e.clientX - gesture.sx, dy = e.clientY - gesture.sy;
+      if (!gesture.moved && Math.hypot(dx, dy) > 7) { gesture.moved = true; cv.classList.add('dragging'); }
+      if (gesture.moved) { S.cam.x = gesture.cam.x - dx / S.cam.z; S.cam.y = gesture.cam.y - dy / S.cam.z; S.dirty = true; }
+    } else if (gesture.type === 'pinch' && ids.length >= 2) {
+      var a = ptrs[ids[0]], b = ptrs[ids[1]], mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      var z = Math.max(0.1, Math.min(2.6, gesture.z0 * Math.hypot(a.x - b.x, a.y - b.y) / gesture.d0));
+      S.cam = { x: gesture.w.x - (mx - W / 2) / z, y: gesture.w.y - (my - HT / 2) / z, z: z }; S.dirty = true;
+    }
+  });
+  function endPtr(e) {
+    if (PREVIEW || !ptrs[e.pointerId]) return;
+    delete ptrs[e.pointerId];
+    var left = Object.keys(ptrs);
+    if (gesture && gesture.type === 'pan' && !gesture.moved && e.type === 'pointerup' && !left.length) {
+      var id = hitTest(e.clientX, e.clientY);
+      if (id) openCard(id); else if (!$('card').hidden) closeCard();
+    }
+    if (left.length === 1) { var p = ptrs[left[0]]; gesture = { type: 'pan', sx: p.x, sy: p.y, cam: { x: S.cam.x, y: S.cam.y, z: S.cam.z }, moved: true }; }
+    else if (!left.length) { gesture = null; cv.classList.remove('dragging'); }
+  }
+  cv.addEventListener('pointerup', endPtr);
+  cv.addEventListener('pointercancel', endPtr);
+  cv.addEventListener('wheel', function (e) {
+    if (PREVIEW) return;
+    e.preventDefault();
+    var dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    if (e.ctrlKey || Math.abs(dy) >= Math.abs(e.deltaX)) zoomAt(e.clientX, e.clientY, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0018)));
+    else { S.cam.x += e.deltaX / S.cam.z; S.dirty = true; }
+  }, { passive: false });
+
+  // ---------- small DOM helpers ----------
+  function h(tag, props) {
+    var el = document.createElement(tag);
+    if (props) Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (k === 'text') el.textContent = v;
+      else if (k === 'class') el.className = v;
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+      else if (v === true) el.setAttribute(k, '');
+      else if (v !== false && v !== null && v !== undefined) el.setAttribute(k, v);
+    });
+    for (var i = 2; i < arguments.length; i++) { var ch = arguments[i]; if (ch === null || ch === undefined || ch === false) continue; if (Array.isArray(ch)) ch.forEach(function (x) { if (x) el.appendChild(x); }); else el.appendChild(typeof ch === 'string' ? document.createTextNode(ch) : ch); }
+    return el;
+  }
+  var ICON = {
+    x: '<path d="M6 6l12 12M18 6L6 18"/>', dice: '<rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r=".8"/><circle cx="15" cy="15" r=".8"/><circle cx="15" cy="9" r=".8"/><circle cx="9" cy="15" r=".8"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>', plus: '<path d="M12 5v14M5 12h14"/>', trash: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>'
+  };
+  function icon(name) { var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'i'); s.setAttribute('aria-hidden', 'true'); s.innerHTML = ICON[name]; return s; }
+  var toastT = 0;
+  function toast(msg, ms) { var t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('show'); }, ms || 2600); }
+  function person(id) { return H.find(S.tree, id); }
+
+  // ---------- trees ----------
+  function currentTreeChanged(fit) {
+    S.tree = S.store.trees[S.store.current];
+    S.sel = null; S.disp = {}; S.parts = []; S.rings = [];
+    closeCard();
+    relayout();
+    Object.keys(S.disp).forEach(function (id) { S.disp[id].s = 1; var q = S.lay.pos[id]; S.disp[id].x = q.x; S.disp[id].y = q.y; });
+    fillTreeSelect(); updateEmpty(); if (S.legacyOpen) renderLegacy();
+    if (fit !== false) fitCam(false);
+  }
+  function fillTreeSelect() {
+    var sel = $('treeSel'); sel.textContent = '';
+    S.store.order.forEach(function (id) { var t = S.store.trees[id]; sel.appendChild(h('option', { value: id, text: t.name + ' (' + t.people.length + ')' })); });
+    sel.value = S.store.current;
+  }
+  function addTree(t, fit) {
+    while (S.store.trees[t.id]) t.id = H.makeId('t');
+    S.store.trees[t.id] = t; S.store.order.push(t.id); S.store.current = t.id;
+    currentTreeChanged(fit); saveNow();
+  }
+  function updateEmpty() { $('empty').hidden = !!S.tree.people.length || PREVIEW; if (!$('empty').hidden) drawEmptyArt(); }
+  function changed(opts) {
+    opts = opts || {};
+    relayout(opts.spawnFrom);
+    save(); fillTreeSelect(); updateEmpty();
+    if (S.legacyOpen) renderLegacy();
+    if (opts.card && S.sel) renderCard();
+  }
+
+  // ---------- adding people ----------
+  function addPerson(o, spawnFrom) {
+    var p = H.makePerson(Object.assign({ name: H.freshName(S.tree) }, o || {}));
+    S.tree.people.push(p);
+    return p;
+  }
+  function celebrate(id) { burst(id); sfx('add'); }
+  function quickAdd() {
+    if (S.tree.people.length >= H.LIMITS.people) { toast('This tree is full.'); return; }
+    var sel = S.sel ? person(S.sel) : null;
+    var gen = sel ? sel.gen : (S.tree.people.length ? Math.min.apply(null, S.tree.people.map(function (p) { return p.gen; })) : 1);
+    var p = addPerson({ gen: gen, stage: 'adult' });
+    changed(); celebrate(p.id); openCard(p.id);
+    toast('Added ' + p.name + '. Tap their name to rename them.');
+  }
+
+  // ---------- person card ----------
+  function openCard(id) {
+    S.sel = id; S.dirty = true;
+    if (window.innerWidth <= 760 && S.legacyOpen) toggleLegacy(false);
+    $('card').hidden = false; document.body.classList.add('sheetOpen');
+    renderCard();
+    showPerson(id, true);
+  }
+  function closeCard() { $('card').hidden = true; S.sel = null; S.dirty = true; if ($('legacy').hidden) document.body.classList.remove('sheetOpen'); }
+  function seg(options, current, onPick, label) {
+    return h('div', { class: 'seg', role: 'group', 'aria-label': label }, options.map(function (o) {
+      return h('button', { type: 'button', 'aria-pressed': o[0] === current ? 'true' : 'false', onclick: function () { onPick(o[0]); } }, o[1]);
+    }));
+  }
+  function swatches(cols, names, current, onPick, label) {
+    return h('div', { class: 'sw', role: 'group', 'aria-label': label }, cols.map(function (c, i) {
+      var b = h('button', { type: 'button', title: names ? names[i] : '', 'aria-label': names ? names[i] : label + ' ' + (i + 1), 'aria-pressed': i === current ? 'true' : 'false', onclick: function () { onPick(i); } });
+      b.style.background = c; return b;
+    }));
+  }
+  function relRow(other, extra, onRemove, removeLabel) {
+    return h('div', { class: 'rel' },
+      h('button', { class: 'who', type: 'button', title: 'Open ' + other.name, onclick: function () { openCard(other.id); } }, faceCanvas(other, 34), h('span', { text: other.name })),
+      extra, h('button', { class: 'x', type: 'button', title: removeLabel, 'aria-label': removeLabel, onclick: onRemove }, '×'));
+  }
+  function renderCard() {
+    var box = $('card'), p = person(S.sel);
+    if (!p) { closeCard(); return; }
+    // keep the scroll position only when redrawing the same person's card
+    var scroll = box.querySelector('.body') && box.getAttribute('data-pid') === p.id ? box.querySelector('.body').scrollTop : 0;
+    box.textContent = ''; box.setAttribute('data-pid', p.id);
+    var portrait = faceCanvas(p, 64);
+    var redrawFace = function () { var n = faceCanvas(p, 64); portrait.replaceWith(n); portrait = n; S.dirty = true; save(); };
+    var nameIn = h('input', { class: 'nameIn', value: p.name, maxlength: H.LIMITS.name, 'aria-label': 'Name', autocomplete: 'off',
+      oninput: function () { var v = H.cleanText(nameIn.value, H.LIMITS.name); if (v) { p.name = v; S.dirty = true; ellCache = {}; save(); fillTreeSelect(); } },
+      onchange: function () { if (!H.cleanText(nameIn.value, H.LIMITS.name)) nameIn.value = p.name; } });
+    box.appendChild(h('div', { class: 'head' }, portrait, nameIn,
+      h('button', { class: 'btn icon', type: 'button', title: 'Close card', 'aria-label': 'Close card', onclick: closeCard }, icon('x'))));
+    var body = h('div', { class: 'body' });
+    box.appendChild(body);
+    var setLook = function (k, v) { p.look[k] = v; redrawFace(); renderCard(); sfx('soft'); };
+    body.appendChild(h('h2', { text: 'Age stage' }));
+    body.appendChild(seg(H.STAGES.map(function (s) { return [s, H.STAGE_LABEL[s]]; }), p.stage, function (v) { p.stage = v; redrawFace(); renderCard(); sfx('soft'); }, 'Age stage'));
+    body.appendChild(h('h2', { text: 'Look' }));
+    body.appendChild(h('div', { class: 'hint', text: 'Skin tone' }));
+    body.appendChild(swatches(H.SKINS, null, p.look.skin, function (i) { setLook('skin', i); }, 'Skin tone'));
+    body.appendChild(h('div', { class: 'hint', text: 'Hair' }));
+    body.appendChild(seg(H.HAIRS.map(function (s) { return [s, H.HAIR_LABEL[s]]; }), p.look.hair, function (v) { setLook('hair', v); }, 'Hair style'));
+    body.appendChild(h('div', { class: 'hint', text: 'Hair colour' }));
+    body.appendChild(swatches(H.HAIR_COLS, H.HAIR_COL_NAMES, p.look.hairColor, function (i) { setLook('hairColor', i); }, 'Hair colour'));
+    body.appendChild(h('div', { class: 'hint', text: 'Top colour' }));
+    body.appendChild(swatches(H.TOPS, H.TOP_NAMES, p.look.top, function (i) { setLook('top', i); }, 'Top colour'));
+    body.appendChild(h('div', { class: 'adds' }, h('button', { class: 'btn small', type: 'button', onclick: function () { var l = H.randomLook(); l.top = p.look.top; p.look = l; redrawFace(); renderCard(); sfx('soft'); } }, icon('dice'), 'Shuffle the look')));
+
+    body.appendChild(h('h2', { text: 'Generation and status' }));
+    var minG = H.minGenFor(S.tree, p.id);
+    var setGen = function (g) {
+      g = Math.max(0, Math.min(H.LIMITS.gen, g));
+      if (g < minG) { toast(p.name + ' needs to stay below their parents, so generation ' + minG + ' is the lowest.'); sfx('nope'); return; }
+      p.gen = g; var moved = H.settleGens(S.tree, p.id);
+      if (moved.length) toast(moved.length + (moved.length === 1 ? ' descendant' : ' descendants') + ' moved down a generation to stay below ' + p.name + '.');
+      changed({ card: true }); sfx('soft');
+    };
+    body.appendChild(h('div', { class: 'mrow' },
+      h('div', { class: 'stepper', role: 'group', 'aria-label': 'Generation' },
+        h('button', { class: 'btn icon small', type: 'button', 'aria-label': 'Earlier generation', onclick: function () { setGen(p.gen - 1); } }, '−'),
+        h('b', { text: String(p.gen), 'aria-live': 'polite', id: 'genVal' }),
+        h('button', { class: 'btn icon small', type: 'button', 'aria-label': 'Later generation', onclick: function () { setGen(p.gen + 1); } }, '+')),
+      h('span', { class: 'hint', text: 'Generation' })));
+    var row = S.lay.pos[p.id];
+    if (row && row.gen !== p.gen) body.appendChild(h('p', { class: 'hint', text: 'Shown on the generation ' + row.gen + ' row so ' + p.name + ' sits beside their partner.' }));
+    body.appendChild(seg(H.STATUSES.map(function (s) { return [s, H.STATUS_LABEL[s]]; }), p.status, function (v) { p.status = v; redrawFace(); renderCard(); sfx('soft'); }, 'Status'));
+
+    body.appendChild(h('h2', { text: 'Traits' }));
+    var chips = h('div', { class: 'chips' });
+    body.appendChild(chips);
+    var tIn = h('input', { class: 'field', maxlength: H.LIMITS.trait, 'aria-label': 'Add a trait', enterkeyhint: 'done' });
+    var drawChips = function () {
+      chips.textContent = '';
+      p.traits.forEach(function (t, i) {
+        chips.appendChild(h('span', { class: 'chip' }, t, h('button', { type: 'button', 'aria-label': 'Remove trait ' + t, title: 'Remove',
+          onclick: function () { p.traits.splice(i, 1); S.dirty = true; save(); drawChips(); } }, '×')));
+      });
+      var full = p.traits.length >= H.LIMITS.traits;
+      tIn.disabled = full; tIn.placeholder = full ? 'That is plenty of traits' : 'Type a trait and press Enter';
+    };
+    drawChips();
+    var addTrait = function () {
+      var parts = tIn.value.split(','), n = 0;
+      parts.forEach(function (s) { var t = H.cleanText(s, H.LIMITS.trait); if (t && p.traits.length < H.LIMITS.traits && !p.traits.some(function (x) { return x.toLowerCase() === t.toLowerCase(); })) { p.traits.push(t); n++; } });
+      tIn.value = '';
+      if (n) { S.dirty = true; save(); sfx('soft'); drawChips(); }
+    };
+    tIn.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTrait(); } });
+    tIn.addEventListener('blur', function () { if (tIn.value.trim()) addTrait(); });
+    body.appendChild(tIn);
+    body.appendChild(h('p', { class: 'hint', text: 'Anything you like: quirks, hobbies, what they are known for.' }));
+
+    body.appendChild(h('h2', { text: 'Partners' }));
+    var pls = H.partnerLinks(S.tree, p.id);
+    if (!pls.length) body.appendChild(h('p', { class: 'none', text: 'No partners yet.' }));
+    pls.forEach(function (l) {
+      var o = person(l.a === p.id ? l.b : l.a); if (!o) return;
+      body.appendChild(relRow(o, seg([['married', 'Married'], ['dating', 'Dating']], l.kind, function (v) { l.kind = v; changed({ card: true }); sfx('soft'); }, 'Relationship'),
+        function () { confirmBox('Unlink partners?', p.name + ' and ' + o.name + ' will no longer be shown as partners. Both stay in the tree.', 'Unlink', function () { H.unlinkPartner(S.tree, p.id, o.id); changed({ card: true }); sfx('remove'); }); }, 'Unlink ' + o.name));
+    });
+    body.appendChild(h('h2', { text: 'Parents' }));
+    var parL = H.parentLinks(S.tree, p.id);
+    if (!parL.length) body.appendChild(h('p', { class: 'none', text: 'No parents in this tree.' }));
+    parL.forEach(function (l) { var o = person(l.parent); if (o) body.appendChild(relRow(o, adoptBox(l), function () { H.unlinkParent(S.tree, o.id, p.id); changed({ card: true }); sfx('remove'); }, 'Unlink parent ' + o.name)); });
+    body.appendChild(h('h2', { text: 'Children' }));
+    var kidL = H.childLinks(S.tree, p.id);
+    if (!kidL.length) body.appendChild(h('p', { class: 'none', text: 'No children yet.' }));
+    kidL.forEach(function (l) { var o = person(l.child); if (o) body.appendChild(relRow(o, adoptBox(l), function () { H.unlinkParent(S.tree, p.id, o.id); changed({ card: true }); sfx('remove'); }, 'Unlink child ' + o.name)); });
+    body.appendChild(h('div', { class: 'adds' },
+      h('button', { class: 'btn small', type: 'button', id: 'addPartner', onclick: function () { picker('partner', p); } }, icon('plus'), 'Partner'),
+      h('button', { class: 'btn small', type: 'button', id: 'addChild', onclick: function () { picker('child', p); } }, icon('plus'), 'Child'),
+      h('button', { class: 'btn small', type: 'button', id: 'addParent', onclick: function () { picker('parent', p); } }, icon('plus'), 'Parent')));
+
+    body.appendChild(h('h2', { text: 'Notes' }));
+    var notes = h('textarea', { class: 'field', maxlength: H.LIMITS.notes, 'aria-label': 'Notes', placeholder: 'Life story, big moments, what they left behind…' });
+    notes.value = p.notes;
+    notes.addEventListener('input', function () { p.notes = H.cleanText(notes.value, H.LIMITS.notes, true); save(); });
+    body.appendChild(notes);
+    body.appendChild(h('div', { class: 'spacer' }));
+    body.appendChild(h('button', { class: 'btn danger small', type: 'button', onclick: function () {
+      confirmBox('Remove ' + p.name + '?', p.name + ' and their links will be removed from this tree. Everyone else stays.', 'Remove', function () {
+        H.removePerson(S.tree, p.id); closeCard(); changed(); sfx('remove'); toast('Removed ' + p.name + '.'); }, true); } }, icon('trash'), 'Remove from tree'));
+    body.scrollTop = scroll;
+  }
+  function adoptBox(l) {
+    var cb = h('input', { type: 'checkbox' }); cb.checked = !!l.adopted;
+    cb.addEventListener('change', function () {
+      if (!cb.checked) {
+        var births = S.tree.parents.filter(function (m) { return m.child === l.child && !m.adopted && m !== l; }).length;
+        if (births >= 2) { cb.checked = true; toast('That child already has two birth parents.'); sfx('nope'); return; }
+      }
+      l.adopted = cb.checked; S.dirty = true; save(); sfx('soft');
+    });
+    return h('label', null, cb, 'Adopted');
+  }
+
+  // ---------- modals ----------
+  var lastFocus = null;
+  function modal(build) {
+    lastFocus = document.activeElement;
+    var m = $('modal'), box = m.querySelector('.mbox'); box.textContent = '';
+    build(box); m.hidden = false;
+    var f = box.querySelector('[data-autofocus]') || box.querySelector('input, button'); if (f) f.focus();
+  }
+  function closeModal() { $('modal').hidden = true; if (lastFocus && lastFocus.focus && document.contains(lastFocus)) lastFocus.focus(); }
+  $('modal').addEventListener('pointerdown', function (e) { if (e.target === $('modal')) closeModal(); });
+  function confirmBox(title, text, ok, onOk, danger) {
+    modal(function (box) {
+      box.appendChild(h('h3', { text: title })); box.appendChild(h('p', { text: text }));
+      box.appendChild(h('div', { class: 'acts' }, h('button', { class: 'btn', type: 'button', 'data-autofocus': true, onclick: closeModal }, 'Cancel'),
+        h('button', { class: 'btn ' + (danger ? 'danger' : 'primary'), type: 'button', id: 'mOk', onclick: function () { closeModal(); onOk(); } }, ok)));
+    });
+  }
+  function promptBox(title, value, ok, onOk) {
+    modal(function (box) {
+      var inp = h('input', { class: 'field', value: value, maxlength: H.LIMITS.treeName, 'data-autofocus': true, 'aria-label': title, id: 'mIn' });
+      var go = function () { var v = H.cleanText(inp.value, H.LIMITS.treeName); if (!v) { inp.focus(); return; } closeModal(); onOk(v); };
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      box.appendChild(h('h3', { text: title })); box.appendChild(inp);
+      box.appendChild(h('div', { class: 'acts' }, h('button', { class: 'btn', type: 'button', onclick: closeModal }, 'Cancel'), h('button', { class: 'btn primary', type: 'button', id: 'mOk', onclick: go }, ok)));
+      setTimeout(function () { inp.select(); }, 0);
+    });
+  }
+  // Link picker: create someone new, or pick someone already in the tree.
+  function picker(mode, p) {
+    var opt = { kind: 'married', adopted: false, other: '' };
+    if (mode === 'child') { var ps = H.partnerLinks(S.tree, p.id); var mar = ps.filter(function (l) { return l.kind === 'married'; })[0] || ps[0]; if (mar) opt.other = mar.a === p.id ? mar.b : mar.a; }
+    modal(function (box) {
+      var title = mode === 'partner' ? 'Add a partner for ' + p.name : mode === 'child' ? 'Add a child for ' + p.name : 'Add a parent for ' + p.name;
+      box.appendChild(h('h3', { text: title }));
+      if (mode === 'partner') {
+        var sg = seg([['married', 'Married'], ['dating', 'Dating']], opt.kind, function (v) { opt.kind = v; sg.querySelectorAll('button').forEach(function (b, i) { b.setAttribute('aria-pressed', (i === 0) === (v === 'married') ? 'true' : 'false'); }); }, 'Relationship');
+        box.appendChild(h('div', { class: 'mrow' }, sg));
+      } else {
+        var cb = h('input', { type: 'checkbox', id: 'mAdopt' }); cb.addEventListener('change', function () { opt.adopted = cb.checked; list(); });
+        var rowEl = h('div', { class: 'mrow' });
+        if (mode === 'child') {
+          var partners = H.partnerIds(S.tree, p.id).map(person).filter(Boolean);
+          var sel = h('select', { class: 'field', 'aria-label': 'Other parent', id: 'mOther' });
+          sel.appendChild(h('option', { value: '', text: 'No other parent in the tree' }));
+          partners.forEach(function (o) { sel.appendChild(h('option', { value: o.id, text: 'with ' + o.name })); });
+          sel.value = opt.other; sel.addEventListener('change', function () { opt.other = sel.value; list(); });
+          rowEl.appendChild(sel);
+        }
+        rowEl.appendChild(h('label', { class: 'hint' }, cb, ' Adopted'));
+        box.appendChild(rowEl);
+      }
+      box.appendChild(h('button', { class: 'btn primary', type: 'button', id: 'mNew', 'data-autofocus': true, onclick: function () { closeModal(); createLinked(mode, p, opt); } }, icon('plus'), 'Someone new'));
+      box.appendChild(h('p', { class: 'hint', text: 'Or pick someone already in this tree:' }));
+      var search = h('input', { class: 'field', placeholder: 'Search by name', 'aria-label': 'Search people', oninput: function () { list(); } });
+      var ul = h('div', { class: 'plist', role: 'list' });
+      box.appendChild(search); box.appendChild(ul);
+      box.appendChild(h('div', { class: 'acts' }, h('button', { class: 'btn', type: 'button', onclick: closeModal }, 'Cancel')));
+      function list() {
+        ul.textContent = ''; var q = search.value.trim().toLowerCase(), n = 0;
+        S.tree.people.forEach(function (o) {
+          if (o.id === p.id || (q && o.name.toLowerCase().indexOf(q) < 0)) return;
+          var err = mode === 'partner' ? H.checkPartner(S.tree, p.id, o.id) : mode === 'parent' ? H.checkParent(S.tree, o.id, p.id, opt.adopted)
+            : (H.checkParent(S.tree, p.id, o.id, opt.adopted) || (opt.other && opt.other !== o.id ? H.checkParent(S.tree, opt.other, o.id, opt.adopted) : null));
+          if (err) return;
+          n++;
+          ul.appendChild(h('button', { type: 'button', role: 'listitem', onclick: function () { closeModal(); linkExisting(mode, p, o, opt); } }, faceCanvas(o, 30), h('span', { text: o.name }), h('small', { text: 'Gen ' + o.gen })));
+        });
+        if (!n) ul.appendChild(h('p', { class: 'none', style: 'padding:8px 10px', text: 'Nobody else fits here.' }));
+      }
+      list();
+    });
+  }
+  function createLinked(mode, p, opt) {
+    var o, res;
+    if (mode === 'partner') {
+      o = addPerson({ gen: p.gen, stage: p.stage === 'baby' || p.stage === 'child' ? 'adult' : p.stage });
+      res = H.linkPartner(S.tree, p.id, o.id, opt.kind);
+    } else if (mode === 'child') {
+      o = addPerson({ gen: Math.min(H.LIMITS.gen, p.gen + 1), stage: 'baby' });
+      res = H.linkParent(S.tree, p.id, o.id, opt.adopted);
+      if (!res.error && opt.other) { var r2 = H.linkParent(S.tree, opt.other, o.id, opt.adopted); if (r2.error) toast(r2.error); }
+    } else {
+      o = addPerson({ gen: Math.max(0, p.gen - 1), stage: p.stage === 'elder' ? 'elder' : 'adult' });
+      res = H.linkParent(S.tree, o.id, p.id, opt.adopted);
+    }
+    if (res.error) { H.removePerson(S.tree, o.id); toast(res.error, 4000); sfx('nope'); return; }
+    changed({ spawnFrom: p.id }); celebrate(o.id); openCard(o.id);
+    toast('Welcome, ' + o.name + '! Tap the name to rename.');
+  }
+  function linkExisting(mode, p, o, opt) {
+    var res;
+    if (mode === 'partner') res = H.linkPartner(S.tree, p.id, o.id, opt.kind);
+    else if (mode === 'parent') res = H.linkParent(S.tree, o.id, p.id, opt.adopted);
+    else {
+      res = H.linkParent(S.tree, p.id, o.id, opt.adopted);
+      if (!res.error && opt.other && opt.other !== o.id) { var r2 = H.linkParent(S.tree, opt.other, o.id, opt.adopted); if (r2.error) toast(r2.error, 4000); }
+    }
+    if (res.error) { toast(res.error, 4000); sfx('nope'); return; }
+    if (res.moved && res.moved.length) toast(res.moved.length + ' moved down a generation to sit below their parents.');
+    changed({ card: true }); sfx('link'); burst(o.id, 14);
+  }
+
+  // ---------- legacy panel ----------
+  function toggleLegacy(open) {
+    S.legacyOpen = open === undefined ? !S.legacyOpen : open;
+    if (S.legacyOpen && window.innerWidth <= 760 && !$('card').hidden) closeCard();
+    $('legacy').hidden = !S.legacyOpen; $('bLegacy').setAttribute('aria-pressed', S.legacyOpen ? 'true' : 'false');
+    $('bLegacy').classList.toggle('on', S.legacyOpen);
+    document.body.classList.toggle('sheetOpen', S.legacyOpen || !$('card').hidden);
+    if (S.legacyOpen) renderLegacy();
+    S.dirty = true;
+  }
+  function renderLegacy() {
+    var box = $('legacy'), t = S.tree, gens = {};
+    var scroll = box.querySelector('.body') ? box.querySelector('.body').scrollTop : 0;
+    box.textContent = '';
+    t.people.forEach(function (p) { (gens[p.gen] = gens[p.gen] || []).push(p); });
+    Object.keys(t.goals).forEach(function (g) { gens[g] = gens[g] || []; });
+    var keys = Object.keys(gens).map(Number).sort(function (a, b) { return a - b; });
+    var lo = keys.length ? keys[0] : 1, hi = keys.length ? keys[keys.length - 1] : 1, list = [];
+    for (var g = lo; g <= hi; g++) list.push(g);
+    list.push(hi + (keys.length ? 1 : 0));
+    box.appendChild(h('div', { class: 'head' }, h('h3', { text: 'Legacy' }), h('span', { class: 'grow' }),
+      h('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close legacy', title: 'Close', onclick: function () { toggleLegacy(false); } }, icon('x'))));
+    var body = h('div', { class: 'body' }); box.appendChild(body);
+    body.appendChild(h('p', { class: 'hint', text: 'Give each generation one goal, in your own words, and tick it off when they get there.' }));
+    var prog = h('div', { class: 'prog' }, h('i')), progText = h('p', { class: 'hint', id: 'progText' });
+    var drawProgress = function () {
+      var set = 0, done = 0;
+      Object.keys(t.goals).forEach(function (k) { if (t.goals[k].text) { set++; if (t.goals[k].done) done++; } });
+      prog.firstChild.style.width = (set ? Math.round(done / set * 100) : 0) + '%';
+      progText.textContent = set ? done + ' of ' + set + ' goals ticked off' : 'No goals yet.';
+    };
+    drawProgress();
+    body.appendChild(prog); body.appendChild(progText);
+    list.forEach(function (g) {
+      var ppl = gens[g] || [], goal = t.goals[g] || { text: '', done: false }, isNext = !ppl.length && g === list[list.length - 1] && !t.goals[g];
+      var counts = { living: 0, moved: 0, passed: 0 }; ppl.forEach(function (p) { counts[p.status]++; });
+      var desc = ppl.length ? ppl.length + (ppl.length === 1 ? ' person' : ' people') + (counts.passed ? ', ' + counts.passed + ' passed on' : '') + (counts.moved ? ', ' + counts.moved + ' moved out' : '') : (isNext ? 'Nobody yet' : 'Nobody here');
+      var inp = h('input', { class: 'field', value: goal.text, maxlength: H.LIMITS.goal, placeholder: isNext ? 'Next generation’s goal' : 'Type this generation’s goal', 'aria-label': 'Goal for generation ' + g });
+      var tick = h('button', { class: 'tick', type: 'button', 'aria-label': 'Goal for generation ' + g + ' done', 'aria-pressed': goal.done && goal.text ? 'true' : 'false', title: 'Tick off' }, icon('check'));
+      var card = h('div', { class: 'gen' + (goal.done && goal.text ? ' done' : '') },
+        h('div', { class: 'top' }, h('b', { text: 'Generation ' + g }), h('span', { class: 'count', text: desc })),
+        ppl.length ? h('div', { class: 'faces' }, ppl.slice(0, 24).map(function (p) { return h('button', { type: 'button', title: p.name, 'aria-label': 'Open ' + p.name, onclick: function () { openCard(p.id); } }, faceCanvas(p, 34)); })) : null,
+        h('div', { class: 'goal' }, tick, inp));
+      var drawTick = function () {
+        var cur = t.goals[g], on = !!(cur && cur.text && cur.done);
+        tick.setAttribute('aria-pressed', on ? 'true' : 'false'); card.classList.toggle('done', on); drawProgress();
+      };
+      inp.addEventListener('input', function () {
+        var v = H.cleanText(inp.value, H.LIMITS.goal);
+        if (v) { t.goals[g] = { text: v, done: !!(t.goals[g] && t.goals[g].done) }; } else delete t.goals[g];
+        S.dirty = true; save(); drawTick();
+      });
+      tick.addEventListener('click', function () {
+        var cur = t.goals[g];
+        if (!cur || !cur.text) { toast('Type a goal first, then tick it off.'); inp.focus(); sfx('nope'); return; }
+        cur.done = !cur.done; save(); S.dirty = true; drawTick();
+        if (cur.done) { sfx('tick'); var first = ppl[0]; if (first) burst(first.id, 26); toast('Generation ' + g + ': goal reached!'); } else sfx('soft');
+      });
+      body.appendChild(card);
+    });
+    body.scrollTop = scroll;
+  }
+
+  // ---------- menu, import, export ----------
+  function closeMenu() { $('menu').hidden = true; $('bMenu').setAttribute('aria-expanded', 'false'); }
+  function slug(s) { return (s || 'tree').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'tree'; }
+  function download(blob, name) {
+    var url = URL.createObjectURL(blob), a = h('a', { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function exportJSON() { download(new Blob([H.exportJSON(S.tree)], { type: 'application/json' }), 'heirloom-' + slug(S.tree.name) + '.json'); toast('Saved ' + S.tree.name + ' as a .json file.'); sfx('link'); }
+  function renderPNG() {
+    var lay = H.layout(S.tree), b = lay.bounds;
+    var head = 120, pad = 50, x0 = b.minX - 170 - pad, x1 = b.maxX + 60 + pad, y0 = b.minY - G.ROWGAP * 0.5 - head, y1 = b.maxY + pad + 40;
+    var w = x1 - x0, hh = y1 - y0, sc = Math.min(2, 8000 / w, 8000 / hh, Math.sqrt(36e6 / (w * hh)));
+    var c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * sc)); c.height = Math.max(1, Math.round(hh * sc));
+    var x = c.getContext('2d');
+    x.scale(sc, sc); x.translate(-x0, -y0);
+    x.fillStyle = '#F7F4FF'; x.fillRect(x0, y0, w, hh);
+    x.fillStyle = '#1A1540'; x.textAlign = 'left'; x.font = '800 44px ' + FONT; x.fillText(S.tree.name, x0 + pad, y0 + 64);
+    var gensN = lay.rows.length;
+    x.font = '600 20px ' + FONT; x.fillStyle = '#5B5486';
+    x.fillText(S.tree.people.length + (S.tree.people.length === 1 ? ' person' : ' people') + ' across ' + gensN + (gensN === 1 ? ' generation' : ' generations') + '  ·  made with Heirloom', x0 + pad, y0 + 96);
+    drawScene(x, lay, S.tree, function (id) { var q = lay.pos[id]; return q ? { x: q.x, y: q.y, s: 1 } : null; }, { zoom: 1 });
+    return c;
+  }
+  function exportPNG() {
+    if (!S.tree.people.length) { toast('Add someone first, then save the picture.'); return; }
+    var c = renderPNG();
+    c.toBlob(function (blob) { if (!blob) { toast('The picture could not be made in this browser.'); return; } download(blob, 'heirloom-' + slug(S.tree.name) + '.png'); toast('Saved a picture of ' + S.tree.name + '.'); sfx('link'); }, 'image/png');
+  }
+  function importText(text) {
+    var r = H.parseImport(text);
+    if (!r.ok) { sfx('nope'); confirmBoxInfo('That file could not be imported', r.error); return false; }
+    var names = S.store.order.map(function (id) { return S.store.trees[id].name; });
+    if (names.indexOf(r.tree.name) >= 0) r.tree.name = H.cleanText(r.tree.name + ' (imported)', H.LIMITS.treeName);
+    addTree(r.tree); sfx('add');
+    toast('Imported ' + r.tree.name + ' with ' + r.tree.people.length + (r.tree.people.length === 1 ? ' person.' : ' people.'));
+    return true;
+  }
+  function confirmBoxInfo(title, text) {
+    modal(function (box) { box.appendChild(h('h3', { text: title })); box.appendChild(h('p', { text: text, id: 'mMsg' }));
+      box.appendChild(h('div', { class: 'acts' }, h('button', { class: 'btn primary', type: 'button', 'data-autofocus': true, onclick: closeModal }, 'OK'))); });
+  }
+  $('fileIn').addEventListener('change', function () {
+    var f = this.files && this.files[0]; this.value = '';
+    if (!f) return;
+    if (f.size > H.LIMITS.bytes) { confirmBoxInfo('That file could not be imported', 'That file is too big to be a family tree (over 5 MB).'); return; }
+    var rd = new FileReader();
+    rd.onload = function () { importText(String(rd.result)); };
+    rd.onerror = function () { confirmBoxInfo('That file could not be imported', 'The browser could not read that file.'); };
+    rd.readAsText(f);
+  });
+  var ACTS = {
+    newTree: function () { promptBox('Name the new tree', 'Household ' + (S.store.order.length + 1), 'Create', function (v) { addTree(H.newTree(v)); toast('Started ' + v + '.'); sfx('link'); }); },
+    renameTree: function () { promptBox('Rename this tree', S.tree.name, 'Rename', function (v) { S.tree.name = v; save(); fillTreeSelect(); toast('Renamed to ' + v + '.'); }); },
+    deleteTree: function () {
+      confirmBox('Delete ' + S.tree.name + '?', 'This removes the tree and its ' + S.tree.people.length + ' people from this browser. Export a .json first if you might want it back.', 'Delete tree', function () {
+        var id = S.store.current; delete S.store.trees[id]; S.store.order = S.store.order.filter(function (x) { return x !== id; });
+        if (!S.store.order.length) { var t = H.newTree('My household'); S.store.trees[t.id] = t; S.store.order.push(t.id); }
+        S.store.current = S.store.order[0]; currentTreeChanged(); saveNow(); sfx('remove'); toast('Tree deleted.');
+      }, true);
+    },
+    sample: function () { loadSample(); },
+    png: exportPNG, json: exportJSON,
+    import: function () { $('fileIn').click(); }
+  };
+  function loadSample() {
+    var t = H.sampleTree();
+    if (!S.tree.people.length && S.store.order.length) {
+      var old = S.store.current; delete S.store.trees[old]; S.store.order = S.store.order.filter(function (x) { return x !== old; });
+    }
+    addTree(t, false); fitCam(false);
+    S.tree.people.forEach(function (p, i) { S.disp[p.id].s = -i * 0.12; });
+    sfx('add'); toast('Loaded the sample family. It is yours to change.');
+  }
+  $('menu').addEventListener('click', function (e) { var b = e.target.closest('button[data-act]'); if (!b) return; closeMenu(); ACTS[b.getAttribute('data-act')](); });
+  $('bMenu').addEventListener('click', function () { var m = $('menu'); m.hidden = !m.hidden; $('bMenu').setAttribute('aria-expanded', m.hidden ? 'false' : 'true'); if (!m.hidden) m.querySelector('button').focus(); });
+  document.addEventListener('pointerdown', function (e) { if (!$('menu').hidden && !e.target.closest('#menu') && !e.target.closest('#bMenu')) closeMenu(); wakeAudio(); }, true);
+  $('treeSel').addEventListener('change', function () { S.store.current = this.value; currentTreeChanged(); save(); });
+  $('bAdd').addEventListener('click', quickAdd);
+  $('bLegacy').addEventListener('click', function () { toggleLegacy(); });
+  $('bMute').addEventListener('click', function () { setMute(!S.muted, true); if (!S.muted) { audio(); sfx('soft'); } });
+  $('zIn').addEventListener('click', function () { zoomAt(W / 2, HT / 2, 1.25); });
+  $('zOut').addEventListener('click', function () { zoomAt(W / 2, HT / 2, 0.8); });
+  $('zFit').addEventListener('click', function () { fitCam(true); });
+  $('eAdd').addEventListener('click', function () { quickAdd(); });
+  $('eSample').addEventListener('click', loadSample);
+  window.addEventListener('keydown', function (e) {
+    if (PREVIEW) return;
+    wakeAudio();
+    if (e.key === 'Escape') return; // left to the page that hosts this one
+    var t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!$('modal').hidden) return;
+    var k = e.key, step = 80 / S.cam.z;
+    if (k === 'n' || k === 'N') { quickAdd(); e.preventDefault(); }
+    else if (k === 'l' || k === 'L') toggleLegacy();
+    else if (k === 'm' || k === 'M') { setMute(!S.muted, true); }
+    else if (k === '+' || k === '=') zoomAt(W / 2, HT / 2, 1.25);
+    else if (k === '-' || k === '_') zoomAt(W / 2, HT / 2, 0.8);
+    else if (k === '0') fitCam(true);
+    else if (k === 'ArrowLeft') { S.cam.x -= step; S.dirty = true; e.preventDefault(); }
+    else if (k === 'ArrowRight') { S.cam.x += step; S.dirty = true; e.preventDefault(); }
+    else if (k === 'ArrowUp') { S.cam.y -= step; S.dirty = true; e.preventDefault(); }
+    else if (k === 'ArrowDown') { S.cam.y += step; S.dirty = true; e.preventDefault(); }
+  });
+  window.addEventListener('resize', function () { resize(); });
+  window.addEventListener('pagehide', function () { saveNow(); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) saveNow(); });
+
+  function drawEmptyArt() {
+    var c = $('emptyArt'), d = Math.min(3, window.devicePixelRatio || 1);
+    c.width = 180 * d; c.height = 70 * d; c.style.width = '180px'; c.style.height = '70px';
+    var x = c.getContext('2d'); x.scale(d, d);
+    var a = { stage: 'adult', status: 'living', look: { skin: 2, hair: 'bun', hairColor: 5, top: 0 } };
+    var b = { stage: 'adult', status: 'living', look: { skin: 6, hair: 'short', hairColor: 0, top: 4 } };
+    var k = { stage: 'baby', status: 'living', look: { skin: 4, hair: 'short', hairColor: 1, top: 2 } };
+    x.strokeStyle = '#B45CF0'; x.lineWidth = 3; x.beginPath(); x.moveTo(54, 30); x.lineTo(126, 30); x.stroke();
+    x.fillStyle = '#FF7AC8'; heart(x, 90, 32, 8);
+    drawPortrait(x, a, 30, 32, 28); drawPortrait(x, b, 150, 32, 28);
+    x.save(); x.globalAlpha = 0.9; drawPortrait(x, k, 90, 56, 13); x.restore();
+  }
+
+  // ---------- preview: the sample family builds itself, person by person ----------
+  var PV = { k: 0, t: 0, hold: 0 };
+  function previewCam() {
+    var lay = S.lay, b = lay.bounds, v = view();
+    var w = (b.maxX - b.minX) + 170 + 40, hh = (b.maxY - b.minY) + G.ROWGAP * 0.5;
+    var z = Math.min((W - 24) / w, (HT - 24) / hh);
+    var zMin = Math.min(0.62, HT / (G.RH * 2.2));
+    if (z >= zMin) { fitCam(true, 0.9); return; }
+    var last = S.tree.people[S.tree.people.length - 1], q = lay.pos[last.id];
+    var cxw = Math.max(b.minX - 170 + (W / 2) / zMin, Math.min(b.maxX + 40 - (W / 2) / zMin, q.x));
+    var cyw = Math.max(b.minY - G.ROWGAP * 0.3 + (HT / 2) / zMin, Math.min(b.maxY + 20 - (HT / 2) / zMin, q.y + G.CH / 2 - G.RH * 0.35));
+    setCam(camFor(cxw, cyw, zMin, v), true);
+  }
+  function previewTick(dt) {
+    PV.t += dt;
+    if (PV.k < H.SAMPLE_SIZE) {
+      if (PV.t > (PV.k === 0 ? 0.35 : 1.0)) {
+        PV.t = 0; var p = H.sampleStep(S.tree, PV.k); PV.k++;
+        var from = H.parentLinks(S.tree, p.id)[0], pid = from ? from.parent : (H.partnerIds(S.tree, p.id)[0] || null);
+        relayout(pid); burst(p.id, 22); previewCam();
+      }
+    } else {
+      PV.hold += dt;
+      if (PV.hold > 0.5 && PV.hold - dt <= 0.5) fitCam(true, 0.9);
+      if (PV.hold > 4.5) { PV.k = 0; PV.t = 0; PV.hold = 0; S.tree = H.newTree('Preview'); S.disp = {}; relayout(); setCam({ x: 0, y: 0, z: 0.6 }, false); PV.loops = (PV.loops || 0) + 1; }
+    }
+  }
+
+  // ---------- boot ----------
+  resize();
+  if (PREVIEW) {
+    S.store = { v: 1, current: null, order: [], trees: {} };
+    S.tree = H.newTree('Preview'); S.muted = true;
+    relayout(); S.cam = { x: 0, y: 0, z: 0.6 };
+  } else {
+    S.store = loadStore();
+    setMute(lsGet(MKEY) === '1', false);
+    currentTreeChanged();
+  }
+  window.__heirloom = { S: S, H: H, PV: PV, preview: PREVIEW, renderPNG: renderPNG, importText: importText };
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

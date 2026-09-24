@@ -22,14 +22,8 @@ The compression curve was sampled once per batch of merges instead of once per m
 
 152 assertions across two suites, green. Hand derived constants the build has to reproduce: 188 kept bytes, 68 displaced, byte 32 to U+0120, and a four merge training ladder worked out on paper (counts 23, 9, 6, 4) whose vocabulary provably cuts 'xabc' two different ways. An exact arithmetic identity, corpus shrinkage equals the sum of every recorded merge count, checked to the unit on five corpora. Encoder output cross-checked against the trainer's own word states through a separate code path. Four negative controls all required to fail and all failing, including the naive overlapping pair counter, which reports 48 for a merge it applies 24 times. Receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> Train a byte pair encoding tokenizer live on text you paste, then use it: watch the merges get chosen, tokenize anything, trace one chunk from raw bytes to its tokens, and find the words where rank ordered merging and longest match disagree. Picked it because tokens are the unit everything here is measured in and they are invisible, and because I could describe BPE but had never written the byte remapping, the non-overlapping pair count, or rank ordered encoding by hand. Learned that the capital G in token dumps is an offset rather than a decision, that counting and merging only disagree when both halves of a pair are the same symbol, and that a vocabulary without its merge order is not a tokenizer.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

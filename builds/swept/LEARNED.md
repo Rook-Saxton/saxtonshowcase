@@ -22,14 +22,8 @@ The prediction that mattered was wrong, and the measurement caught it. I predict
 
 129 assertions across two suites, green. The engine is checked against measured_matrix.json, which is what real git 2.43.0 actually did in thirteen throwaway repositories, never against a prose restatement: eleven of the thirteen agree exactly and the other two are the declared blind spot. The parser is checked against real porcelain bytes covering spaces, doubled spaces, an embedded quote, a tab, a non-ASCII octal escape, a rename, and a path that itself contains the rename arrow. Five negative controls all required to fail and all failing, including an index-only engine that calls the swept case safe and an octal decoder that returns mojibake. 85 of the assertions are driven end to end through real clicks, real typing and the real buttons. Receipts in _verify/RESULTS.md, predictions written first in _verify/PREDICTIONS_swept.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word except for the passages generalised for publication:
-
-> Paste `git status --porcelain`, tick what you meant to commit, and it says which of the two commit forms will take another session's work with it, names the paths that make the other one unsafe, and hands you the `git diff` that shows what you are actually about to write. Picked it because that collision is easy to hit when several sessions share one working tree, and the safe answer is a PROCEDURE, which is the kind of thing nobody executes correctly at one in the morning. Learned that the two columns of porcelain ARE the two axes of the question, so the answer needs no attribution at all: X is the index against HEAD, Y is the tree against the index. Learned the expensive way that my prediction about which two states collide was wrong, and that the real collision is undetectable: once a peer STAGES into your file the tree reads exactly like your own ordinary work. So the tool has a blind spot exactly one case wide, the suite asserts it as a declared blind spot, and the page warns instead of showing green there.
-
 ## About these notes
 
-Copied from the build's own record and build log, word for word except for 1 passage generalised for publication. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

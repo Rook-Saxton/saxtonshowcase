@@ -22,14 +22,8 @@ The win rate was the wrong number. A census of 10,800 launches per level said ev
 
 52 assertions across two suites, green, with predictions written first in _verify/PREDICTIONS_slingshot.md and both misses recorded rather than edited away. Period, energy, radius and angular momentum are all checked against Kepler and vis-viva worked out on paper before the simulation existed: period 5.9238825s against a hand-derived 5.9238439s. Six negative controls, all required to fail and all failing, including a frozen-field aiming arc that drifts 10.67 world units in two seconds and a solvability sweep proven able to report zero. Every level's full launch space is swept and the census reconciles in all nine rows. The game itself is driven through real pointer drags, real keypresses and real clicks, and a flight accumulated frame by frame lands on the identical endpoint as a straight-through simulation. Receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> A ballistic orbital puzzle. Nine levels, a probe, no engine, and a station to reach; the dotted aiming arc is literally the flight path because it comes from the same integrator on a copy of the same state. Picked it to break the house style the note below called out: this one has no step button, no inspector and explains nothing about itself. Learned that velocity Verlet does not conserve energy and is not trying to, it conserves a shadow quantity so energy wobbles in a band of 9.5e-11 forever while forward Euler climbs out of the well by 52%, and that angular momentum by contrast is conserved outright to 3.5e-14. Learned that the collision test is the regularization, so no softening term is needed. The expensive lesson was about measurement rather than physics: the win rate over the launch space is the wrong number and the widest contiguous band of winning angles is the right one. Two of the three real defects were found by looking at a screenshot with both suites green, and both graded prediction misses were in the checker, not the build.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

@@ -1,0 +1,1817 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  HEARSAY LANE
+  builds/hearsay-lane/index.html
+  Built 2026-09-23. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  A neighbourhood relationship toy. A little street of six to eight houses, ten to fourteen
+  residents, seen from above. Time passes in days (morning, afternoon, evening). Residents visit
+  each other, bump into each other in the park or at the corner shop, and every meeting nudges how
+  they feel about each other up or down, depending on how their leanings get along plus a pinch of
+  luck. Friendships, rivalries, crushes, dating, break-ups and weddings all happen on their own and
+  each one lands in the story feed as a short line. Lines between people light up when they meet:
+  green for friends, red for rivals, pink for romance, thicker when it runs deeper.
+
+  You nudge rather than steer: throw a party at a house and pick the guests, introduce two people,
+  start a rumour that someone fancies someone (it can backfire), or plant a community garden that
+  pulls the gardeners together. Tap anyone to see their leanings and relationships, and rename them
+  or change their leanings. The leanings, the names and every rule are made up for this toy.
+
+  THE RULES, in one place (the LOGIC block below is pure and is what the node tests load)
+  - Each pair has a friendship score f (-100..100) and a romance score r (0..100).
+  - A meeting moves f by  compat*10 + noise*6 + place bonus,  where compat comes from the two
+    people's leanings plus a small per-pair "chemistry", and noise is seeded randomness.
+  - Romance only grows for pairs with a spark, both single, and f above zero.
+  - crush needs r >= 35 and f >= 10. dating only comes from crush, and needs r >= 60 and f >= 25,
+    so nobody dates someone they dislike. exes only come from dating (f below 0 or r below 20).
+    married only comes from dating (7+ days, r >= 75, f >= 50). Married couples do not split up.
+  - Every day scores drift gently toward zero, so friendships need looking after.
+
+  CONTROLS
+  Mouse or touch: tap a person to inspect, the buttons along the bottom to nudge, the speed buttons
+  up top. Keyboard: Space pause, 1 2 3 speed, P party, I introduce, R rumour, G garden, E people,
+  [ and ] step through residents, S street menu (save, export, import, new street), M mute,
+  Escape closes a panel. Everything is also reachable with Tab and Enter.
+  The street saves itself in this browser and exports or imports as a .json file.
+
+  HOW IT WAS CHECKED
+  Node, logic.test.js, which slices the LOGIC block out of this file: 69 checks, all passing. The
+  update rules (sign, monotonicity, clamping, compat symmetry over every leaning triple), every
+  threshold edge, an exhaustive 2160-case grid of the state machine, determinism (same seed and
+  same nudges give byte-identical streets after 50 days; save, reload and continue matches never
+  saving), and 40 seeded streets run 90 days each with random nudges: all 5,823 state
+  transitions were legal (dating only from crush with f >= 25, exes only from dating, married only
+  from dating) and none of the 19,482 feed lines named a state that does not exist or that the
+  pair was not in at that moment.
+  Headless Chrome through Playwright, ui.test.js: 57 checks, all passing, zero page or console
+  errors. 1280x720 by keyboard and mouse (Enter, 3, P/I/R/G, ], typing a name, Space, blur,
+  visibilitychange, M, Escape reaching the page un-prevented, save, reload, export, import, a
+  refused bad import, new street), 390x844 by touch only (tapping people on the street, party,
+  introduce, bottom sheets, no page scroll), a localStorage that throws, and ?preview=1 at 600x300
+  (frames differ, no chrome, 30 s running, restart after day 45, no storage writes, no audio).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Hearsay Lane</title>
+<style>
+  :root {
+    --marigold: #FFE066; --tomato: #FF4F6D; --grass: #C6F432; --pool: #22D3C5; --grape: #B45CF0;
+    --bubble: #FF7AC8; --lavender: #B9A8FF; --tangerine: #FF8A3D; --peri: #8C9BFF;
+    --ink: #1A1540; --paper: #F7F4FF; --green: #3FAE3A;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink);
+    font: 14px/1.35 ui-rounded, "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  header {
+    display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--ink);
+    color: var(--paper); flex: 0 0 auto; min-height: 46px;
+  }
+  .brand { font-weight: 800; font-size: 18px; letter-spacing: .2px; white-space: nowrap; }
+  .brand span { color: var(--marigold); }
+  #clock { font-weight: 700; white-space: nowrap; margin-left: 6px; }
+  #clock small { font-weight: 600; opacity: .75; margin-left: 4px; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; font-weight: 700; border: 0; border-radius: 999px; padding: 7px 12px; white-space: nowrap;
+    background: var(--paper); color: var(--ink); cursor: pointer; touch-action: manipulation;
+    min-height: 34px;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--marigold); outline-offset: 2px; }
+  .speed { display: flex; gap: 3px; background: #2c2560; border-radius: 999px; padding: 3px; }
+  .speed button { background: transparent; color: var(--paper); padding: 5px 10px; min-height: 30px; }
+  .speed button[aria-pressed="true"] { background: var(--marigold); color: var(--ink); }
+  #bMute[aria-pressed="true"] { background: var(--lavender); }
+  main { flex: 1; display: flex; min-height: 0; }
+  #stage { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+  #cv { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #paused {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: var(--ink);
+    color: var(--marigold); font-weight: 800; padding: 5px 14px; border-radius: 999px; display: none;
+    pointer-events: none; letter-spacing: 1px;
+  }
+  #paused.on { display: block; }
+  #toast {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); background: var(--ink);
+    color: var(--paper); padding: 7px 14px; border-radius: 12px; font-weight: 600; max-width: 90%;
+    text-align: center; opacity: 0; transition: opacity .25s; pointer-events: none;
+  }
+  #toast.on { opacity: 1; }
+  aside {
+    width: 310px; flex: 0 0 auto; display: flex; flex-direction: column; background: #fff;
+    border-left: 3px solid var(--ink); min-height: 0;
+  }
+  #stats { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 8px 12px 6px; font-weight: 700; font-size: 13px; }
+  #stats b { font-size: 15px; }
+  .legend { display: flex; gap: 10px; padding: 0 12px 6px; font-size: 12px; color: #4a4470; }
+  .legend i { display: inline-block; width: 16px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  #feedHead { padding: 4px 12px; font-weight: 800; font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
+    background: var(--paper); border-top: 2px solid #e6e1f7; border-bottom: 2px solid #e6e1f7; }
+  #feed { list-style: none; margin: 0; padding: 4px 10px 10px; overflow-y: auto; flex: 1; touch-action: pan-y; min-height: 0; }
+  #feed li { padding: 5px 2px 5px 18px; border-bottom: 1px dashed #e6e1f7; position: relative; font-size: 13.5px; }
+  #feed li::before { content: ""; position: absolute; left: 3px; top: 10px; width: 9px; height: 9px; border-radius: 50%; background: var(--lavender); }
+  #feed li.c-green::before { background: var(--green); }
+  #feed li.c-red::before { background: var(--tomato); }
+  #feed li.c-pink::before { background: var(--bubble); }
+  #feed li.c-gold::before { background: var(--marigold); box-shadow: 0 0 0 1px #d8b100; }
+  #feed li.c-teal::before { background: var(--pool); }
+  #feed li .d { font-size: 11px; font-weight: 800; color: #7a73a6; margin-right: 4px; }
+  #feed li.fresh { animation: fresh 1.2s ease-out; }
+  @keyframes fresh { from { background: #fff6c4; } to { background: transparent; } }
+  nav {
+    display: flex; gap: 6px; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); justify-content: center;
+    background: var(--ink); flex: 0 0 auto; flex-wrap: nowrap;
+  }
+  nav button { padding: 8px 14px; }
+  #nParty { background: var(--marigold); }
+  #nIntro { background: var(--grass); }
+  #nRumour { background: var(--bubble); }
+  #nGarden { background: var(--pool); }
+  #nPeople { background: var(--lavender); }
+  nav button.on { box-shadow: 0 0 0 3px var(--paper) inset; }
+  .sheet {
+    position: fixed; right: 0; top: 46px; bottom: 50px; width: 330px; background: #fff; z-index: 5;
+    border-left: 3px solid var(--ink); display: none; flex-direction: column; box-shadow: -8px 0 24px rgba(26,21,64,.18);
+  }
+  .sheet.on { display: flex; }
+  .sheet .sh { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--paper); border-bottom: 2px solid #e6e1f7; }
+  .sheet .sh h2 { margin: 0; font-size: 17px; flex: 1; }
+  .sheet .sb { padding: 10px 12px 14px; overflow-y: auto; flex: 1; touch-action: pan-y; min-height: 0; }
+  .sheet p { margin: 4px 0 10px; }
+  .hint { color: #5d5690; font-size: 13px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+  .chip { background: var(--paper); border: 2px solid #ddd6f5; padding: 5px 11px; min-height: 32px; font-weight: 700; }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .chip .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid rgba(26,21,64,.4); }
+  .go { background: var(--tomato); color: #fff; padding: 9px 16px; }
+  .go.alt { background: var(--ink); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+  #nm { font: inherit; font-size: 20px; font-weight: 800; border: 2px solid #ddd6f5; border-radius: 10px; padding: 4px 8px; width: 100%; color: var(--ink);
+    -webkit-user-select: text; user-select: text; }
+  .rels { list-style: none; padding: 0; margin: 4px 0; }
+  .rels li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 6px 4px; border-bottom: 1px dashed #e6e1f7; cursor: pointer; }
+  .rels li .st { font-size: 12px; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: #eee9ff; }
+  .rels li .st.c-green { background: #d9f5c9; } .rels li .st.c-red { background: #ffd6de; } .rels li .st.c-pink { background: #ffd9f0; }
+  .rels li .bar { grid-column: 1 / 3; height: 5px; border-radius: 3px; background: #eee9ff; position: relative; overflow: hidden; }
+  .rels li .bar i { position: absolute; top: 0; bottom: 0; }
+  h3 { margin: 12px 0 4px; font-size: 14px; }
+  #title {
+    position: fixed; inset: 0; background: rgba(26,21,64,.55); display: flex; align-items: center; justify-content: center;
+    z-index: 10; padding: 16px;
+  }
+  #title.off { display: none; }
+  .card {
+    background: var(--paper); border-radius: 22px; padding: 22px 22px 18px; max-width: 470px; width: 100%;
+    box-shadow: 0 10px 0 var(--ink); border: 3px solid var(--ink); max-height: 100%; overflow-y: auto;
+  }
+  .card h1 { margin: 0; font-size: 34px; line-height: 1.05; }
+  .card h1 span { color: var(--tomato); }
+  .card .tag { margin: 4px 0 12px; font-weight: 700; color: var(--grape); }
+  .card ul { margin: 0 0 14px; padding-left: 18px; }
+  .card li { margin: 4px 0; }
+  .card .keys { font-size: 12.5px; color: #5d5690; margin: 0 0 14px; }
+  #fileIn { display: none; }
+  @media (max-width: 820px) {
+    header { gap: 5px; padding: 5px 6px; }
+    .brand { font-size: 15px; }
+    .brand .long { display: none; }
+    #clock { margin-left: 2px; font-size: 13px; }
+    .speed button { padding: 4px 8px; }
+    header > button { padding: 6px 9px; }
+    main { flex-direction: column; }
+    aside { width: auto; height: 150px; border-left: 0; border-top: 3px solid var(--ink); }
+    .legend { display: none; }
+    #stats { padding: 5px 10px 3px; font-size: 12px; }
+    #feedHead { display: none; }
+    nav { gap: 4px; padding-left: 4px; padding-right: 4px; }
+    nav button { padding: 8px 9px; font-size: 13px; flex: 1 1 0; min-width: 0; }
+    .sheet { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 62%; border-left: 0; border-top: 3px solid var(--ink);
+      border-radius: 18px 18px 0 0; box-shadow: 0 -8px 24px rgba(26,21,64,.25); }
+    .card { padding: 18px 16px 14px; }
+    .card h1 { font-size: 28px; }
+  }
+  @media (max-width: 480px) {
+    header .brand { display: none; }
+    #clock { margin-left: 4px; }
+  }
+  html.preview header, html.preview nav, html.preview aside, html.preview .sheet, html.preview #title,
+  html.preview #paused, html.preview #toast { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">Hearsay <span>Lane</span></div>
+    <div id="clock">Day 1<small>morning</small></div>
+    <div class="spacer"></div>
+    <div class="speed" role="group" aria-label="Speed">
+      <button data-sp="0" aria-label="Pause" title="Pause (Space)">II</button>
+      <button data-sp="1" aria-label="Speed 1x" title="1x (1)">1x</button>
+      <button data-sp="2" aria-label="Speed 2x" title="2x (2)">2x</button>
+      <button data-sp="3" aria-label="Speed 3x" title="3x (3)">3x</button>
+    </div>
+    <button id="bMute" aria-pressed="false" title="Sound (M)">&#9835; on</button>
+    <button id="bMenu" title="Street menu (S)">Street</button>
+  </header>
+  <main>
+    <div id="stage">
+      <canvas id="cv" aria-label="The street seen from above"></canvas>
+      <div id="paused">PAUSED</div>
+      <div id="toast" role="status"></div>
+    </div>
+    <aside>
+      <div id="stats"></div>
+      <div class="legend"><span><i style="background:var(--green)"></i>friends</span><span><i style="background:var(--tomato)"></i>rivals</span><span><i style="background:var(--bubble)"></i>romance</span></div>
+      <div id="feedHead">Street news</div>
+      <ul id="feed" aria-live="polite"></ul>
+    </aside>
+  </main>
+  <nav>
+    <button id="nParty" title="Throw a party (P)">Party</button>
+    <button id="nIntro" title="Introduce two people (I)">Introduce</button>
+    <button id="nRumour" title="Start a rumour (R)">Rumour</button>
+    <button id="nGarden" title="Plant a community garden (G)">Garden</button>
+    <button id="nPeople" title="Everyone on the street (E)">People</button>
+  </nav>
+</div>
+<section id="sheet" class="sheet" aria-modal="false" role="dialog" aria-labelledby="shTitle">
+  <div class="sh"><h2 id="shTitle">Sheet</h2><button id="shClose" aria-label="Close panel">Close</button></div>
+  <div class="sb" id="shBody"></div>
+</section>
+<div id="title">
+  <div class="card">
+    <h1>Hearsay <span>Lane</span></h1>
+    <div class="tag">A little street where everybody knows everybody's business.</div>
+    <ul>
+      <li>Days pass on their own. Neighbours visit, meet in the park and at the shop, and grow closer or grumpier.</li>
+      <li>Watch the lines: <b style="color:var(--green)">green</b> friends, <b style="color:var(--tomato)">red</b> rivals, <b style="color:var(--bubble)">pink</b> romance. Thicker means stronger.</li>
+      <li>Nudge things along: throw a party, introduce two people, start a rumour (careful, it can backfire), or plant a garden.</li>
+      <li>Tap anyone to see who they like, rename them or change their leanings.</li>
+    </ul>
+    <div class="keys">Keys: Space pause, 1 2 3 speed, P party, I introduce, R rumour, G garden, E people, [ ] step through people, S street menu, M mute.</div>
+    <div class="row">
+      <button class="go" id="tStart">Open the street</button>
+      <button class="go alt" id="tFresh">Start a fresh street</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="fileIn" accept=".json,application/json">
+<script>
+// LOGIC-BEGIN
+var HL = (function () {
+  'use strict';
+  const LEANINGS = [
+    { id: 'chatty', label: 'chatty', color: '#FF8A3D' },
+    { id: 'grumpy', label: 'grumpy', color: '#8C9BFF' },
+    { id: 'romantic', label: 'romantic', color: '#FF7AC8' },
+    { id: 'gardener', label: 'gardener', color: '#7ED04B' },
+    { id: 'nightowl', label: 'night owl', color: '#B45CF0' },
+    { id: 'earlybird', label: 'early bird', color: '#FFE066' },
+    { id: 'bookworm', label: 'bookworm', color: '#B9A8FF' },
+    { id: 'sporty', label: 'sporty', color: '#22D3C5' },
+    { id: 'tidy', label: 'tidy', color: '#A8ECF4' },
+    { id: 'messy', label: 'messy', color: '#FFB27A' },
+    { id: 'foodie', label: 'foodie', color: '#FF4F6D' },
+    { id: 'musical', label: 'musical', color: '#C6F432' },
+  ];
+  const LEAN_IDS = LEANINGS.map(l => l.id);
+  const LEAN_LABEL = {}; LEANINGS.forEach(l => { LEAN_LABEL[l.id] = l.label; });
+  const CLASHES = [['tidy', 'messy'], ['nightowl', 'earlybird']];
+  const COMPAT = {};
+  [
+    ['chatty', 'chatty', .5], ['chatty', 'foodie', .35], ['chatty', 'musical', .2], ['chatty', 'grumpy', -.6], ['chatty', 'bookworm', -.3],
+    ['grumpy', 'grumpy', .25], ['grumpy', 'musical', -.35], ['grumpy', 'romantic', -.2], ['grumpy', 'messy', -.3], ['grumpy', 'bookworm', .2], ['grumpy', 'gardener', .15],
+    ['romantic', 'romantic', .35], ['romantic', 'musical', .3], ['romantic', 'foodie', .2],
+    ['gardener', 'gardener', .8], ['gardener', 'earlybird', .3], ['gardener', 'foodie', .25], ['gardener', 'tidy', .2],
+    ['nightowl', 'nightowl', .4], ['nightowl', 'earlybird', -.6], ['nightowl', 'musical', .35], ['nightowl', 'bookworm', .3],
+    ['earlybird', 'earlybird', .4], ['earlybird', 'sporty', .35], ['earlybird', 'tidy', .25],
+    ['bookworm', 'bookworm', .5], ['bookworm', 'musical', -.25], ['bookworm', 'sporty', -.15],
+    ['sporty', 'sporty', .5], ['sporty', 'foodie', .1], ['sporty', 'messy', -.1],
+    ['tidy', 'tidy', .3], ['tidy', 'messy', -.7], ['messy', 'messy', .3], ['messy', 'musical', .2],
+    ['foodie', 'foodie', .5], ['musical', 'musical', .4],
+  ].forEach(([a, b, v]) => { COMPAT[a + '|' + b] = v; COMPAT[b + '|' + a] = v; });
+
+  const STATES = ['strangers', 'acquaintances', 'friends', 'best friends', 'rivals', 'crush', 'dating', 'married', 'exes'];
+  const COUPLE = { dating: 1, married: 1 };
+  const TH = {
+    FRIEND: 30, FRIEND_DROP: 18, BEST: 70, BEST_DROP: 58, RIVAL: -40, RIVAL_DROP: -15,
+    CRUSH_R: 35, CRUSH_F: 10, CRUSH_KEEP_R: 25, CRUSH_KEEP_F: 5, DATE_R: 60, DATE_F: 25,
+    BREAK_F: 0, BREAK_R: 20, WED_R: 75, WED_F: 50, WED_DAYS: 7, EX_FRIEND: 45, MARRIED_FLOOR: 20,
+  };
+  const MIN_PEOPLE = 10, MAX_PEOPLE = 14, MIN_HOUSES = 6, MAX_HOUSES = 8, MAX_LEAN = 3, WARM_DAYS = 8, FEED_MAX = 80;
+  const PHASES = ['morning', 'afternoon', 'evening'];
+  const NAMES = ['Priya', 'Tom', 'Ana', 'Ben', 'Chloe', 'Dev', 'Ella', 'Femi', 'Gus', 'Hana', 'Ivy', 'Jonah', 'Kai', 'Lena',
+    'Milo', 'Nadia', 'Omar', 'Pip', 'Quinn', 'Rosa', 'Sam', 'Tess', 'Umar', 'Vera', 'Wes', 'Yara', 'Zoe', 'Arlo', 'Bea',
+    'Cal', 'Dina', 'Eli', 'Fern', 'Gia', 'Hugo', 'Iris', 'Jude', 'Kira', 'Leo', 'Mae', 'Nico', 'Opal', 'Ravi', 'Sian',
+    'Theo', 'Una', 'Viv', 'Wren', 'Yusuf', 'Zara', 'Mina', 'Otis', 'Lola', 'Remy', 'Suki', 'Tariq', 'Noor', 'Elsie', 'Marek', 'Ines'];
+  const SKIN = ['#FFE3C8', '#F6C9A0', '#E2A877', '#C68A5A', '#9A6440', '#6E472F'];
+  const HAIR = ['#1A1540', '#3B2A20', '#7A4A2A', '#C98A3A', '#EBC66E', '#B45CF0', '#FF7AC8', '#8C9BFF', '#E9E4F5', '#FF8A3D'];
+  const SHIRT = ['#FFE066', '#FF4F6D', '#C6F432', '#22D3C5', '#B45CF0', '#FF7AC8', '#B9A8FF', '#FF8A3D', '#8C9BFF'];
+  const HOUSE_COL = ['#FFE066', '#FF7AC8', '#22D3C5', '#FF8A3D', '#B9A8FF', '#C6F432', '#8C9BFF', '#FF4F6D', '#B45CF0'];
+  const hooks = { transition: null };
+
+  // ---------- seeded randomness (mulberry32; the state lives in the world so saves stay deterministic)
+  function rnd(w) {
+    let t = (w.rng = (w.rng + 0x6D2B79F5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  const ri = (w, n) => Math.floor(rnd(w) * n);
+  const pick = (w, arr) => arr[ri(w, arr.length)];
+  function pickW(w, pairs) {
+    let t = 0; for (const p of pairs) t += Math.max(0, p[1]);
+    if (t <= 0) return pairs[0][0];
+    let x = rnd(w) * t;
+    for (const p of pairs) { x -= Math.max(0, p[1]); if (x < 0) return p[0]; }
+    return pairs[pairs.length - 1][0];
+  }
+  const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+  const r1 = x => Math.round(x * 10) / 10;
+  const r2 = x => Math.round(x * 100) / 100;
+  const key = (a, b) => (a < b ? a + '-' + b : b + '-' + a);
+  function person(w, id) { for (const p of w.people) if (p.id === id) return p; return null; }
+  const has = (p, l) => p.lean.indexOf(l) >= 0;
+  const romantics = (a, b) => (has(a, 'romantic') ? 1 : 0) + (has(b, 'romantic') ? 1 : 0);
+  function occupants(w, h) { return w.people.filter(p => p.house === h); }
+
+  // ---------- the rules
+  function leanCompat(la, lb) {
+    let s = 0.1;
+    for (const a of la) for (const b of lb) s += COMPAT[a + '|' + b] || 0;
+    return clamp(r2(s), -1, 1);
+  }
+  function peekRel(w, a, b) { return w.rels[key(a, b)] || null; }
+  function compat(w, a, b) {
+    const pa = person(w, a), pb = person(w, b), rel = peekRel(w, a, b);
+    return clamp(r2(leanCompat(pa.lean, pb.lean) + (rel ? rel.chem : 0)), -1, 1);
+  }
+  function getRel(w, a, b) {
+    const k = key(a, b);
+    let rel = w.rels[k];
+    if (!rel) {
+      const rom = romantics(person(w, a), person(w, b));
+      rel = w.rels[k] = { f: 0, r: 0, st: 'strangers', met: false, chem: r2(rnd(w) * 0.7 - 0.35), spark: rnd(w) < 0.22 + 0.14 * rom, since: 0 };
+    }
+    return rel;
+  }
+  // How much one meeting moves friendship. c in [-1,1], noise in [-1,1].
+  function relDelta(c, noise, bonus) { return r1(c * 10 + noise * 6 + (bonus || 0)); }
+  function romanceDelta(c, noise, rom, bonus) { return r1(1.5 + c * 5 + noise * 3 + rom * 2 + (bonus || 0) * 0.5); }
+
+  // The state machine. bothSingle: neither person is dating or married to anyone.
+  function nextState(rel, bothSingle) {
+    const s = rel.st, f = rel.f, r = rel.r;
+    if (s === 'married') return 'married';
+    if (s === 'dating') return (f < TH.BREAK_F || r < TH.BREAK_R) ? 'exes' : 'dating';
+    const romanceOK = bothSingle && s !== 'exes' && s !== 'rivals';
+    if (romanceOK && s === 'crush' && r >= TH.DATE_R && f >= TH.DATE_F) return 'dating';
+    if (romanceOK && ((r >= TH.CRUSH_R && f >= TH.CRUSH_F) || (s === 'crush' && r >= TH.CRUSH_KEEP_R && f >= TH.CRUSH_KEEP_F))) return 'crush';
+    if (s === 'exes') return f >= TH.EX_FRIEND ? 'friends' : (f <= TH.RIVAL ? 'rivals' : 'exes');
+    if (f <= TH.RIVAL || (s === 'rivals' && f < TH.RIVAL_DROP)) return 'rivals';
+    if (f >= TH.BEST || (s === 'best friends' && f >= TH.BEST_DROP)) return 'best friends';
+    if (f >= TH.FRIEND || ((s === 'friends' || s === 'best friends') && f >= TH.FRIEND_DROP)) return 'friends';
+    return rel.met ? 'acquaintances' : 'strangers';
+  }
+  function canWed(rel, day) {
+    return rel.st === 'dating' && day - rel.since >= TH.WED_DAYS && rel.r >= TH.WED_R && rel.f >= TH.WED_F;
+  }
+
+  // ---------- story lines. Templates use {a} {b} {c} for people, {h} and {n} for numbers.
+  const ST_TPL = {
+    'strangers>acquaintances': ['{a} and {b} said hello over the fence.', '{a} and {b} met for the first time.', '{a} waved at {b}, and {b} waved back.'],
+    '*>acquaintances': ['{a} and {b} have drifted apart a little.'],
+    'rivals>acquaintances': ['{a} and {b} called a truce.', '{a} and {b} shook hands at last.'],
+    'crush>acquaintances': ['{a} and {b} cooled off a little.'],
+    'exes>rivals': ['Things got frosty: {a} and {b} are rivals now.'],
+    '*>friends': ['{a} and {b} are friends now.', '{a} and {b} became friends over a cup of tea.', '{a} and {b} are friends. The street approves.'],
+    'best friends>friends': ['{a} and {b} are still friends, just a bit busier.'],
+    'exes>friends': ['{a} and {b} are friends again. Water under the bridge.'],
+    'crush>friends': ['{a} and {b} decided they are better as friends.'],
+    '*>best friends': ['{a} and {b} are best friends!', '{a} and {b} are best friends now. Matching mugs!'],
+    '*>rivals': ['{a} and {b} are officially rivals.', 'It is official: {a} and {b} are rivals.', '{a} and {b} are rivals now. The hedge war begins.'],
+    '*>crush': ['{a} has a crush on {b}.', '{a} and {b} have a little crush on each other.', '{b} caught {a} blushing. A crush!'],
+    '*>dating': ['{a} and {b} are dating!', '{a} asked {b} out. They are dating!'],
+    '*>married': ['Wedding bells! {a} and {b} got married.', '{a} and {b} got married in the park. Confetti everywhere!'],
+    '*>exes': ['{a} and {b} broke up. Exes, but polite about it.', '{a} and {b} are exes now. Nobody threw anything.'],
+  };
+  const POS_TPL = {
+    any: ['{a} lent {b} a ladder.', '{a} and {b} laughed about the weather.', '{a} helped {b} carry the shopping.', '{a} and {b} swapped recipes.'],
+    park: ['{a} and {b} fed the ducks together.', '{a} and {b} shared a bench in the sun.'],
+    shop: ['{a} and {b} split a bag of cherries at the shop.', '{a} let {b} go first at the till.'],
+    garden: ['{a} and {b} compared tomatoes in the garden.', '{a} gave {b} a cutting of mint.'],
+    home: ['{a} brought {b} a slice of cake.', '{a} and {b} did a jigsaw on the porch.'],
+    bookworm: ['{a} lent {b} a mystery novel.'], musical: ['{a} and {b} hummed the same tune.'],
+    sporty: ['{a} and {b} jogged a lap of the park.'], nightowl: ['{a} and {b} stargazed from the porch.'],
+    foodie: ['{a} and {b} traded biscuit reviews.'], gardener: ['{a} and {b} talked compost for an hour.'],
+    chatty: ['{a} and {b} chatted until the streetlights came on.'],
+  };
+  const NEG_TPL = ['{a} and {b} argued about the hedge again.', '{a} tutted at {b}\'s wheelie bin.', '{a} and {b} both reached for the last loaf.',
+    '{a} and {b} disagreed about the bunting.', '{a} parked a bit close to {b}\'s gate.'];
+  const NEG_PAIR = [
+    ['grumpy', 'musical', '{b} played the trumpet too loudly for {a}.'], ['tidy', 'messy', '{a} sighed at {b}\'s untidy front step.'],
+    ['nightowl', 'earlybird', '{b} woke {a} at dawn with a leaf blower.'], ['bookworm', 'chatty', '{b} talked right through {a}\'s reading time.'],
+    ['grumpy', 'chatty', '{a} hid behind the curtains when {b} knocked.'],
+  ];
+  const COUPLE_TPL = ['{a} and {b} held hands on the way to the shop.', '{a} left a note for {b} on the fridge.', '{a} and {b} watched the sunset from the porch.'];
+  const TIFF_TPL = ['{a} and {b} had a tiff about whose turn it was to wash up.', '{a} and {b} squabbled over the TV remote.'];
+
+  function pushEvent(w, ev, out) {
+    ev.d = w.day; ev.id = ++w.evSeq;
+    w.feed.push(ev);
+    if (w.feed.length > FEED_MAX) w.feed.splice(0, w.feed.length - FEED_MAX);
+    if (out) out.events.push(ev);
+    return ev;
+  }
+  function stateTpl(from, to) { return ST_TPL[from + '>' + to] || ST_TPL['*>' + to] || null; }
+  function setState(w, a, b, rel, to, out, silent) {
+    const from = rel.st;
+    if (from === to) return;
+    const pa = person(w, a), pb = person(w, b);
+    rel.st = to;
+    if (to === 'dating') { rel.since = w.day; pa.partner = b; pb.partner = a; }
+    if (from === 'dating' && to === 'exes') { pa.partner = null; pb.partner = null; rel.r = Math.min(rel.r, 5); rel.spark = false; w.stats.breakups++; }
+    if (to === 'married') { rel.since = w.day; w.stats.weddings++; }
+    if (hooks.transition) hooks.transition({ a, b, from, to, f: rel.f, r: rel.r, day: w.day, silent: !!silent });
+    const tpls = stateTpl(from, to);
+    const quiet = silent || !tpls || (from === 'strangers' && rnd(w) > 0.4);
+    if (!quiet) pushEvent(w, { k: 'state', st: to, from, a, b, tpl: pick(w, tpls) }, out);
+    if (to === 'dating') {
+      // anyone else who had a crush on either of them quietly moves on
+      for (const x of [a, b]) for (const q of w.people) {
+        if (q.id === a || q.id === b) continue;
+        const rr = peekRel(w, x, q.id);
+        if (rr && rr.st === 'crush') setState(w, x, q.id, rr, nextState(rr, false), out, true);
+      }
+    }
+  }
+  function settle(w, a, b, rel, out) {
+    const pa = person(w, a), pb = person(w, b);
+    const ns = nextState(rel, pa.partner == null && pb.partner == null);
+    if (ns !== rel.st) setState(w, a, b, rel, ns, out, false);
+  }
+  function placeBonus(place, pa, pb) {
+    if (place === 'garden') return (has(pa, 'gardener') ? 2 : 0.3) + (has(pb, 'gardener') ? 2 : 0.3);
+    if (place === 'park') return 0.3 + (has(pa, 'sporty') ? 0.5 : 0) + (has(pb, 'sporty') ? 0.5 : 0);
+    if (place === 'shop') return (has(pa, 'foodie') ? 0.5 : 0) + (has(pb, 'foodie') ? 0.5 : 0);
+    return 1;
+  }
+  function flavour(w, a, b, df, place, out) {
+    const pa = person(w, a), pb = person(w, b);
+    let tpl, x = a, y = b;
+    if (df > 0) {
+      const opts = POS_TPL.any.slice();
+      const pl = place === 'park' || place === 'shop' || place === 'garden' ? place : 'home';
+      opts.push(...POS_TPL[pl], ...POS_TPL[pl]);
+      for (const l of ['bookworm', 'musical', 'sporty', 'nightowl', 'foodie', 'gardener', 'chatty']) {
+        if (has(pa, l) && has(pb, l)) opts.push(...POS_TPL[l], ...POS_TPL[l], ...POS_TPL[l]);
+      }
+      tpl = pick(w, opts);
+    } else {
+      const pairs = [];
+      for (const [l1, l2, t] of NEG_PAIR) {
+        if (has(pa, l1) && has(pb, l2)) pairs.push([a, b, t]);
+        if (has(pb, l1) && has(pa, l2)) pairs.push([b, a, t]);
+      }
+      if (pairs.length && rnd(w) < 0.7) { const p = pick(w, pairs); x = p[0]; y = p[1]; tpl = p[2]; } else tpl = pick(w, NEG_TPL);
+    }
+    pushEvent(w, { k: df > 0 ? 'nice' : 'spat', a: x, b: y, tpl }, out);
+  }
+  function interact(w, a, b, place, bonus, out) {
+    if (a === b) return null;
+    const pa = person(w, a), pb = person(w, b);
+    if (!pa || !pb) return null;
+    const rel = getRel(w, a, b);
+    const c = compat(w, a, b);
+    let noise = rnd(w) * 2 - 1;
+    if (has(pa, 'grumpy')) noise -= 0.2;
+    if (has(pb, 'grumpy')) noise -= 0.2;
+    const bon = (bonus || 0) + placeBonus(place, pa, pb);
+    const df = relDelta(c, noise, bon);
+    rel.f = r1(clamp(rel.f + df, -100, 100));
+    rel.met = true;
+    const couple = !!COUPLE[rel.st];
+    const rom = romantics(pa, pb);
+    let dr = 0;
+    if (couple) dr = romanceDelta(c, rnd(w) * 2 - 1, rom, bon) * 0.8 + (df < 0 ? -5 : 0);
+    else if (rel.spark && pa.partner == null && pb.partner == null && rel.st !== 'exes' && rel.st !== 'rivals' && rel.f > 0) dr = romanceDelta(c, rnd(w) * 2 - 1, rom, bon);
+    else if (rel.r > 0 && rel.f <= 0) dr = -3;
+    dr = r1(dr);
+    rel.r = r1(clamp(rel.r + dr, 0, 100));
+    if (rel.st === 'married' && rel.f < TH.MARRIED_FLOOR) rel.f = TH.MARRIED_FLOOR;
+    const n0 = out.events.length;
+    settle(w, a, b, rel, out);
+    if (out.events.length === n0) {
+      if (COUPLE[rel.st]) {
+        if (rnd(w) < 0.1 && out.flavourLeft !== 0) { pushEvent(w, { k: 'love', a, b, tpl: pick(w, COUPLE_TPL) }, out); if (out.flavourLeft) out.flavourLeft--; }
+      } else if (Math.abs(df) >= 5 && rnd(w) < 0.4 && out.flavourLeft !== 0) {
+        flavour(w, a, b, df, place, out);
+        if (out.flavourLeft) out.flavourLeft--;
+      }
+    }
+    const m = { a, b, df, dr, place, st: rel.st };
+    out.meets.push(m);
+    return m;
+  }
+
+  // ---------- where everybody goes this phase
+  const VISIT_W = { married: 8, dating: 8, 'best friends': 5, crush: 4, friends: 3, acquaintances: 1, strangers: 0.4, exes: 0.3, rivals: 0.15 };
+  function visitTarget(w, p) {
+    const opts = [];
+    for (const q of w.people) {
+      if (q.id === p.id || q.house === p.house) continue;
+      const rel = peekRel(w, p.id, q.id);
+      opts.push([q, VISIT_W[rel ? rel.st : 'strangers']]);
+    }
+    return opts.length ? pickW(w, opts) : null;
+  }
+  function assignLocations(w) {
+    const ph = w.phase;
+    w.loc = {};
+    for (const p of w.people) {
+      const W = { home: 3, park: 2, shop: 1.4, visit: 2, garden: w.garden ? 0.4 : 0 };
+      if (has(p, 'grumpy')) W.home += 3;
+      if (has(p, 'bookworm')) W.home += 2;
+      if (has(p, 'chatty')) { W.visit += 2; W.shop += 1; }
+      if (has(p, 'romantic')) W.visit += 1;
+      if (has(p, 'musical')) W.visit += 1;
+      if (has(p, 'sporty')) W.park += 3;
+      if (has(p, 'foodie')) W.shop += 2.5;
+      if (has(p, 'gardener')) { W.home += 1; if (w.garden) W.garden = 6; }
+      if (ph === 0) { if (has(p, 'earlybird')) W.park += 3; if (has(p, 'nightowl')) W.home += 4; }
+      if (ph === 2) { W.shop *= 0.5; if (has(p, 'nightowl')) { W.park += 2; W.visit += 3; } if (has(p, 'earlybird')) W.home += 4; }
+      if (p.partner != null) W.visit += 1.5;
+      const choice = pickW(w, [['home', W.home], ['park', W.park], ['shop', W.shop], ['visit', W.visit], ['garden', W.garden]]);
+      let loc = 'h' + p.house;
+      if (choice === 'park' || choice === 'shop' || choice === 'garden') loc = choice;
+      else if (choice === 'visit') { const t = visitTarget(w, p); if (t) loc = 'h' + t.house; }
+      w.loc[p.id] = loc;
+    }
+  }
+  function groups(w) {
+    const g = {};
+    for (const p of w.people) { const l = w.loc[p.id] || ('h' + p.house); (g[l] = g[l] || []).push(p.id); }
+    for (const l in g) g[l].sort((x, y) => x - y);
+    return g;
+  }
+  function meetings(w, out) {
+    const g = groups(w);
+    for (const l of Object.keys(g).sort()) {
+      const ids = g[l], n = ids.length;
+      if (n < 2) continue;
+      const p = n <= 2 ? 0.9 : Math.min(0.9, 2.4 / (n - 1));
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (rnd(w) < p) interact(w, ids[i], ids[j], l, 0, out);
+    }
+  }
+
+  // ---------- once a day: drift, tiffs, weddings, new neighbours
+  function relKeys(w) { return Object.keys(w.rels); }
+  function splitKey(k) { const i = k.indexOf('-'); return [+k.slice(0, i), +k.slice(i + 1)]; }
+  function daily(w, out) {
+    for (const k of relKeys(w)) {
+      const rel = w.rels[k];
+      if (COUPLE[rel.st]) rel.r = r1(Math.max(0, rel.r - (rel.st === 'dating' ? 1 : 0.5)));
+      else {
+        if (rel.f > 0) rel.f = r1(Math.max(0, rel.f - 1)); else if (rel.f < 0) rel.f = r1(Math.min(0, rel.f + 1));
+        rel.r = r1(Math.max(0, rel.r - 1));
+      }
+    }
+    for (const k of relKeys(w)) { const [a, b] = splitKey(k); settle(w, a, b, w.rels[k], out); }
+    for (const k of relKeys(w)) {
+      const rel = w.rels[k];
+      if (rel.st !== 'dating') continue;
+      const [a, b] = splitKey(k);
+      if (rnd(w) < (compat(w, a, b) < 0.2 ? 0.3 : 0.06)) {
+        rel.r = r1(Math.max(0, rel.r - 18)); rel.f = r1(rel.f - 7);
+        pushEvent(w, { k: 'spat', a, b, tpl: pick(w, TIFF_TPL) }, out);
+        settle(w, a, b, rel, out);
+      } else if (canWed(rel, w.day) && rnd(w) < 0.35) {
+        setState(w, a, b, rel, 'married', out, false);
+        moveIn(w, a, b, out);
+      }
+    }
+    w.vacant = w.vacant.filter(v => {
+      if (v.day > w.day) return true;
+      if (occupants(w, v.house).length === 0 && w.people.length < MAX_PEOPLE) addNewcomer(w, v.house, out);
+      return false;
+    });
+    if (w.partyAt && w.partyAt.until <= w.phaseCount) w.partyAt = null;
+  }
+  function moveIn(w, a, b, out) {
+    const pa = person(w, a), pb = person(w, b);
+    if (pa.house === pb.house) return;
+    const na = occupants(w, pa.house).length, nb = occupants(w, pb.house).length;
+    const mover = na > nb ? pa : nb > na ? pb : (pa.id > pb.id ? pa : pb);
+    const stay = mover === pa ? pb : pa;
+    const old = mover.house;
+    mover.house = stay.house;
+    w.loc[mover.id] = 'h' + stay.house;
+    pushEvent(w, { k: 'move', a: mover.id, b: stay.id, h: stay.house + 1, tpl: '{a} moved in with {b} at No. {h}.' }, out);
+    if (occupants(w, old).length === 0) w.vacant.push({ house: old, day: w.day + 2 + ri(w, 3) });
+  }
+  function randomLeanings(w) {
+    const n = rnd(w) < 0.4 ? 3 : 2, out = [];
+    let guard = 0;
+    while (out.length < n && guard++ < 50) {
+      const l = pick(w, LEAN_IDS);
+      if (out.indexOf(l) >= 0) continue;
+      if (CLASHES.some(([x, y]) => (l === x && out.indexOf(y) >= 0) || (l === y && out.indexOf(x) >= 0))) continue;
+      out.push(l);
+    }
+    return out;
+  }
+  function makePerson(w, house) {
+    const used = w.people.map(p => p.name);
+    const free = NAMES.filter(n => used.indexOf(n) < 0);
+    const id = w.nextId++;
+    const name = free.length ? pick(w, free) : pick(w, NAMES) + ' ' + id;
+    const p = {
+      id, name, house, lean: randomLeanings(w), partner: null,
+      look: { skin: pick(w, SKIN), hair: pick(w, HAIR), hs: ri(w, 5), shirt: pick(w, SHIRT) },
+    };
+    w.people.push(p);
+    return p;
+  }
+  function addNewcomer(w, house, out) {
+    const p = makePerson(w, house);
+    w.loc[p.id] = 'h' + house;
+    pushEvent(w, { k: 'new', a: p.id, h: house + 1, tpl: '{a} moved into No. {h}. Say hello!' }, out);
+    return p;
+  }
+
+  // ---------- time
+  function stepPhase(w) {
+    const out = { events: [], meets: [] };
+    meetings(w, out);
+    w.phaseCount++;
+    w.phase++;
+    if (w.phase >= PHASES.length) { daily(w, out); w.phase = 0; w.day++; }
+    assignLocations(w);
+    return out;
+  }
+  function stepDay(w) {
+    const out = { events: [], meets: [] };
+    for (let i = 0; i < PHASES.length; i++) { const o = stepPhase(w); out.events.push(...o.events); out.meets.push(...o.meets); }
+    return out;
+  }
+
+  // ---------- nudges
+  function throwParty(w, house, guestIds) {
+    if (!w.houses[house]) return null;
+    const hosts = occupants(w, house).map(p => p.id);
+    if (!hosts.length) return null;
+    const guests = [];
+    for (const g of guestIds || []) if (person(w, g) && hosts.indexOf(g) < 0 && guests.indexOf(g) < 0) guests.push(g);
+    if (!guests.length) return null;
+    const out = { events: [], meets: [], flavourLeft: 3 };
+    pushEvent(w, { k: 'party', a: hosts[0], h: house + 1, n: guests.length,
+      tpl: hosts.length > 1 ? '{a} and the rest of No. {h} threw a party for {n} guests.' : '{a} threw a party at No. {h} for {n} guests.' }, out);
+    const all = hosts.concat(guests).sort((x, y) => x - y);
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+      const pa = person(w, all[i]), pb = person(w, all[j]);
+      let bonus = 3 + (has(pa, 'chatty') ? 1 : 0) + (has(pb, 'chatty') ? 1 : 0);
+      if ((has(pa, 'grumpy') || has(pb, 'grumpy')) && rnd(w) < 0.5) bonus -= 7;
+      interact(w, all[i], all[j], 'h' + house, bonus, out);
+    }
+    for (const id of all) w.loc[id] = 'h' + house;
+    w.partyAt = { house, until: w.phaseCount + 2 };
+    w.stats.parties++;
+    return out;
+  }
+  function introduce(w, a, b) {
+    if (a === b || !person(w, a) || !person(w, b)) return null;
+    const out = { events: [], meets: [] };
+    const rel = peekRel(w, a, b);
+    pushEvent(w, { k: 'intro', a, b, tpl: rel && rel.met ? 'You nudged {a} and {b} to catch up.' : 'You introduced {a} to {b}.' }, out);
+    const place = w.loc[a] || ('h' + person(w, a).house);
+    w.loc[b] = place;
+    interact(w, a, b, place, 4, out);
+    w.stats.intros++;
+    return out;
+  }
+  // "a fancies b". Can come true, or backfire.
+  function rumour(w, a, b) {
+    if (a === b || !person(w, a) || !person(w, b)) return null;
+    const out = { events: [], meets: [], ok: false };
+    const pa = person(w, a), pb = person(w, b);
+    const rel = getRel(w, a, b);
+    rel.met = true;
+    w.stats.rumours++;
+    if (COUPLE[rel.st]) {
+      rel.r = r1(Math.min(100, rel.r + 3));
+      pushEvent(w, { k: 'rumour', a, b, tpl: 'Everyone already knew about {a} and {b}. They smiled anyway.' }, out);
+      out.ok = true;
+      return out;
+    }
+    const c = compat(w, a, b), rom = romantics(pa, pb);
+    const taken = pa.partner != null || pb.partner != null;
+    const p = clamp(0.3 + 0.3 * Math.max(0, c) + 0.12 * rom - (taken ? 0.35 : 0) - (rel.st === 'rivals' || rel.st === 'exes' ? 0.2 : 0), 0.05, 0.85);
+    if (rnd(w) < p) {
+      if (!taken) { rel.r = r1(Math.min(100, rel.r + 22)); rel.spark = true; }
+      rel.f = r1(Math.min(100, rel.f + 6));
+      pushEvent(w, { k: 'rumour', a, b, tpl: 'Word went round that {a} fancies {b}. {b} went a bit pink.' }, out);
+      out.ok = true;
+    } else {
+      rel.f = r1(Math.max(-100, rel.f - 14));
+      const cands = w.people.filter(q => q.id !== a && q.id !== b);
+      const chatty = cands.filter(q => has(q, 'chatty'));
+      const sp = pick(w, chatty.length ? chatty : cands);
+      pushEvent(w, { k: 'backfire', a, b, c: sp.id, tpl: 'A rumour about {a} and {b} backfired. {c} got the blame.' }, out);
+      const rs = getRel(w, sp.id, a);
+      rs.met = true;
+      rs.f = r1(Math.max(-100, rs.f - 10));
+      settle(w, sp.id, a, rs, out);
+    }
+    settle(w, a, b, rel, out);
+    return out;
+  }
+  function plantGarden(w) {
+    if (w.garden) return null;
+    const out = { events: [], meets: [] };
+    w.garden = true; w.gardenDay = w.day;
+    pushEvent(w, { k: 'garden', tpl: 'A community garden sprouted in the park. Gardeners, grab your trowels!' }, out);
+    for (const p of w.people) if (has(p, 'gardener')) w.loc[p.id] = 'garden';
+    return out;
+  }
+  function rename(w, id, name) {
+    const p = person(w, id);
+    const s = String(name == null ? '' : name).replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+    if (!p || !s) return false;
+    p.name = s;
+    return true;
+  }
+  function cleanLeanings(list) {
+    const out = [];
+    for (const l of list || []) {
+      if (LEAN_IDS.indexOf(l) < 0 || out.indexOf(l) >= 0) continue;
+      if (CLASHES.some(([x, y]) => (l === x && out.indexOf(y) >= 0) || (l === y && out.indexOf(x) >= 0))) continue;
+      out.push(l);
+    }
+    return out.slice(0, MAX_LEAN);
+  }
+  function setLeanings(w, id, list) {
+    const p = person(w, id), l = cleanLeanings(list);
+    if (!p || !l.length) return false;
+    p.lean = l;
+    return true;
+  }
+
+  // ---------- a new street
+  function newStreet(seed) {
+    seed = (seed >>> 0) || 1;
+    const w = {
+      v: 1, seed, rng: seed, day: 1 - WARM_DAYS, phase: 0, phaseCount: 0, houses: [], people: [], rels: {}, loc: {},
+      feed: [], evSeq: 0, garden: false, gardenDay: null, vacant: [], partyAt: null, nextId: 1,
+      stats: { weddings: 0, breakups: 0, parties: 0, rumours: 0, intros: 0 },
+    };
+    const nh = MIN_HOUSES + ri(w, MAX_HOUSES - MIN_HOUSES + 1);
+    const np = MIN_PEOPLE + ri(w, MAX_PEOPLE - MIN_PEOPLE + 1);
+    const c0 = ri(w, HOUSE_COL.length);
+    for (let i = 0; i < nh; i++) w.houses.push({ no: i + 1, col: HOUSE_COL[(c0 + i * 4) % HOUSE_COL.length] });
+    for (let i = 0; i < np; i++) {
+      let h = i;
+      if (i >= nh) { h = ri(w, nh); let g = 0; while (occupants(w, h).length >= 3 && g++ < 20) h = ri(w, nh); }
+      makePerson(w, h);
+    }
+    for (const p of w.people) for (const q of w.people) {
+      if (p.id < q.id && p.house === q.house) { const rel = getRel(w, p.id, q.id); rel.f = 18; rel.met = true; rel.st = 'acquaintances'; }
+    }
+    assignLocations(w);
+    for (let i = 0; i < WARM_DAYS * PHASES.length; i++) stepPhase(w);
+    w.feed = []; w.evSeq = 0;
+    w.stats = { weddings: 0, breakups: 0, parties: 0, rumours: 0, intros: 0 };
+    pushEvent(w, { k: 'hello', n: np, h: nh, tpl: 'Welcome to Hearsay Lane: {n} neighbours in {h} houses.' }, null);
+    return w;
+  }
+
+  // ---------- reading
+  function nameOf(w, id) { const p = person(w, id); return p ? p.name : 'someone'; }
+  function feedText(w, ev) {
+    return ev.tpl.replace(/\{(a|b|c|h|n)\}/g, (m, k) => (k === 'h' || k === 'n' ? String(ev[k]) : nameOf(w, ev[k])));
+  }
+  function stats(w) {
+    const s = { friends: 0, couples: 0, rivals: 0, crushes: 0, weddings: w.stats.weddings, breakups: w.stats.breakups };
+    for (const k in w.rels) {
+      const st = w.rels[k].st;
+      if (st === 'friends' || st === 'best friends') s.friends++;
+      else if (COUPLE[st]) s.couples++;
+      else if (st === 'rivals') s.rivals++;
+      else if (st === 'crush') s.crushes++;
+    }
+    return s;
+  }
+  function relationsOf(w, id) {
+    const list = [];
+    for (const q of w.people) {
+      if (q.id === id) continue;
+      const rel = peekRel(w, id, q.id);
+      if (!rel || !rel.met) continue;
+      list.push({ id: q.id, name: q.name, st: rel.st, f: rel.f, r: rel.r });
+    }
+    const rank = st => (COUPLE[st] ? 0 : st === 'crush' ? 1 : st === 'best friends' ? 2 : st === 'friends' ? 3 : st === 'rivals' ? 4 : 5);
+    list.sort((x, y) => rank(x.st) - rank(y.st) || Math.abs(y.f) - Math.abs(x.f) || x.id - y.id);
+    return list;
+  }
+
+  // ---------- import checking: accept only a well formed street, rebuilt field by field
+  function validateWorld(o) {
+    const bad = m => { throw new Error('Not a Hearsay Lane street: ' + m); };
+    const isInt = x => typeof x === 'number' && Number.isInteger(x);
+    const isNum = x => typeof x === 'number' && isFinite(x);
+    const isCol = x => typeof x === 'string' && /^#[0-9a-fA-F]{6}$/.test(x);
+    if (!o || typeof o !== 'object' || o.v !== 1) bad('version');
+    if (!Array.isArray(o.houses) || o.houses.length < 1 || o.houses.length > 12) bad('houses');
+    if (!Array.isArray(o.people) || o.people.length < 2 || o.people.length > 20) bad('people');
+    const w = {
+      v: 1, seed: isInt(o.seed) ? o.seed >>> 0 : 1, rng: isNum(o.rng) ? o.rng >>> 0 : 1,
+      day: isInt(o.day) ? o.day : bad('day'), phase: isInt(o.phase) && o.phase >= 0 && o.phase < PHASES.length ? o.phase : bad('phase'),
+      phaseCount: isInt(o.phaseCount) ? o.phaseCount : 0, houses: [], people: [], rels: {}, loc: {}, feed: [],
+      evSeq: isInt(o.evSeq) ? o.evSeq : 0, garden: !!o.garden, gardenDay: isInt(o.gardenDay) ? o.gardenDay : null,
+      vacant: [], partyAt: null, nextId: 1, stats: { weddings: 0, breakups: 0, parties: 0, rumours: 0, intros: 0 },
+    };
+    o.houses.forEach((h, i) => { if (!h || !isCol(h.col)) bad('house ' + i); w.houses.push({ no: i + 1, col: h.col }); });
+    const ids = {};
+    for (const p of o.people) {
+      if (!p || !isInt(p.id) || p.id < 1 || ids[p.id]) bad('person id');
+      if (!isInt(p.house) || p.house < 0 || p.house >= w.houses.length) bad('person house');
+      if (typeof p.name !== 'string') bad('person name');
+      const lean = cleanLeanings(p.lean);
+      if (!lean.length) bad('leanings');
+      const L = p.look || {};
+      if (!isCol(L.skin) || !isCol(L.hair) || !isCol(L.shirt) || !isInt(L.hs) || L.hs < 0 || L.hs > 4) bad('look');
+      const name = String(p.name).replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16) || 'Neighbour';
+      ids[p.id] = true;
+      w.people.push({ id: p.id, name, house: p.house, lean, partner: p.partner == null ? null : p.partner,
+        look: { skin: L.skin, hair: L.hair, hs: L.hs, shirt: L.shirt } });
+      w.nextId = Math.max(w.nextId, p.id + 1);
+    }
+    if (isInt(o.nextId)) w.nextId = Math.max(w.nextId, o.nextId);
+    if (!o.rels || typeof o.rels !== 'object') bad('relationships');
+    for (const k of Object.keys(o.rels)) {
+      const m = /^(\d+)-(\d+)$/.exec(k), r = o.rels[k];
+      if (!m || !ids[+m[1]] || !ids[+m[2]] || +m[1] >= +m[2]) bad('relationship key');
+      if (!r || !isNum(r.f) || !isNum(r.r) || STATES.indexOf(r.st) < 0 || !isNum(r.chem)) bad('relationship ' + k);
+      w.rels[k] = { f: clamp(r1(r.f), -100, 100), r: clamp(r1(r.r), 0, 100), st: r.st, met: !!r.met || r.st !== 'strangers',
+        chem: clamp(r.chem, -0.35, 0.35), spark: !!r.spark, since: isInt(r.since) ? r.since : 0 };
+    }
+    for (const p of w.people) {
+      if (p.partner == null) continue;
+      const rel = w.rels[key(p.id, p.partner)];
+      if (!ids[p.partner] || !rel || !COUPLE[rel.st]) bad('partner');
+    }
+    for (const k in w.rels) {
+      if (!COUPLE[w.rels[k].st]) continue;
+      const [a, b] = splitKey(k), pa = person(w, a), pb = person(w, b);
+      if (pa.partner !== b || pb.partner !== a) bad('couple ' + k);
+    }
+    const locOK = l => l === 'park' || l === 'shop' || (l === 'garden' && w.garden) || (/^h\d+$/.test(l) && +l.slice(1) < w.houses.length);
+    for (const p of w.people) { const l = o.loc && o.loc[p.id]; w.loc[p.id] = typeof l === 'string' && locOK(l) ? l : 'h' + p.house; }
+    if (Array.isArray(o.feed)) {
+      for (const ev of o.feed.slice(-FEED_MAX)) {
+        if (!ev || typeof ev.tpl !== 'string' || ev.tpl.length > 200 || typeof ev.k !== 'string') continue;
+        const e = { k: ev.k.slice(0, 12), tpl: ev.tpl, d: isInt(ev.d) ? ev.d : w.day, id: isInt(ev.id) ? ev.id : 0 };
+        for (const f of ['a', 'b', 'c']) if (isInt(ev[f])) e[f] = ev[f];
+        for (const f of ['h', 'n']) if (isInt(ev[f])) e[f] = ev[f];
+        if (typeof ev.st === 'string' && STATES.indexOf(ev.st) >= 0) e.st = ev.st;
+        if (typeof ev.from === 'string' && STATES.indexOf(ev.from) >= 0) e.from = ev.from;
+        w.feed.push(e);
+      }
+    }
+    if (Array.isArray(o.vacant)) for (const v of o.vacant) if (v && isInt(v.house) && v.house >= 0 && v.house < w.houses.length && isInt(v.day)) w.vacant.push({ house: v.house, day: v.day });
+    if (o.partyAt && isInt(o.partyAt.house) && o.partyAt.house < w.houses.length && isInt(o.partyAt.until)) w.partyAt = { house: o.partyAt.house, until: o.partyAt.until };
+    if (o.stats) for (const f in w.stats) if (isInt(o.stats[f]) && o.stats[f] >= 0) w.stats[f] = o.stats[f];
+    return w;
+  }
+
+  return {
+    LEANINGS, LEAN_IDS, LEAN_LABEL, CLASHES, STATES, TH, PHASES, NAMES, MIN_PEOPLE, MAX_PEOPLE, MIN_HOUSES, MAX_HOUSES, MAX_LEAN,
+    ST_TPL, POS_TPL, NEG_TPL, NEG_PAIR, COUPLE_TPL, TIFF_TPL, hooks,
+    rnd, key, person, peekRel, leanCompat, compat, relDelta, romanceDelta, nextState, canWed, interact, settle,
+    newStreet, stepPhase, stepDay, throwParty, introduce, rumour, plantGarden, rename, setLeanings, cleanLeanings,
+    feedText, stats, relationsOf, validateWorld, occupants, nameOf,
+  };
+})();
+if (typeof module !== 'undefined' && module.exports) module.exports = HL;
+// LOGIC-END
+
+(function () {
+  'use strict';
+  const qs = new URLSearchParams(location.search);
+  const PREVIEW = qs.has('preview') && qs.get('preview') !== '0';
+  if (PREVIEW) { document.documentElement.classList.add('preview'); document.body.classList.add('preview'); }
+  const $ = id => document.getElementById(id);
+  const REDUCED = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const STORE_KEY = 'hearsay-lane.street.v1', MUTE_KEY = 'hearsay-lane.mute';
+  function sget(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function sset(k, v) { if (PREVIEW) return false; try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+
+  const PHASE_SEC = 3.2;
+  const PREVIEW_SEED = 20260923;
+  const cv = $('cv'), ctx = cv.getContext('2d');
+  let W = null, L = null, cw = 0, ch = 0, dpr = 1;
+  const ui = { speed: 1, lastSpeed: 1, title: !PREVIEW, sheet: null, sel: null, phaseT: 0, simT: 0, flashes: {}, bubbles: [],
+    picks: [], host: null, muted: false, confirmNew: false, groups: {} };
+  const anim = {};
+
+  // ---------------- sound (Web Audio, only after the first input, never in preview)
+  let AC = null, master = null;
+  function audioInit() {
+    if (AC || PREVIEW) return;
+    try { AC = new (window.AudioContext || window.webkitAudioContext)(); master = AC.createGain(); master.gain.value = 0.45; master.connect(AC.destination); }
+    catch (e) { AC = null; }
+  }
+  function tone(f, d, type, v, delay, slide) {
+    if (!AC || ui.muted) return;
+    const t = AC.currentTime + (delay || 0);
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v || 0.15, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + d + 0.05);
+  }
+  function whoosh(d, v) {
+    if (!AC || ui.muted) return;
+    const t = AC.currentTime, n = Math.floor(AC.sampleRate * d), buf = AC.createBuffer(1, n, AC.sampleRate), data = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+    const s = AC.createBufferSource(); s.buffer = buf;
+    const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 3; f.frequency.setValueAtTime(400, t); f.frequency.exponentialRampToValueAtTime(2400, t + d);
+    const g = AC.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + d * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + d + 0.05);
+  }
+  const SFX = {
+    friends() { tone(660, 0.14, 'triangle', 0.16); tone(880, 0.2, 'triangle', 0.16, 0.09); },
+    best() { tone(660, 0.12, 'triangle', 0.15); tone(880, 0.12, 'triangle', 0.15, 0.08); tone(1175, 0.25, 'triangle', 0.15, 0.16); },
+    rivals() { tone(220, 0.22, 'square', 0.06, 0, 0.8); tone(185, 0.28, 'square', 0.05, 0.12, 0.8); },
+    romance() { tone(1047, 0.18, 'sine', 0.12); tone(1319, 0.22, 'sine', 0.12, 0.07); tone(1568, 0.3, 'sine', 0.1, 0.14); },
+    wedding() { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, 0.45, 'triangle', 0.13, i * 0.13)); },
+    exes() { tone(494, 0.2, 'sine', 0.12); tone(392, 0.32, 'sine', 0.12, 0.13); },
+    party() { whoosh(0.18, 0.12); [392, 494, 587, 784].forEach((f, i) => tone(f, 0.18, 'square', 0.05, 0.05 + i * 0.06)); },
+    rumour() { whoosh(0.45, 0.1); tone(740, 0.12, 'sine', 0.08, 0.3); },
+    backfire() { whoosh(0.3, 0.1); tone(300, 0.3, 'sawtooth', 0.05, 0.1, 0.6); },
+    garden() { [523, 587, 659, 784, 880].forEach((f, i) => tone(f, 0.16, 'sine', 0.12, i * 0.07)); },
+    tap() { tone(880, 0.06, 'sine', 0.06); },
+    newbie() { tone(784, 0.12, 'triangle', 0.12); tone(988, 0.18, 'triangle', 0.12, 0.1); },
+  };
+  function sfxFor(events) {
+    const order = [['married', 'wedding'], ['dating', 'romance'], ['exes', 'exes'], ['best friends', 'best'], ['crush', 'romance'],
+      ['rivals', 'rivals'], ['friends', 'friends']];
+    for (const [st, s] of order) if (events.some(e => e.st === st)) return s;
+    if (events.some(e => e.k === 'new')) return 'newbie';
+    return null;
+  }
+  function play(name) { if (name && SFX[name]) SFX[name](); }
+
+  // ---------------- layout: one along/across frame for landscape and portrait
+  const PARK_END = 0.2, SHOP_START = 0.865;
+  function computeLayout() {
+    const land = cw >= ch;
+    const A = land ? cw : ch, X = land ? ch : cw, half = X / 2;
+    const P = (a, c) => (land ? { x: a, y: c } : { x: c, y: a });
+    const rw = Math.max(9, Math.min(28, X * 0.065));
+    const n = W.houses.length, nTop = Math.ceil(n / 2), nBot = n - nTop;
+    const a0 = A * PARK_END + 6, a1 = A * SHOP_START - 4;
+    const room = half - rw - 6;
+    const slotTop = (a1 - a0) / nTop, slotBot = (a1 - a0) / Math.max(1, nBot);
+    const s = Math.max(22, Math.min(118, Math.min(Math.min(slotTop, slotBot) * 0.66, room * 0.56)));
+    const yard = Math.max(8, Math.min(s * 0.5, room - s - 4));
+    const pr = Math.max(4.2, Math.min(11, s * 0.125, yard * 0.3));
+    ui.showNames = !PREVIEW && pr >= 5.5;
+    const houses = W.houses.map((h, i) => {
+      const top = i < nTop, k = top ? i : i - nTop, slot = top ? slotTop : slotBot, side = top ? -1 : 1;
+      const ac = a0 + (k + 0.5) * slot;
+      const off = rw + 6 + yard + s / 2;
+      return { a: ac, c: half + side * off, side, s, yardA: ac, yardC: half + side * (rw + 5 + yard * 0.5), doorC: half + side * (rw + 6 + yard) };
+    });
+    const parkA = A * PARK_END;
+    return {
+      land, A, X, half, P, rw, s, yard, pr, houses, parkA,
+      spots: {
+        park: { a: parkA * 0.52, c: half + X * 0.02 },
+        garden: { a: parkA * 0.5, c: half + X * 0.2 },
+        shop: { a: A * (SHOP_START + 1) / 2, c: half - rw - 6 - Math.min(yard * 0.5, 14) },
+      },
+      shop: { a: A * (SHOP_START + 1) / 2, c: half - rw - 6 - Math.min(yard, 28) - s * 0.42, w: A * (1 - SHOP_START) - 10, h: s * 0.8 },
+    };
+  }
+  function spotAC(loc) {
+    if (loc && loc[0] === 'h') { const h = L.houses[+loc.slice(1)]; if (h) return { a: h.yardA, c: h.yardC }; }
+    return L.spots[loc] || L.spots.park;
+  }
+  function targetFor(id) {
+    const loc = W.loc[id] || 'park';
+    const g = ui.groups[loc] || [id];
+    const k = Math.max(0, g.indexOf(id)), n = g.length;
+    const base = spotAC(loc);
+    const pr = L.pr;
+    let da = 0, dc = 0;
+    if (n > 1) {
+      if (loc[0] === 'h') { // a neat line along the front yard, two rows if crowded
+        const gap = pr * (ui.showNames ? 3.4 : 2.3);
+        const perRow = Math.max(2, Math.floor(L.s * 1.15 / gap));
+        const row = Math.floor(k / perRow), col = k % perRow, inRow = Math.min(perRow, n - row * perRow);
+        da = (col - (inRow - 1) / 2) * gap;
+        dc = row * pr * 2.4 * (base.c < L.half ? -1 : 1) * -1;
+      } else { const ang = k * 2.39996, rad = pr * (ui.showNames ? 3.1 : 2.25) * Math.sqrt(k); da = Math.cos(ang) * rad; dc = Math.sin(ang) * rad * 0.8; }
+    }
+    return { a: base.a + da, c: base.c + dc };
+  }
+  const toXY = p => L.P(p.a, p.c);
+  function roadPoint(p, id) {
+    const lane = ((id % 5) - 2) * L.pr * 0.5;
+    return { a: Math.max(L.parkA + 4, Math.min(L.A - 4, p.a)), c: L.half + lane };
+  }
+  function planPath(id, snap) {
+    const an = anim[id] || (anim[id] = { a: 0, c: 0, path: [], loc: null, walk: 0 });
+    const T = targetFor(id);
+    an.loc = W.loc[id]; an.tgt = T;
+    if (snap) { an.a = T.a; an.c = T.c; an.path = []; return; }
+    const cur = { a: an.a, c: an.c };
+    const far = Math.abs(T.a - cur.a) > L.s * 0.8 || (Math.sign(T.c - L.half) !== Math.sign(cur.c - L.half) && Math.abs(T.c - cur.c) > L.rw * 2);
+    an.path = far ? [roadPoint(cur, id), roadPoint(T, id), T] : [T];
+    if (T.a < L.parkA && far) an.path.splice(2, 0, { a: L.parkA - 2, c: L.half }); // walk off the road into the park
+    if (cur.a < L.parkA && far) an.path.splice(0, 0, { a: L.parkA - 2, c: L.half });
+  }
+  function refreshGroups() {
+    const g = {};
+    for (const p of W.people) { const l = W.loc[p.id] || 'h' + p.house; (g[l] = g[l] || []).push(p.id); }
+    for (const l in g) g[l].sort((x, y) => x - y);
+    ui.groups = g;
+  }
+  function replanAll(snap) { refreshGroups(); for (const p of W.people) planPath(p.id, snap); }
+  function updateAnim(dt, pace) {
+    const walk = L.A * 0.42 * pace * dt;
+    for (const p of W.people) {
+      const an = anim[p.id];
+      if (!an) { planPath(p.id, true); continue; }
+      if (an.loc !== W.loc[p.id]) planPath(p.id, false);
+      let budget = walk;
+      an.moving = false;
+      while (budget > 0 && an.path.length) {
+        const t = an.path[0], da = t.a - an.a, dc = t.c - an.c, d = Math.hypot(da, dc);
+        if (d <= budget) { an.a = t.a; an.c = t.c; an.path.shift(); budget -= d; }
+        else { an.a += da / d * budget; an.c += dc / d * budget; budget = 0; an.moving = true; }
+      }
+      if (an.path.length) an.moving = true;
+      an.walk += an.moving ? dt * pace : 0;
+    }
+  }
+  function posOf(id) { const an = anim[id]; return an ? L.P(an.a, an.c) : { x: -99, y: -99 }; }
+
+  // ---------------- drawing
+  function shade(hex, k) {
+    const n = parseInt(hex.slice(1), 16);
+    let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    if (k >= 0) { r += (255 - r) * k; g += (255 - g) * k; b += (255 - b) * k; } else { r *= 1 + k; g *= 1 + k; b *= 1 + k; }
+    return 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
+  }
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+  function circle(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); }
+  function rectAC(a, c, wa, wc) { const p = L.P(a, c), q = L.P(a + wa, c + wc); return { x: Math.min(p.x, q.x), y: Math.min(p.y, q.y), w: Math.abs(q.x - p.x), h: Math.abs(q.y - p.y) }; }
+  function hash(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+  function label(text, x, y, size, bg) {
+    ctx.font = '800 ' + size + 'px ui-rounded, "Segoe UI", system-ui, sans-serif';
+    const tw = ctx.measureText(text).width;
+    if (bg) { ctx.fillStyle = bg; rr(x - tw / 2 - 5, y - size * 0.72, tw + 10, size * 1.45, size * 0.7); ctx.fill(); }
+    ctx.fillStyle = '#1A1540'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y + 0.5);
+  }
+
+  function drawGround(t) {
+    ctx.fillStyle = '#EAF6C8'; ctx.fillRect(0, 0, cw, ch);
+    // soft grass tufts
+    ctx.fillStyle = 'rgba(126,208,75,.22)';
+    for (let i = 0; i < 70; i++) { const x = hash(i) * cw, y = hash(i + 99) * ch; circle(x, y, 2 + hash(i + 7) * 3); ctx.fill(); }
+    // park
+    const pk = rectAC(0, 0, L.parkA, L.X);
+    ctx.fillStyle = '#C6F432'; ctx.fillRect(pk.x, pk.y, pk.w, pk.h);
+    ctx.fillStyle = 'rgba(255,255,255,.18)';
+    for (let i = 0; i < 8; i++) { const p = L.P(L.parkA * hash(i + 3), L.X * hash(i + 40)); circle(p.x, p.y, L.s * 0.25); ctx.fill(); }
+    const pond = L.P(L.parkA * 0.42, L.X * 0.2);
+    ctx.fillStyle = '#22D3C5'; ctx.beginPath(); ctx.ellipse(pond.x, pond.y, L.parkA * (L.land ? 0.28 : 0.2) * (L.land ? 1 : 1.9), L.X * 0.08, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.stroke();
+    // ducks bobbing
+    for (let i = 0; i < 2; i++) {
+      const d = L.P(L.parkA * (0.34 + i * 0.14) + Math.sin(t * 0.5 + i) * 4, L.X * 0.2 + Math.cos(t * 0.7 + i * 2) * 3);
+      ctx.fillStyle = '#FFE066'; circle(d.x, d.y, Math.max(2.5, L.pr * 0.45)); ctx.fill();
+    }
+    // trees
+    for (let i = 0; i < 6; i++) {
+      const a = L.parkA * (0.12 + 0.76 * hash(i + 11)), c = L.X * (i % 2 ? 0.08 + 0.12 * hash(i + 5) : 0.8 + 0.14 * hash(i + 6));
+      const p = L.P(a, c), r = Math.max(7, L.s * 0.2);
+      ctx.fillStyle = 'rgba(26,21,64,.15)'; circle(p.x + r * 0.25, p.y + r * 0.3, r); ctx.fill();
+      ctx.fillStyle = '#5DBB3F'; circle(p.x, p.y, r); ctx.fill();
+      ctx.fillStyle = '#7ED04B'; circle(p.x - r * 0.25, p.y - r * 0.25, r * 0.6); ctx.fill();
+    }
+    if (W.garden) drawGarden(t);
+    const pl = L.land ? L.P(L.parkA * 0.5, L.X * 0.05) : L.P(L.parkA * 0.12, L.X * 0.5);
+    label('Park', pl.x, pl.y + (L.land ? 4 : 0), 11, 'rgba(247,244,255,.85)');
+    // road and pavements
+    const pv = rectAC(L.parkA, L.half - L.rw - 5, L.A - L.parkA, (L.rw + 5) * 2);
+    ctx.fillStyle = '#F7F4FF'; ctx.fillRect(pv.x, pv.y, pv.w, pv.h);
+    const rd = rectAC(L.parkA, L.half - L.rw, L.A - L.parkA, L.rw * 2);
+    ctx.fillStyle = '#4A4475'; ctx.fillRect(rd.x, rd.y, rd.w, rd.h);
+    ctx.strokeStyle = '#FFE066'; ctx.lineWidth = Math.max(1.5, L.rw * 0.12); ctx.setLineDash([L.rw * 0.9, L.rw * 0.8]);
+    ctx.beginPath(); const r0 = L.P(L.parkA + 4, L.half), r1 = L.P(L.A, L.half); ctx.moveTo(r0.x, r0.y); ctx.lineTo(r1.x, r1.y); ctx.stroke(); ctx.setLineDash([]);
+    // shop
+    const sh = L.shop, sr = rectAC(sh.a - sh.w / 2, sh.c - sh.h / 2, sh.w, sh.h);
+    ctx.fillStyle = 'rgba(26,21,64,.15)'; rr(sr.x + 4, sr.y + 4, sr.w, sr.h, 6); ctx.fill();
+    ctx.fillStyle = '#FFD7A8'; rr(sr.x, sr.y, sr.w, sr.h, 6); ctx.fill();
+    ctx.strokeStyle = '#1A1540'; ctx.lineWidth = 2; ctx.stroke();
+    // striped awning on the road side
+    const aw = rectAC(sh.a - sh.w / 2, sh.c + sh.h / 2 - Math.min(10, sh.h * 0.25), sh.w, Math.min(10, sh.h * 0.25));
+    const stripes = 6;
+    for (let i = 0; i < stripes; i++) {
+      ctx.fillStyle = i % 2 ? '#F7F4FF' : '#FF4F6D';
+      if (L.land) ctx.fillRect(aw.x + aw.w * i / stripes, aw.y, aw.w / stripes + 0.5, aw.h);
+      else ctx.fillRect(aw.x, aw.y + aw.h * i / stripes, aw.w, aw.h / stripes + 0.5);
+    }
+    const sc = L.P(sh.a, sh.c - (L.land ? 2 : 0));
+    label('Shop', sc.x, sc.y, Math.max(9, Math.min(13, L.s * 0.16)), null);
+    // a bench and flower tubs across the road from the shop
+    const bn = L.P(sh.a, L.half + L.rw + 12);
+    ctx.fillStyle = '#FF8A3D'; circle(bn.x - 12, bn.y, 5); ctx.fill(); circle(bn.x + 12, bn.y, 5); ctx.fill();
+    ctx.fillStyle = '#FF7AC8'; circle(bn.x - 12, bn.y, 2.2); ctx.fill(); circle(bn.x + 12, bn.y, 2.2); ctx.fill();
+  }
+  function drawGarden(t) {
+    const g = L.spots.garden, bw = L.parkA * 0.62, bh = L.X * 0.14;
+    const r = rectAC(g.a - bw / 2, g.c + L.pr * 1.6, bw, bh);
+    ctx.fillStyle = '#B98356'; rr(r.x, r.y, r.w, r.h, 5); ctx.fill();
+    ctx.strokeStyle = '#7a5134'; ctx.lineWidth = 1.5; ctx.stroke();
+    const cols = ['#FF4F6D', '#FFE066', '#FF7AC8', '#B45CF0', '#FF8A3D'];
+    for (let i = 0; i < 18; i++) {
+      const x = r.x + 5 + (r.w - 10) * ((i % 6) + 0.5) / 6, y = r.y + 4 + (r.h - 8) * (Math.floor(i / 6) + 0.5) / 3;
+      const grow = Math.min(1, 0.4 + (W.day - (W.gardenDay || 0)) * 0.15);
+      ctx.fillStyle = '#3FAE3A'; circle(x, y, 3.2 * grow); ctx.fill();
+      if (grow > 0.7) { ctx.fillStyle = cols[i % cols.length]; circle(x + 1, y - 1, 1.8 + Math.sin(t * 2 + i) * 0.3); ctx.fill(); }
+    }
+    const lp = L.P(g.a, g.c + L.pr * 1.6 + bh + 9);
+    label('Garden', lp.x, lp.y, 10, 'rgba(247,244,255,.85)');
+  }
+  function drawHouse(i, t) {
+    const H = L.houses[i], col = W.houses[i].col, s = H.s;
+    const c = L.P(H.a, H.c), x = c.x - s / 2, y = c.y - s / 2;
+    // path to the road
+    const d0 = L.P(H.a, H.doorC), d1 = L.P(H.a, L.half + H.side * (L.rw + 5));
+    ctx.strokeStyle = '#F7F4FF'; ctx.lineWidth = Math.max(4, s * 0.12); ctx.beginPath(); ctx.moveTo(d0.x, d0.y); ctx.lineTo(d1.x, d1.y); ctx.stroke();
+    ctx.fillStyle = 'rgba(26,21,64,.16)'; rr(x + 5, y + 6, s, s, 6); ctx.fill();
+    // hip roof, four shaded faces
+    const cx = c.x, cy = c.y, faces = [[x, y, x + s, y, 0.35], [x + s, y, x + s, y + s, -0.12], [x + s, y + s, x, y + s, -0.25], [x, y + s, x, y, 0.18]];
+    for (const [x0, y0, x1, y1, k] of faces) { ctx.fillStyle = shade(col, k); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(cx, cy); ctx.closePath(); ctx.fill(); }
+    ctx.strokeStyle = '#1A1540'; ctx.lineWidth = 2; rr(x, y, s, s, 5); ctx.stroke();
+    ctx.strokeStyle = 'rgba(26,21,64,.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + 2, y + 2); ctx.lineTo(x + s - 2, y + s - 2); ctx.moveTo(x + s - 2, y + 2); ctx.lineTo(x + 2, y + s - 2); ctx.stroke();
+    // chimney
+    ctx.fillStyle = '#FF8A3D'; ctx.fillRect(x + s * 0.68, y + s * 0.14, s * 0.12, s * 0.12); ctx.strokeStyle = '#1A1540'; ctx.lineWidth = 1.2; ctx.strokeRect(x + s * 0.68, y + s * 0.14, s * 0.12, s * 0.12);
+    // door on the road side
+    const dp = L.P(H.a, H.doorC - H.side * 2), dw = Math.max(6, s * 0.18), dh = Math.max(4, s * 0.08);
+    ctx.fillStyle = '#1A1540';
+    if (L.land) ctx.fillRect(dp.x - dw / 2, dp.y - dh / 2, dw, dh); else ctx.fillRect(dp.x - dh / 2, dp.y - dw / 2, dh, dw);
+    // number badge
+    const occ = ui.occ[i] || 0;
+    label((L.s > 40 ? 'No. ' : '') + (i + 1), cx, cy, Math.max(9, Math.min(13, s * 0.15)), occ ? 'rgba(247,244,255,.92)' : 'rgba(247,244,255,.6)');
+    if (!occ) { const q = L.P(H.a, H.c + H.side * s * 0.3); label('empty', q.x, q.y, 9, 'rgba(255,224,102,.9)'); }
+    if (W.partyAt && W.partyAt.house === i) drawBunting(H, t);
+  }
+  function drawBunting(H, t) {
+    const s = H.s, p0 = L.P(H.a - s * 0.55, H.yardC), p1 = L.P(H.a + s * 0.55, H.yardC);
+    const cols = ['#FF4F6D', '#FFE066', '#22D3C5', '#FF7AC8', '#B45CF0'];
+    const n = 7;
+    ctx.strokeStyle = '#1A1540'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    for (let k = 0; k < n; k++) {
+      const u = (k + 0.5) / n, x = p0.x + (p1.x - p0.x) * u, y = p0.y + (p1.y - p0.y) * u, z = Math.max(3, s * 0.06);
+      ctx.fillStyle = cols[k % cols.length]; ctx.beginPath(); ctx.moveTo(x - z, y); ctx.lineTo(x + z, y); ctx.lineTo(x, y + z * 1.6); ctx.closePath(); ctx.fill();
+    }
+    for (let k = 0; k < 2; k++) {
+      const b = L.P(H.a + (k ? 1 : -1) * s * 0.62, H.yardC + Math.sin(t * 2 + k) * 2);
+      ctx.strokeStyle = 'rgba(26,21,64,.5)'; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x, b.y - s * 0.25); ctx.stroke();
+      ctx.fillStyle = k ? '#FF7AC8' : '#22D3C5'; ctx.beginPath(); ctx.ellipse(b.x, b.y - s * 0.3, s * 0.07, s * 0.09, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  function lineStyle(rel) {
+    const st = rel.st;
+    if (st === 'friends' || st === 'best friends') return { col: '63,174,58', w: 1 + Math.max(0, rel.f - 18) / 82 * 5 + (st === 'best friends' ? 1 : 0) };
+    if (st === 'rivals') return { col: '255,79,109', w: 1 + Math.max(0, -rel.f - 15) / 85 * 5 };
+    if (st === 'crush' || st === 'dating' || st === 'married') return { col: '255,122,200', w: 1.5 + rel.r / 100 * 4.5 + (st === 'married' ? 1 : 0) };
+    return null;
+  }
+  function drawLines() {
+    const sel = ui.sel;
+    ctx.lineCap = 'round';
+    for (const k in W.rels) {
+      const rel = W.rels[k], ls = lineStyle(rel);
+      if (!ls) continue;
+      const i = k.indexOf('-'), a = +k.slice(0, i), b = +k.slice(i + 1);
+      const pa = posOf(a), pb = posOf(b);
+      const fl = ui.flashes[k] != null ? Math.max(0, 1 - (ui.simT - ui.flashes[k]) / 2.2) : 0;
+      let alpha = 0.42 + fl * 0.58;
+      if (sel != null) alpha = (a === sel || b === sel) ? 0.95 : 0.08;
+      const wd = ls.w * (L.pr / 8 + 0.35) + fl * 2.5;
+      if (fl > 0 || (sel != null && (a === sel || b === sel))) {
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.7 * Math.max(fl, sel != null ? 0.6 : 0)) + ')'; ctx.lineWidth = wd + 4;
+        ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(' + ls.col + ',' + alpha + ')'; ctx.lineWidth = wd;
+      if (rel.st === 'crush') ctx.setLineDash([wd * 1.5, wd * 1.8]);
+      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  function drawPerson(p, t) {
+    const an = anim[p.id]; if (!an) return;
+    const q = L.P(an.a, an.c), r = L.pr, x = q.x;
+    const bob = REDUCED ? 0 : an.moving ? Math.abs(Math.sin(an.walk * 9 + p.id)) * r * 0.3 : Math.sin(t * 2 + p.id) * r * 0.05;
+    const y = q.y - bob;
+    ctx.fillStyle = 'rgba(26,21,64,.18)'; ctx.beginPath(); ctx.ellipse(x, q.y + r * 0.95, r * 0.85, r * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+    if (ui.sel === p.id) { ctx.strokeStyle = '#FFE066'; ctx.lineWidth = 3.5; circle(x, y, r * 1.75); ctx.stroke(); ctx.strokeStyle = '#1A1540'; ctx.lineWidth = 1.2; circle(x, y, r * 1.75 + 2.2); ctx.stroke(); }
+    if (ui.sheet && ui.picks.indexOf(p.id) >= 0) { ctx.strokeStyle = '#FF4F6D'; ctx.lineWidth = 3; circle(x, y, r * 1.7); ctx.stroke(); }
+    // body
+    ctx.fillStyle = p.look.shirt; ctx.strokeStyle = '#1A1540'; ctx.lineWidth = Math.max(1, r * 0.14);
+    ctx.beginPath(); ctx.ellipse(x, y + r * 0.42, r * 0.82, r * 0.66, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // head
+    const hx = x, hy = y - r * 0.42, hr = r * 0.64;
+    ctx.fillStyle = p.look.skin; circle(hx, hy, hr); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = p.look.hair;
+    const hs = p.look.hs;
+    if (hs === 1) { circle(hx, hy - hr * 1.05, hr * 0.42); ctx.fill(); }
+    if (hs === 2) { for (let k = 0; k < 5; k++) { const ang = Math.PI * (1.05 + k * 0.225); circle(hx + Math.cos(ang) * hr * 0.9, hy + Math.sin(ang) * hr * 0.9, hr * 0.38); ctx.fill(); } }
+    if (hs === 3) { ctx.fillRect(hx - hr * 1.02, hy - hr * 0.2, hr * 0.38, hr * 1.25); ctx.fillRect(hx + hr * 0.64, hy - hr * 0.2, hr * 0.38, hr * 1.25); }
+    ctx.beginPath(); ctx.arc(hx, hy, hr * 1.02, Math.PI * (hs === 4 ? 1.15 : 1.0), Math.PI * (hs === 4 ? 1.85 : 2.0)); ctx.closePath(); ctx.fill();
+    if (hs !== 4) { ctx.beginPath(); ctx.ellipse(hx - hr * 0.25, hy - hr * 0.45, hr * 0.55, hr * 0.28, -0.3, 0, Math.PI * 2); ctx.fill(); }
+    // face
+    ctx.fillStyle = '#1A1540';
+    circle(hx - hr * 0.33, hy + hr * 0.12, Math.max(0.9, hr * 0.12)); ctx.fill();
+    circle(hx + hr * 0.33, hy + hr * 0.12, Math.max(0.9, hr * 0.12)); ctx.fill();
+    ctx.strokeStyle = '#1A1540'; ctx.lineWidth = Math.max(0.8, hr * 0.1); ctx.beginPath(); ctx.arc(hx, hy + hr * 0.3, hr * 0.28, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,122,200,.45)'; circle(hx - hr * 0.55, hy + hr * 0.4, hr * 0.16); ctx.fill(); circle(hx + hr * 0.55, hy + hr * 0.4, hr * 0.16); ctx.fill();
+    if (ui.showNames && (!an.moving || ui.sel === p.id)) {
+      const big = ui.sel === p.id;
+      ctx.font = (big ? '800 ' : '700 ') + (big ? 12 : 10) + 'px ui-rounded, "Segoe UI", system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(247,244,255,.9)'; ctx.strokeText(p.name, x, q.y + r * 1.15);
+      ctx.fillStyle = '#1A1540'; ctx.fillText(p.name, x, q.y + r * 1.15);
+    }
+  }
+  function drawIcon(kind, x, y, s, alpha) {
+    ctx.globalAlpha = alpha;
+    if (kind === 'heart' || kind === 'broken') {
+      ctx.fillStyle = kind === 'heart' ? '#FF4F6D' : '#B9A8FF';
+      ctx.beginPath(); ctx.moveTo(x, y + s * 0.35);
+      ctx.bezierCurveTo(x - s * 1.1, y - s * 0.4, x - s * 0.4, y - s * 1.0, x, y - s * 0.4);
+      ctx.bezierCurveTo(x + s * 0.4, y - s * 1.0, x + s * 1.1, y - s * 0.4, x, y + s * 0.35); ctx.fill();
+      if (kind === 'broken') { ctx.strokeStyle = '#F7F4FF'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y - s * 0.4); ctx.lineTo(x - s * 0.15, y - s * 0.05); ctx.lineTo(x + s * 0.1, y + s * 0.1); ctx.stroke(); }
+    } else if (kind === 'star') {
+      ctx.fillStyle = '#FFE066'; ctx.strokeStyle = '#3FAE3A'; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let k = 0; k < 10; k++) { const ang = -Math.PI / 2 + k * Math.PI / 5, rad = k % 2 ? s * 0.4 : s; ctx.lineTo(x + Math.cos(ang) * rad, y + Math.sin(ang) * rad); }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (kind === 'cloud') {
+      ctx.fillStyle = '#6E6890';
+      circle(x - s * 0.45, y, s * 0.45); ctx.fill(); circle(x + s * 0.45, y, s * 0.45); ctx.fill(); circle(x, y - s * 0.3, s * 0.55); ctx.fill();
+      ctx.strokeStyle = '#FFE066'; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(x, y + s * 0.3); ctx.lineTo(x - s * 0.2, y + s * 0.7); ctx.lineTo(x + s * 0.1, y + s * 0.7); ctx.lineTo(x - s * 0.1, y + s * 1.1); ctx.stroke();
+    } else if (kind === 'dot') {
+      ctx.fillStyle = '#3FAE3A'; circle(x, y, s * 0.35); ctx.fill();
+    } else if (kind === 'zap') {
+      ctx.fillStyle = '#FF4F6D'; circle(x, y, s * 0.35); ctx.fill();
+    } else if (kind === 'note') {
+      ctx.fillStyle = '#B45CF0'; circle(x - s * 0.2, y + s * 0.3, s * 0.28); ctx.fill(); ctx.fillRect(x - s * 0.02, y - s * 0.6, s * 0.14, s * 0.9);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawBubbles(dt) {
+    const keep = [];
+    for (const b of ui.bubbles) {
+      b.t += dt;
+      if (b.t > b.life) continue;
+      keep.push(b);
+      const u = b.t / b.life, p = posOf(b.a), q = b.b != null ? posOf(b.b) : p;
+      const x = (p.x + q.x) / 2, y = (p.y + q.y) / 2 - L.pr * 2.2 - (REDUCED ? 0 : u * L.pr * 2.5);
+      const pop = Math.min(1, b.t * 6);
+      drawIcon(b.kind, x, y, (b.big ? 1.25 : 0.8) * Math.max(6, L.pr * 1.1) * pop, u > 0.7 ? (1 - u) / 0.3 : 1);
+    }
+    ui.bubbles = keep;
+  }
+  function drawSky() {
+    const ph = W.phase, f = Math.min(1, ui.phaseT / PHASE_SEC);
+    if (ph === 2) {
+      ctx.fillStyle = 'rgba(70,50,160,' + (0.08 + 0.12 * f) + ')'; ctx.fillRect(0, 0, cw, ch);
+      for (let k = 0; k < 5; k++) {
+        const p = L.P(L.parkA + (L.A - L.parkA) * (k + 0.5) / 5, L.half - L.rw - 3);
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, L.rw * 2.2);
+        g.addColorStop(0, 'rgba(255,224,102,' + (0.35 + 0.3 * f) + ')'); g.addColorStop(1, 'rgba(255,224,102,0)');
+        ctx.fillStyle = g; circle(p.x, p.y, L.rw * 2.2); ctx.fill();
+      }
+    } else if (ph === 0) { ctx.fillStyle = 'rgba(255,224,102,' + (0.1 * (1 - f)) + ')'; ctx.fillRect(0, 0, cw, ch); }
+  }
+  function drawPreviewFeed() {
+    const evs = W.feed.slice(-2).reverse();
+    const fs = Math.max(10, Math.min(14, ch * 0.05));
+    ctx.font = '700 ' + fs + 'px ui-rounded, "Segoe UI", system-ui, sans-serif';
+    const lines = evs.map(e => HL.feedText(W, e));
+    const bw = Math.min(cw - 16, Math.max(...lines.map(s => ctx.measureText(s).width), 60) + 30);
+    const bh = lines.length * fs * 1.45 + 10, x = 8, y = ch - bh - 8;
+    ctx.fillStyle = 'rgba(26,21,64,.84)'; rr(x, y, bw, bh, 10); ctx.fill();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    lines.forEach((s, i) => {
+      const e = evs[i];
+      ctx.fillStyle = colorOf(e) === 'c-green' ? '#C6F432' : colorOf(e) === 'c-red' ? '#FF4F6D' : colorOf(e) === 'c-pink' ? '#FF7AC8' : '#FFE066';
+      circle(x + 12, y + 5 + fs * 1.45 * (i + 0.5), 4); ctx.fill();
+      ctx.fillStyle = i ? 'rgba(247,244,255,.75)' : '#F7F4FF';
+      let txt = s; while (ctx.measureText(txt).width > bw - 32 && txt.length > 4) txt = txt.slice(0, -2);
+      if (txt !== s) txt = txt.slice(0, -1) + '…';
+      ctx.fillText(txt, x + 22, y + 5 + fs * 1.45 * (i + 0.5));
+    });
+    const dl = 'Day ' + W.day;
+    ctx.font = '800 ' + fs + 'px ui-rounded, "Segoe UI", system-ui, sans-serif';
+    const tw = ctx.measureText(dl).width;
+    ctx.fillStyle = 'rgba(26,21,64,.84)'; rr(cw - tw - 26, 8, tw + 18, fs * 1.6, 9); ctx.fill();
+    ctx.fillStyle = '#FFE066'; ctx.textAlign = 'center'; ctx.fillText(dl, cw - tw / 2 - 17, 8 + fs * 0.8);
+  }
+  let lastTs = 0;
+  function draw(t, dt) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ui.occ = W.houses.map((h, i) => HL.occupants(W, i).length);
+    drawGround(t);
+    for (let i = 0; i < W.houses.length; i++) drawHouse(i, t);
+    drawLines();
+    const order = W.people.slice().sort((p, q) => (posOf(p.id).y - posOf(q.id).y));
+    for (const p of order) drawPerson(p, t);
+    drawBubbles(dt);
+    drawSky();
+    if (PREVIEW) drawPreviewFeed();
+  }
+
+  // ---------------- HUD, feed, sheets
+  function colorOf(e) {
+    if (e.st === 'friends' || e.st === 'best friends' || e.k === 'nice') return 'c-green';
+    if (e.st === 'rivals' || e.k === 'spat' || e.k === 'backfire') return 'c-red';
+    if (e.st === 'crush' || e.st === 'dating' || e.st === 'married' || e.k === 'love' || e.k === 'rumour') return 'c-pink';
+    if (e.k === 'party' || e.k === 'new' || e.k === 'hello') return 'c-gold';
+    if (e.k === 'garden' || e.k === 'intro' || e.k === 'move') return 'c-teal';
+    return '';
+  }
+  function stColor(st) { return st === 'friends' || st === 'best friends' ? 'c-green' : st === 'rivals' ? 'c-red' : (st === 'crush' || st === 'dating' || st === 'married') ? 'c-pink' : ''; }
+  let lastFeedId = -1;
+  function renderFeed() {
+    if (PREVIEW) return;
+    const ul = $('feed');
+    const evs = W.feed.slice(-40).reverse();
+    const top = evs.length ? evs[0].id : -1;
+    ul.textContent = '';
+    for (const e of evs) {
+      const li = document.createElement('li');
+      li.className = colorOf(e) + (e.id > lastFeedId && lastFeedId >= 0 ? ' fresh' : '');
+      const d = document.createElement('span'); d.className = 'd'; d.textContent = 'D' + e.d;
+      li.appendChild(d); li.appendChild(document.createTextNode(HL.feedText(W, e)));
+      ul.appendChild(li);
+    }
+    lastFeedId = top;
+  }
+  function renderHud() {
+    if (PREVIEW) return;
+    $('clock').innerHTML = '';
+    $('clock').appendChild(document.createTextNode('Day ' + W.day));
+    const sm = document.createElement('small'); sm.textContent = HL.PHASES[W.phase]; $('clock').appendChild(sm);
+    const s = HL.stats(W);
+    const st = $('stats'); st.textContent = '';
+    for (const [k, v] of [['Friends', s.friends], ['Couples', s.couples], ['Rivals', s.rivals], ['Weddings', s.weddings]]) {
+      const sp = document.createElement('span'); const b = document.createElement('b'); b.textContent = v;
+      sp.appendChild(b); sp.appendChild(document.createTextNode(' ' + k)); st.appendChild(sp);
+    }
+    for (const b of document.querySelectorAll('.speed button')) b.setAttribute('aria-pressed', String(+b.dataset.sp === ui.speed));
+    $('paused').classList.toggle('on', ui.speed === 0 && !ui.title);
+    $('nGarden').textContent = W.garden ? 'Garden ✓' : 'Garden';
+  }
+  let toastTimer = 0;
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2400); }
+  function el(tag, props, kids) {
+    const e = document.createElement(tag);
+    if (props) for (const k in props) { if (k === 'text') e.textContent = props[k]; else if (k === 'cls') e.className = props[k]; else if (k.startsWith('on')) e.addEventListener(k.slice(2), props[k]); else e.setAttribute(k, props[k]); }
+    for (const c of kids || []) if (c) e.appendChild(c);
+    return e;
+  }
+  function chip(text, pressed, onclick, color) {
+    const b = el('button', { cls: 'chip', 'aria-pressed': String(!!pressed), onclick });
+    if (color) b.appendChild(el('span', { cls: 'sw', style: 'background:' + color }));
+    b.appendChild(document.createTextNode(text));
+    return b;
+  }
+  function openSheet(kind, arg) {
+    if (ui.title) return;
+    ui.sheet = kind;
+    if (kind !== 'inspect') ui.sel = null;
+    if (kind === 'party' || kind === 'intro' || kind === 'rumour') { ui.picks = []; ui.host = null; }
+    if (kind === 'inspect') ui.sel = arg;
+    $('sheet').classList.add('on');
+    for (const [id, k] of [['nParty', 'party'], ['nIntro', 'intro'], ['nRumour', 'rumour'], ['nGarden', 'garden'], ['nPeople', 'people']]) $(id).classList.toggle('on', kind === k);
+    renderSheet(true);
+  }
+  function closeSheet() {
+    ui.sheet = null; ui.picks = []; ui.host = null; ui.sel = null; ui.confirmNew = false;
+    $('sheet').classList.remove('on');
+    for (const id of ['nParty', 'nIntro', 'nRumour', 'nGarden', 'nPeople']) $(id).classList.remove('on');
+  }
+  function peopleSorted() { return W.people.slice().sort((a, b) => a.house - b.house || a.id - b.id); }
+  function togglePick(id, max) {
+    const i = ui.picks.indexOf(id);
+    if (i >= 0) ui.picks.splice(i, 1); else { ui.picks.push(id); if (max && ui.picks.length > max) ui.picks.shift(); }
+    play('tap'); renderSheet(false);
+  }
+  function renderSheet(focusFirst) {
+    const body = $('shBody'), title = $('shTitle');
+    const kind = ui.sheet;
+    if (!kind) return;
+    // keep the name box alive while typing
+    if (kind === 'inspect' && !focusFirst && document.activeElement === $('nm')) { renderRels(); return; }
+    body.textContent = '';
+    if (kind === 'inspect') {
+      const p = HL.person(W, ui.sel);
+      if (!p) { closeSheet(); return; }
+      title.textContent = 'Neighbour';
+      const nm = el('input', { id: 'nm', maxlength: '16', 'aria-label': 'Name', autocomplete: 'off', spellcheck: 'false' });
+      nm.value = p.name;
+      nm.addEventListener('input', () => { if (HL.rename(W, p.id, nm.value)) { renderFeed(); save(); } });
+      nm.addEventListener('change', () => { nm.value = HL.person(W, p.id).name; });
+      body.appendChild(nm);
+      const mates = HL.occupants(W, p.house).filter(q => q.id !== p.id).map(q => q.name);
+      body.appendChild(el('p', { cls: 'hint', text: 'Lives at No. ' + (p.house + 1) + (mates.length ? ' with ' + mates.join(', ') : ', on their own') + '.' }));
+      body.appendChild(el('h3', { text: 'Leanings (pick up to ' + HL.MAX_LEAN + ')' }));
+      const chips = el('div', { cls: 'chips' });
+      for (const l of HL.LEANINGS) {
+        chips.appendChild(chip(l.label, p.lean.indexOf(l.id) >= 0, () => {
+          let list = p.lean.slice();
+          const i = list.indexOf(l.id);
+          if (i >= 0) { if (list.length === 1) { toast('Everyone needs at least one leaning.'); return; } list.splice(i, 1); }
+          else {
+            if (list.length >= HL.MAX_LEAN) { toast('Up to ' + HL.MAX_LEAN + ' leanings. Tap one off first.'); return; }
+            const clash = HL.CLASHES.find(([x, y]) => (l.id === x && list.indexOf(y) >= 0) || (l.id === y && list.indexOf(x) >= 0));
+            if (clash) list = list.filter(z => z !== clash[0] && z !== clash[1]);
+            list.push(l.id);
+          }
+          HL.setLeanings(W, p.id, list); play('tap'); save(); renderSheet(false);
+        }, l.color));
+      }
+      body.appendChild(chips);
+      body.appendChild(el('h3', { text: 'Relationships' }));
+      body.appendChild(el('ul', { cls: 'rels', id: 'relList' }));
+      renderRels();
+      if (focusFirst) setTimeout(() => { const f = body.querySelector('.chip'); if (f && !isTouch) f.focus({ preventScroll: true }); }, 0);
+      return;
+    }
+    if (kind === 'people') {
+      title.textContent = 'Everyone on the lane';
+      body.appendChild(el('p', { cls: 'hint', text: 'Tap a name to see their leanings and relationships.' }));
+      let lastH = -1, wrap = null;
+      for (const p of peopleSorted()) {
+        if (p.house !== lastH) { lastH = p.house; body.appendChild(el('h3', { text: 'No. ' + (p.house + 1) })); wrap = el('div', { cls: 'chips' }); body.appendChild(wrap); }
+        wrap.appendChild(chip(p.name, false, () => openSheet('inspect', p.id), p.look.shirt));
+      }
+    } else if (kind === 'party') {
+      title.textContent = 'Throw a party';
+      if (ui.host == null) {
+        body.appendChild(el('p', { text: 'Whose house? Tap a house on the street or pick one here.' }));
+        const chips = el('div', { cls: 'chips' });
+        W.houses.forEach((h, i) => {
+          const occ = HL.occupants(W, i);
+          if (!occ.length) return;
+          chips.appendChild(chip('No. ' + (i + 1) + ' · ' + occ.map(q => q.name).join(', '), false, () => { ui.host = i; ui.picks = []; play('tap'); renderSheet(true); }, h.col));
+        });
+        body.appendChild(chips);
+      } else {
+        const hosts = HL.occupants(W, ui.host).map(q => q.id);
+        body.appendChild(el('p', { text: 'Party at No. ' + (ui.host + 1) + '. Who is invited? Tap names here or people on the street.' }));
+        const row = el('div', { cls: 'row' });
+        row.appendChild(el('button', { cls: 'chip', text: 'Invite everyone', onclick: () => { ui.picks = W.people.filter(q => hosts.indexOf(q.id) < 0).map(q => q.id); renderSheet(false); } }));
+        row.appendChild(el('button', { cls: 'chip', text: 'Clear', onclick: () => { ui.picks = []; renderSheet(false); } }));
+        row.appendChild(el('button', { cls: 'chip', text: 'Other house', onclick: () => { ui.host = null; ui.picks = []; renderSheet(true); } }));
+        body.appendChild(row);
+        const chips = el('div', { cls: 'chips' });
+        for (const p of peopleSorted()) if (hosts.indexOf(p.id) < 0) chips.appendChild(chip(p.name, ui.picks.indexOf(p.id) >= 0, () => togglePick(p.id, 0), p.look.shirt));
+        body.appendChild(chips);
+        const go = el('button', { cls: 'go', id: 'goParty', text: ui.picks.length ? 'Throw it for ' + ui.picks.length + (ui.picks.length === 1 ? ' guest' : ' guests') : 'Pick some guests' });
+        go.disabled = !ui.picks.length;
+        go.addEventListener('click', () => doNudge('party'));
+        body.appendChild(el('p', { cls: 'hint', text: 'Chatty guests liven it up. Grumpy ones might start an argument.' }));
+        body.appendChild(go);
+      }
+    } else if (kind === 'intro' || kind === 'rumour') {
+      const rum = kind === 'rumour';
+      title.textContent = rum ? 'Start a rumour' : 'Introduce two people';
+      const [a, b] = ui.picks;
+      const na = a != null ? HL.nameOf(W, a) : 'someone', nb = b != null ? HL.nameOf(W, b) : 'someone';
+      body.appendChild(el('p', { text: rum ? 'Whisper that ' + na + ' fancies ' + nb + '. If it rings true it sparks romance; if not, it backfires.' : 'Pick two people. They will meet and have a proper chat.' }));
+      const chips = el('div', { cls: 'chips' });
+      for (const p of peopleSorted()) {
+        const i = ui.picks.indexOf(p.id);
+        chips.appendChild(chip((i === 0 ? '1 · ' : i === 1 ? '2 · ' : '') + p.name, i >= 0, () => togglePick(p.id, 2), p.look.shirt));
+      }
+      body.appendChild(chips);
+      if (a != null && b != null) {
+        const rel = HL.peekRel(W, a, b);
+        body.appendChild(el('p', { cls: 'hint', text: na + ' and ' + nb + ': ' + (rel && rel.met ? rel.st : 'have never met') + '.' }));
+      }
+      const go = el('button', { cls: 'go', id: rum ? 'goRumour' : 'goIntro', text: rum ? 'Spread the rumour' : 'Introduce them' });
+      go.disabled = ui.picks.length !== 2;
+      go.addEventListener('click', () => doNudge(kind));
+      body.appendChild(go);
+    } else if (kind === 'garden') {
+      title.textContent = 'Community garden';
+      if (W.garden) body.appendChild(el('p', { text: 'The garden has been growing since day ' + W.gardenDay + '. Gardeners head there most days and get on famously.' }));
+      else {
+        body.appendChild(el('p', { text: 'Plant raised beds in the park. Gardeners will spend their days there, and everyone who visits gets a little friendlier.' }));
+        const g = HL.stats; void g;
+        const n = W.people.filter(p => p.lean.indexOf('gardener') >= 0).length;
+        body.appendChild(el('p', { cls: 'hint', text: n ? n + ' gardener' + (n > 1 ? 's' : '') + ' on the lane right now.' : 'Nobody is a gardener yet. You can give someone the leaning in their panel.' }));
+        body.appendChild(el('button', { cls: 'go', id: 'goGarden', text: 'Plant the garden', onclick: () => doNudge('garden') }));
+      }
+    } else if (kind === 'menu') {
+      title.textContent = 'Your street';
+      body.appendChild(el('p', { cls: 'hint', text: 'The street saves itself in this browser every day. Export it to keep a copy or move it to another device.' }));
+      const col = el('div', { cls: 'row' });
+      col.appendChild(el('button', { cls: 'go alt', id: 'mSave', text: 'Save now', onclick: () => { toast(save() ? 'Saved in this browser.' : 'This browser would not save. Try Export.'); } }));
+      col.appendChild(el('button', { cls: 'go alt', id: 'mExport', text: 'Export .json', onclick: exportStreet }));
+      col.appendChild(el('button', { cls: 'go alt', id: 'mImport', text: 'Import .json', onclick: () => $('fileIn').click() }));
+      body.appendChild(col);
+      body.appendChild(el('h3', { text: 'Start over' }));
+      body.appendChild(el('button', { cls: 'go', id: 'mNew', text: ui.confirmNew ? 'Tap again to replace this street' : 'New street', onclick: () => {
+        if (!ui.confirmNew) { ui.confirmNew = true; renderSheet(false); return; }
+        freshStreet(); closeSheet(); toast('A brand new street.');
+      } }));
+      body.appendChild(el('h3', { text: 'Help' }));
+      body.appendChild(el('button', { cls: 'chip', text: 'How to play', onclick: () => { closeSheet(); showTitle(); } }));
+    }
+    if (focusFirst && !isTouch) setTimeout(() => { const f = body.querySelector('button:not([disabled])'); if (f) f.focus({ preventScroll: true }); }, 0);
+  }
+  function renderRels() {
+    const ul = $('relList'); if (!ul) return;
+    ul.textContent = '';
+    const list = HL.relationsOf(W, ui.sel);
+    if (!list.length) { ul.appendChild(el('li', { text: 'Has not met anyone yet.' })); return; }
+    for (const r of list) {
+      const li = el('li', { onclick: () => openSheet('inspect', r.id) });
+      li.appendChild(el('span', { text: r.name }));
+      li.appendChild(el('span', { cls: 'st ' + stColor(r.st), text: r.st }));
+      const bar = el('span', { cls: 'bar' });
+      const i = el('i'); const f = r.f;
+      i.style.left = f >= 0 ? '50%' : (50 + f / 2) + '%'; i.style.width = Math.abs(f) / 2 + '%';
+      i.style.background = f >= 0 ? '#3FAE3A' : '#FF4F6D';
+      bar.appendChild(i);
+      if (r.r > 0) { const j = el('i'); j.style.left = '0'; j.style.width = (r.r / 2) + '%'; j.style.top = '3px'; j.style.background = '#FF7AC8'; bar.appendChild(j); }
+      li.appendChild(bar);
+      ul.appendChild(li);
+    }
+  }
+  function doNudge(kind) {
+    let out = null, sfx = null, msg = '';
+    if (kind === 'party' && ui.host != null) { out = HL.throwParty(W, ui.host, ui.picks); sfx = 'party'; }
+    else if (kind === 'intro' && ui.picks.length === 2) { out = HL.introduce(W, ui.picks[0], ui.picks[1]); sfx = 'friends'; }
+    else if (kind === 'rumour' && ui.picks.length === 2) { out = HL.rumour(W, ui.picks[0], ui.picks[1]); sfx = out && out.ok ? 'rumour' : 'backfire'; msg = out && out.ok ? 'The rumour took hold.' : 'Oops, it backfired.'; }
+    else if (kind === 'garden') { out = HL.plantGarden(W); sfx = 'garden'; }
+    if (!out) return;
+    audioInit();
+    handleOut(out, true);
+    play(sfxFor(out.events) === 'wedding' ? 'wedding' : sfx);
+    closeSheet();
+    if (msg) toast(msg);
+    save();
+  }
+  function handleOut(out, big) {
+    for (const m of out.meets) {
+      ui.flashes[HL.key(m.a, m.b)] = ui.simT;
+      if (big || Math.abs(m.df) >= 4 || m.dr >= 4) {
+        const kind = m.dr >= 4 && (m.st === 'crush' || m.st === 'dating' || m.st === 'married') ? 'heart' : m.df >= 4 ? 'dot' : m.df <= -4 ? 'zap' : null;
+        if (kind && ui.bubbles.length < 40) ui.bubbles.push({ a: m.a, b: m.b, kind, t: 0, life: 1.4 });
+      }
+    }
+    for (const e of out.events) {
+      let kind = null;
+      if (e.st === 'crush' || e.st === 'dating' || e.st === 'married') kind = 'heart';
+      else if (e.st === 'friends' || e.st === 'best friends') kind = 'star';
+      else if (e.st === 'rivals' || e.k === 'backfire' || e.k === 'spat') kind = 'cloud';
+      else if (e.st === 'exes') kind = 'broken';
+      else if (e.k === 'party') kind = 'note';
+      if (kind && e.a != null) ui.bubbles.push({ a: e.a, b: e.b, kind, t: 0, life: 2.4, big: true });
+    }
+    refreshGroups();
+    if (out.events.length) { renderFeed(); }
+    renderHud();
+    if (ui.sheet === 'inspect') renderSheet(false);
+  }
+  function doStep() {
+    const day = W.day;
+    const out = HL.stepPhase(W);
+    handleOut(out, false);
+    if (!PREVIEW) play(sfxFor(out.events));
+    if (W.day !== day) save();
+    if (PREVIEW && W.day > 45) startPreviewStreet(W.seed + 1);
+  }
+
+  // ---------------- saving
+  function save() { if (PREVIEW || !W) return false; return sset(STORE_KEY, JSON.stringify(W)); }
+  function loadSaved() {
+    const s = sget(STORE_KEY);
+    if (!s) return null;
+    try { return HL.validateWorld(JSON.parse(s)); } catch (e) { return null; }
+  }
+  function exportStreet() {
+    try {
+      const blob = new Blob([JSON.stringify(W, null, 1)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'hearsay-lane-day-' + W.day + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast('Street exported.');
+    } catch (e) { toast('Export did not work in this browser.'); }
+  }
+  $('fileIn').addEventListener('change', ev => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try { setWorld(HL.validateWorld(JSON.parse(String(rd.result)))); save(); closeSheet(); toast('Street loaded: day ' + W.day + '.'); }
+      catch (e) { toast('That file is not a Hearsay Lane street.'); }
+      $('fileIn').value = '';
+    };
+    rd.readAsText(f);
+  });
+  function setWorld(w) {
+    W = w; ui.sel = null; ui.flashes = {}; ui.bubbles = []; ui.phaseT = 0;
+    for (const k in anim) delete anim[k];
+    L = computeLayout(); replanAll(true); lastFeedId = -1; renderFeed(); renderHud();
+  }
+  function freshStreet() { setWorld(HL.newStreet((Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0)); save(); }
+  function startPreviewStreet(seed) {
+    setWorld(HL.newStreet(seed));
+    for (let i = 0; i < 2; i++) HL.stepPhase(W);
+    replanAll(true);
+  }
+
+  // ---------------- speed, pause, title
+  function setSpeed(s) {
+    if (s > 0) ui.lastSpeed = s;
+    ui.speed = s; renderHud();
+  }
+  function togglePause() { setSpeed(ui.speed === 0 ? (ui.lastSpeed || 1) : 0); }
+  function showTitle() { ui.title = true; $('title').classList.remove('off'); updateTitle(); if (!isTouch) setTimeout(() => $('tStart').focus({ preventScroll: true }), 0); renderHud(); }
+  function updateTitle() { $('tStart').textContent = 'Open the street (day ' + W.day + ')'; }
+  function startGame(fresh) {
+    if (!ui.title) return;
+    audioInit();
+    if (fresh) freshStreet();
+    ui.title = false; $('title').classList.add('off');
+    if (ui.speed === 0) setSpeed(ui.lastSpeed || 1);
+    renderHud();
+  }
+  $('tStart').addEventListener('click', () => startGame(false));
+  $('tFresh').addEventListener('click', () => startGame(true));
+  for (const b of document.querySelectorAll('.speed button')) b.addEventListener('click', () => { setSpeed(+b.dataset.sp); });
+  function setMute(m, persist) { ui.muted = m; const b = $('bMute'); b.setAttribute('aria-pressed', String(m)); b.innerHTML = m ? '&#9835; off' : '&#9835; on'; if (persist) sset(MUTE_KEY, m ? '1' : '0'); }
+  $('bMute').addEventListener('click', () => { setMute(!ui.muted, true); });
+  $('bMenu').addEventListener('click', () => (ui.sheet === 'menu' ? closeSheet() : openSheet('menu')));
+  $('shClose').addEventListener('click', closeSheet);
+  const NUDGE_BTNS = [['nParty', 'party'], ['nIntro', 'intro'], ['nRumour', 'rumour'], ['nGarden', 'garden'], ['nPeople', 'people']];
+  for (const [id, k] of NUDGE_BTNS) $(id).addEventListener('click', () => (ui.sheet === k ? closeSheet() : openSheet(k)));
+
+  // ---------------- input
+  let isTouch = false;
+  addEventListener('pointerdown', e => { if (e.pointerType === 'touch') isTouch = true; audioInit(); }, true);
+  function hitPerson(x, y) {
+    let best = null, bd = Infinity;
+    for (const p of W.people) { const q = posOf(p.id), d = Math.hypot(q.x - x, q.y - y + L.pr * 0.2); if (d < bd) { bd = d; best = p; } }
+    return best && bd <= Math.max(L.pr * 1.9, isTouch ? 20 : 14) ? best : null;
+  }
+  function hitHouse(x, y) {
+    for (let i = 0; i < L.houses.length; i++) {
+      const H = L.houses[i], c = L.P(H.a, H.c), pad = 6;
+      if (Math.abs(x - c.x) <= H.s / 2 + pad && Math.abs(y - c.y) <= H.s / 2 + pad) return i;
+      const yd = L.P(H.a, H.yardC);
+      if (Math.abs(x - yd.x) <= H.s / 2 && Math.abs(y - yd.y) <= L.yard / 2) return i;
+    }
+    return -1;
+  }
+  cv.addEventListener('pointerdown', e => {
+    if (ui.title || PREVIEW) return;
+    e.preventDefault();
+    const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    const p = hitPerson(x, y);
+    const k = ui.sheet;
+    if (k === 'party' && ui.host == null) {
+      const h = p ? p.house : hitHouse(x, y);
+      if (h >= 0 && HL.occupants(W, h).length) { ui.host = h; ui.picks = []; play('tap'); renderSheet(true); }
+      return;
+    }
+    if (p && k === 'party') { if (HL.occupants(W, ui.host).every(q => q.id !== p.id)) togglePick(p.id, 0); return; }
+    if (p && (k === 'intro' || k === 'rumour')) { togglePick(p.id, 2); return; }
+    if (p) { play('tap'); openSheet('inspect', p.id); return; }
+    if (k === 'inspect') closeSheet();
+  });
+  function typing(e) { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable); }
+  function cycle(dir) {
+    const list = peopleSorted();
+    if (!list.length) return;
+    let i = list.findIndex(p => p.id === ui.sel);
+    i = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
+    openSheet('inspect', list[i].id);
+  }
+  addEventListener('keydown', e => {
+    audioInit();
+    if (PREVIEW) return;
+    if (e.key === 'Escape') { if (ui.sheet) closeSheet(); return; } // never preventDefault on Escape: the host page uses it
+    if (typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (ui.title) {
+      if (e.key === 'Enter' && document.activeElement !== $('tFresh') && document.activeElement !== $('tStart')) { e.preventDefault(); startGame(false); }
+      return;
+    }
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (k === ' ') { e.preventDefault(); togglePause(); return; }
+    if (k === '0') { setSpeed(0); return; }
+    if (k === '1' || k === '2' || k === '3') { setSpeed(+k); return; }
+    if (k === 'm') { setMute(!ui.muted, true); return; }
+    const map = { p: 'party', i: 'intro', r: 'rumour', g: 'garden', e: 'people', s: 'menu' };
+    if (map[k]) { ui.sheet === map[k] ? closeSheet() : openSheet(map[k]); return; }
+    if (k === ']') { cycle(1); return; }
+    if (k === '[') { cycle(-1); return; }
+  });
+  addEventListener('keyup', e => { if (e.key === ' ' && !typing(e) && !PREVIEW) e.preventDefault(); });
+  function autoPause() { if (PREVIEW || ui.title) return; if (ui.speed > 0) setSpeed(0); save(); }
+  addEventListener('blur', autoPause);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) autoPause(); });
+
+  // ---------------- canvas sizing
+  function resize() {
+    const r = $('stage').getBoundingClientRect();
+    const w = PREVIEW ? innerWidth : r.width, h = PREVIEW ? innerHeight : r.height;
+    dpr = Math.min(3, window.devicePixelRatio || 1);
+    cw = Math.max(50, w); ch = Math.max(50, h);
+    cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+    if (PREVIEW) { cv.style.position = 'fixed'; cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; }
+    if (W) { L = computeLayout(); replanAll(true); }
+  }
+  addEventListener('resize', resize);
+
+  // ---------------- main loop
+  function frame(ts) {
+    const t = ts / 1000, dt = Math.min(0.05, lastTs ? t - lastTs : 0.016);
+    lastTs = t;
+    const running = !ui.title && ui.speed > 0;
+    if (running) {
+      const sdt = dt * ui.speed;
+      ui.simT += sdt; ui.phaseT += sdt;
+      if (ui.phaseT >= PHASE_SEC) { ui.phaseT -= PHASE_SEC; doStep(); }
+    }
+    updateAnim(dt, running ? ui.speed : 0);
+    draw(t, dt);
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------- boot
+  if (PREVIEW) {
+    ui.speed = 3; ui.title = false;
+    resize();
+    startPreviewStreet(PREVIEW_SEED);
+  } else {
+    setMute(sget(MUTE_KEY) === '1', false);
+    resize();
+    setWorld(loadSaved() || HL.newStreet((Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0));
+    showTitle();
+  }
+  requestAnimationFrame(frame);
+
+  window.__hl = {
+    get w() { return W; }, ui, preview: PREVIEW,
+    personXY: id => posOf(id), houseXY: i => { const H = L.houses[i]; return L.P(H.a, H.c); },
+    layout: () => ({ cw, ch, land: L.land, pr: L.pr, s: L.s }),
+    canvasRect: () => cv.getBoundingClientRect(),
+  };
+})();
+</script>
+</body>
+</html>

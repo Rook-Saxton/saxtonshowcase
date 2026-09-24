@@ -1,0 +1,1356 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<!--
+  PLOT TWIST
+  builds/plot-twist/index.html
+  Built 2026-09-23. Self-contained: no dependencies, no network, opens offline from the file system.
+
+  WHAT IT IS
+  A challenge randomizer for life-simulation playthroughs. Press Deal and seven cards spin like a
+  slot machine and flip over: a starting budget band, a household setup, a house rule, a career
+  direction (a broad job family, never a specific game's career), a personality to play, a goal,
+  and a twist that lands on a set day. Lock any card to keep it while the rest re-roll. A
+  difficulty dial (cosy, spicy, chaotic) weights which entries can appear; every entry carries its
+  own difficulty tag. Press Play and the run becomes a checklist with a day counter; the twist
+  stays sealed until its day comes round. Runs save to a history, share as a short code that
+  deals the exact same run, and download as a PNG card. Every list is our own generic writing and
+  is editable on the My lists screen (add, remove, change a tag, reset to defaults). A tool, not
+  a game: no score, no lives, no pause.
+
+  CONTROLS
+  Space (or the Deal button): deal a run; pressed while the reels spin, it stops them at once.
+  1 to 7: lock or unlock a card. D: turn the difficulty dial. M: mute. Everything is also a button,
+  and the whole tool works by touch. Escape closes a dialog and is never swallowed.
+
+  HOW IT WAS CHECKED
+  The pure logic sits between LOGIC-BEGIN and LOGIC-END and was sliced out and run in node:
+  127 checks, all passing. They cover list sizes and tags, the same seed and lists always dealing
+  the same run (500 seeds), locked cards surviving 2400 chained re-rolls, every dial position
+  dealing a full run (2000 seeds each, plus lists stripped down to a single tag or one entry),
+  share codes round-tripping (1000 random codes, including locked-card groups), and edits to the
+  lists changing the version so an old code warns. Headless Chrome through Playwright, 66 checks,
+  all passing: at 1280x720 by keyboard and mouse (deal, stop the reels, locks, dial, share code,
+  PNG download, code paste, checklist, twist day, reload, list edits and the warning, export,
+  import, mute, Escape not prevented), at 390x844 by touch, with localStorage throwing, with
+  reduced motion, and ?preview=1 at 600x300 for 30 seconds (7 deals, no writes, no audio, no
+  errors). Zero page or console errors in every run.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plot Twist</title>
+<style>
+:root{--mari:#FFE066;--tom:#FF4F6D;--grass:#C6F432;--pool:#22D3C5;--grape:#B45CF0;--bub:#FF7AC8;--lav:#B9A8FF;--tang:#FF8A3D;--peri:#8C9BFF;--ink:#1A1540;--paper:#F7F4FF;--r:18px}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font:16px/1.4 ui-rounded,"Trebuchet MS","Segoe UI",system-ui,sans-serif;min-height:100vh;overflow-x:hidden;
+  background-image:radial-gradient(circle at -5% 105%,#FFE06655 0,transparent 36%),radial-gradient(circle at 105% 105%,#B9A8FF55 0,transparent 42%);background-attachment:fixed}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;touch-action:manipulation}
+svg{display:block}
+.ic{fill:none;stroke:var(--ink);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+header{display:flex;align-items:center;gap:14px;padding:10px 18px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:8px;font-weight:900;font-size:24px;letter-spacing:-.01em;margin-right:auto}
+.logo .mark{width:40px;height:40px;border-radius:12px;background:var(--grape);border:3px solid var(--ink);display:grid;place-items:center;box-shadow:0 3px 0 var(--ink);transform:rotate(-6deg)}
+.logo .mark svg{width:26px;height:26px}
+.logo .mark .ic{stroke:#fff;stroke-width:2.6}
+nav{display:flex;gap:6px}
+.tab{border:2.5px solid var(--ink);background:#fff;border-radius:99px;padding:6px 14px;font-weight:800;font-size:15px;box-shadow:0 3px 0 var(--ink)}
+.tab[aria-selected=true]{background:var(--ink);color:#fff}
+.iconbtn{width:42px;height:42px;border-radius:14px;border:2.5px solid var(--ink);background:#fff;display:grid;place-items:center;box-shadow:0 3px 0 var(--ink);padding:0}
+.iconbtn svg{width:24px;height:24px}
+.iconbtn[aria-pressed=true]{background:var(--lav)}
+button:active{transform:translateY(2px)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pool);outline-offset:2px}
+main{padding:0 18px 22px;max-width:1280px;margin:0 auto}
+.screen[hidden]{display:none}
+/* the deal bar */
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;padding:8px 0 12px;background:linear-gradient(var(--paper) 78%,#F7F4FF00)}
+.dial{display:flex;align-items:center;gap:8px}
+.knob{width:52px;height:52px;border:none;background:none;padding:0}
+.knob svg{width:52px;height:52px}
+.needle{transition:transform .35s cubic-bezier(.3,1.6,.5,1);transform-origin:26px 26px}
+.seg{display:flex;border:2.5px solid var(--ink);border-radius:99px;overflow:hidden;background:#fff;box-shadow:0 3px 0 var(--ink)}
+.seg button{border:0;background:none;padding:6px 12px;font-weight:800;font-size:14px}
+.seg button+button{border-left:2px solid var(--ink)}
+.seg button[aria-pressed=true][data-d=cosy]{background:var(--grass)}
+.seg button[aria-pressed=true][data-d=spicy]{background:var(--tang)}
+.seg button[aria-pressed=true][data-d=chaotic]{background:var(--grape);color:#fff}
+.dealbtn{margin-left:auto;border:3px solid var(--ink);background:var(--tom);color:#fff;font-weight:900;font-size:22px;border-radius:99px;padding:8px 26px 8px 22px;box-shadow:0 5px 0 var(--ink);display:flex;align-items:center;gap:10px;letter-spacing:.02em}
+.dealbtn svg{width:26px;height:26px}
+.dealbtn .ic{stroke:#fff;stroke-width:2.6}
+.dealbtn kbd{font:700 12px/1 ui-monospace,Consolas,monospace;background:#fff3;border-radius:6px;padding:4px 6px}
+.hint{font-size:13px;opacity:.75}
+/* cards */
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.card{position:relative;min-width:0}
+.cin{position:relative;height:100%;background:#fff;border:3px solid var(--ink);border-radius:var(--r);box-shadow:0 5px 0 var(--ink);padding:14px 14px 12px;display:flex;flex-direction:column;gap:8px;min-height:220px;overflow:hidden}
+.cin::before{content:"";position:absolute;left:0;right:0;top:0;height:9px;background:var(--c)}
+.card.locked .cin{background:#FFFBE5}
+.card.locked::after{content:"";position:absolute;inset:-6px;border:3px dashed var(--tom);border-radius:22px;pointer-events:none}
+.chead{display:flex;align-items:center;gap:8px;margin-top:3px}
+.ico{width:36px;height:36px;border-radius:50%;background:var(--c);border:2.5px solid var(--ink);display:grid;place-items:center;flex:none}
+.ico svg{width:20px;height:20px}
+.clab{font-weight:900;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;flex:1;min-width:0}
+.clab small{display:block;font-weight:700;letter-spacing:0;text-transform:none;opacity:.6;font-size:11px}
+.lock{width:38px;height:38px;border-radius:12px;border:2.5px solid var(--ink);background:#fff;display:grid;place-items:center;padding:0;flex:none}
+.lock svg{width:20px;height:20px}
+.lock[aria-pressed=true]{background:var(--mari)}
+.ctext{font-size:20px;font-weight:800;line-height:1.28;flex:1;overflow-wrap:anywhere}
+.cfoot{display:flex;gap:6px;flex-wrap:wrap;font-size:12px;align-items:center}
+.chip{border:2px solid var(--ink);border-radius:99px;padding:0 8px;font-weight:800;background:#fff;white-space:nowrap}
+.chip.cosy{background:var(--grass)}.chip.spicy{background:var(--tang)}.chip.chaotic{background:var(--grape);color:#fff}
+.chip.day{background:var(--lav)}.chip.off{background:#fff;border-style:dashed}
+.back{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:8px;background-color:var(--c);
+  background-image:radial-gradient(#ffffff66 2px,transparent 2.5px),radial-gradient(#1A154018 2px,transparent 2.5px);background-size:18px 18px;background-position:0 0,9px 9px}
+.back .blab{font-weight:900;font-size:12px;letter-spacing:.1em;text-transform:uppercase;background:#fff;border:2px solid var(--ink);border-radius:99px;padding:1px 10px}
+.reel{width:88%;height:2.3em;border:3px solid var(--ink);border-radius:12px;background:#fff;overflow:hidden;position:relative;font-size:16px;font-weight:800;box-shadow:inset 0 6px 6px -4px #0003,inset 0 -6px 6px -4px #0003}
+.strip{will-change:transform}
+.strip div{height:2.3em;line-height:2.3em;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.card.spin .back{display:flex}
+.card.spin .chead,.card.spin .ctext,.card.spin .cfoot{visibility:hidden}
+.spark{position:absolute;width:9px;height:9px;border-radius:50%;pointer-events:none;border:1.5px solid var(--ink);z-index:3}
+.tile{background:var(--ink);color:#fff;border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 5px 0 #0006;min-width:0}
+.tile .tl{font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:900;opacity:.75}
+.code{font:800 19px/1.2 ui-monospace,Consolas,"Courier New",monospace;letter-spacing:.04em;overflow-wrap:anywhere;user-select:all}
+.tile .note{font-size:12px;color:var(--mari)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{border:2.5px solid var(--ink);background:#fff;color:var(--ink);border-radius:12px;padding:7px 12px;font-weight:800;font-size:14.5px;box-shadow:0 3px 0 var(--ink)}
+.tile .btn{border-color:#fff;box-shadow:0 3px 0 #fff6}
+.btn.pri{background:var(--grass)}
+.btn.warn{background:var(--tom);color:#fff}
+.btn[disabled]{opacity:.45;cursor:default}
+/* panels for the other screens */
+.panel{background:#fff;border:3px solid var(--ink);border-radius:var(--r);box-shadow:0 5px 0 var(--ink);padding:16px;margin-bottom:16px}
+h2{margin:6px 0 12px;font-size:22px}
+.muted{opacity:.7;font-size:14px}
+.runhead{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.daybox{display:flex;align-items:center;gap:8px}
+.dayn{font-size:40px;font-weight:900;min-width:2.4ch;text-align:center;line-height:1}
+.daylab{font-size:12px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;opacity:.7;text-align:center}
+.ring{width:64px;height:64px}
+.checks{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.item{display:flex;gap:12px;align-items:flex-start;border:2.5px solid var(--ink);border-radius:14px;padding:10px 12px;background:#fff;position:relative;overflow:hidden}
+.item::before{content:"";position:absolute;left:0;top:0;bottom:0;width:8px;background:var(--c)}
+.item .box{flex:none;width:34px;height:34px;border-radius:10px;border:2.5px solid var(--ink);background:#fff;display:grid;place-items:center;padding:0;margin-left:6px}
+.item .box svg{width:22px;height:22px;opacity:0}
+.item.done .box{background:var(--grass)}
+.item.done .box svg{opacity:1}
+.item.done .itext{text-decoration:line-through;text-decoration-thickness:2px;opacity:.6}
+.item .il{font-size:11.5px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;opacity:.7}
+.item .itext{font-weight:800}
+.item .ih{font-size:13px;opacity:.7}
+.item.sealed .itext{filter:blur(6px);user-select:none}
+.item.due{animation:pulse 1s ease-in-out 3}
+@keyframes pulse{50%{background:#FFF3B0}}
+.hist{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.hrow{border:2.5px solid var(--ink);border-radius:14px;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center;background:#fff}
+.hrow .hc{font:700 14px ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+.hbar{height:8px;border-radius:9px;background:#eee;border:1.5px solid var(--ink);overflow:hidden;max-width:220px}
+.hbar i{display:block;height:100%;background:var(--grass)}
+.cats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.cats button{border:2.5px solid var(--ink);border-radius:99px;padding:4px 12px;font-weight:800;background:#fff;font-size:14px}
+.cats button[aria-pressed=true]{background:var(--c)}
+.addrow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.addrow input{flex:1 1 220px;min-width:0;border:2.5px solid var(--ink);border-radius:12px;padding:7px 10px;background:#fff}
+select{border:2.5px solid var(--ink);border-radius:12px;padding:6px 8px;background:#fff;font-weight:700}
+.entries{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.entries li{display:flex;gap:8px;align-items:center;border-bottom:1.5px solid #1A154022;padding:4px 0}
+.entries li span{flex:1;min-width:0;overflow-wrap:anywhere}
+.entries select{font-size:13px;padding:3px 6px}
+.x{width:32px;height:32px;border-radius:10px;border:2px solid var(--ink);background:#fff;display:grid;place-items:center;padding:0;flex:none}
+.x svg{width:16px;height:16px}
+/* dialog, toast */
+.veil{position:fixed;inset:0;background:#1A154099;display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+.veil.open{display:flex}
+.dlg{background:var(--paper);border:3px solid var(--ink);border-radius:22px;box-shadow:0 6px 0 var(--ink);padding:18px;max-width:460px;width:100%;max-height:92vh;overflow:auto}
+.dlg h3{margin:0 0 10px;font-size:20px}
+.dlg .big{font:900 24px/1.2 ui-monospace,Consolas,monospace;background:#fff;border:2.5px solid var(--ink);border-radius:12px;padding:10px;text-align:center;overflow-wrap:anywhere;user-select:all;margin-bottom:10px}
+.dlg input{width:100%;border:2.5px solid var(--ink);border-radius:12px;padding:9px 10px;font:800 18px ui-monospace,Consolas,monospace;text-transform:uppercase;margin-bottom:10px;background:#fff}
+.dlg img{width:100%;max-width:260px;display:block;margin:0 auto 12px;border:2.5px solid var(--ink);border-radius:12px}
+.msg{font-size:14px;margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#fff;border:2px dashed var(--ink)}
+.msg:empty{display:none}
+.toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,40px);opacity:0;background:var(--ink);color:#fff;padding:10px 16px;border-radius:14px;font-weight:800;z-index:60;transition:.25s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.confetti{position:fixed;inset:0;pointer-events:none;z-index:40;overflow:hidden}
+.confetti i{position:absolute;top:-12px;width:10px;height:14px;border-radius:3px;border:1.5px solid var(--ink)}
+.empty{text-align:center;padding:26px 10px}
+/* phones */
+@media (max-width:760px){
+  header{padding:8px 12px;gap:8px}
+  .logo{font-size:21px}
+  nav{order:3;width:100%}
+  .tab{flex:1;padding:6px 4px;font-size:14px;text-align:center}
+  main{padding:0 12px 18px}
+  .bar{gap:8px;flex-wrap:wrap}
+  .knob,.knob svg{width:44px;height:44px}
+  .seg button{padding:6px 9px;font-size:13px}
+  .dealbtn{font-size:19px;padding:7px 16px}
+  .dealbtn kbd,.hint{display:none}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .cin{min-height:150px;padding:12px 10px 10px;gap:6px}
+  .ctext{font-size:15px}
+  .clab{font-size:11px}
+  .ico{width:30px;height:30px}.ico svg{width:17px;height:17px}
+  .lock{width:34px;height:34px}
+  .tile{grid-column:1/-1}
+  .reel{font-size:14px}
+}
+@media (max-width:360px){.seg button{padding:5px 6px;font-size:12px}}
+/* preview: cards only, filling a 2:1 frame */
+html.preview,html.preview body{height:100%;overflow:hidden}
+.preview header,.preview .bar,.preview .tile,.preview .lock,.preview .toast,.preview .veil{display:none!important}
+.preview main{padding:1.2vw;max-width:none;height:100%}
+.preview #deal{height:100%}
+.preview .grid{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:1fr 1fr;gap:1.4vw;height:100%}
+.preview .cin{min-height:0;padding:1.6vw 1.6vw 1.2vw;gap:.8vw;border-width:2px;box-shadow:0 .7vw 0 var(--ink);border-radius:2.4vw}
+.preview .cin::before{height:1.2vw}
+.preview .ico{width:4.6vw;height:4.6vw;border-width:2px}.preview .ico svg{width:2.8vw;height:2.8vw}
+.preview .clab{font-size:1.75vw}.preview .clab small{display:none}
+.preview .ctext{font-size:2.3vw;line-height:1.22}
+.preview .cfoot{font-size:1.6vw;gap:.6vw}.preview .chip{border-width:1.5px;padding:0 1vw}
+.preview .reel{font-size:2.2vw;border-width:2px}.preview .back .blab{font-size:1.6vw}
+.preview .stamp{display:flex}
+.stamp{display:none;flex-direction:column;align-items:center;justify-content:center;gap:.6vw;border-radius:2.4vw;border:2px solid var(--ink);background:var(--ink);color:#fff;font-weight:900;text-align:center}
+.stamp b{font-size:3.4vw;letter-spacing:-.01em}.stamp span{font-size:1.9vw;padding:.2vw 1.4vw;border-radius:99px;border:1.5px solid #fff;color:var(--ink)}
+@media (max-height:220px){.preview .cfoot{display:none}.preview .ctext{font-size:2.5vw}}
+@media (prefers-reduced-motion:reduce){.needle,.toast{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span class="mark"><svg viewBox="0 0 24 24"><path class="ic" id="logoPath" d=""/></svg></span>Plot Twist</div>
+  <nav role="tablist" aria-label="Screens">
+    <button class="tab" role="tab" data-s="deal" aria-selected="true">Deal</button>
+    <button class="tab" role="tab" data-s="play" aria-selected="false">Checklist</button>
+    <button class="tab" role="tab" data-s="history" aria-selected="false">History</button>
+    <button class="tab" role="tab" data-s="lists" aria-selected="false">My lists</button>
+  </nav>
+  <button class="iconbtn" id="mute" aria-pressed="false" aria-label="Mute sound (M)" title="Mute (M)"><svg viewBox="0 0 24 24"><path class="ic" id="muteIco" d=""/></svg></button>
+</header>
+<main>
+  <section class="screen" id="deal">
+    <div class="bar">
+      <div class="dial" role="group" aria-label="Difficulty">
+        <button class="knob" id="knob" aria-label="Turn the difficulty dial (D)" title="Difficulty (D)">
+          <svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="23" fill="#fff" stroke="#1A1540" stroke-width="3"/>
+            <circle cx="12" cy="36" r="3" fill="#C6F432" stroke="#1A1540" stroke-width="1.5"/><circle cx="26" cy="8.5" r="3" fill="#FF8A3D" stroke="#1A1540" stroke-width="1.5"/><circle cx="40" cy="36" r="3" fill="#B45CF0" stroke="#1A1540" stroke-width="1.5"/>
+            <g class="needle" id="needle"><circle cx="26" cy="26" r="13" id="knobFace" fill="#FF8A3D" stroke="#1A1540" stroke-width="2.5"/><line x1="26" y1="26" x2="26" y2="15" stroke="#1A1540" stroke-width="3.5" stroke-linecap="round"/></g></svg>
+        </button>
+        <div class="seg" id="seg"><button data-d="cosy" aria-pressed="false">Cosy</button><button data-d="spicy" aria-pressed="true">Spicy</button><button data-d="chaotic" aria-pressed="false">Chaotic</button></div>
+      </div>
+      <span class="hint">1 to 7 lock a card, D turns the dial</span>
+      <button class="dealbtn" id="dealBtn"><svg viewBox="0 0 24 24"><path class="ic" id="dealIco" d=""/></svg>Deal <kbd>Space</kbd></button>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+  <section class="screen" id="play" hidden></section>
+  <section class="screen" id="history" hidden></section>
+  <section class="screen" id="lists" hidden></section>
+</main>
+<div class="veil" id="veil"><div class="dlg" id="dlg" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+<script>
+// LOGIC-BEGIN
+var PT = (function () {
+  var DIFFS = ['cosy', 'spicy', 'chaotic'];
+  var LETTER = { cosy: 'C', spicy: 'S', chaotic: 'X' };
+  var FROM_LETTER = { C: 'cosy', S: 'spicy', X: 'chaotic' };
+  // Which tags each dial position can deal, and how strongly. Weights shape the mix.
+  var WEIGHTS = { cosy: { cosy: 1 }, spicy: { cosy: 1, spicy: 2 }, chaotic: { spicy: 1, chaotic: 2 } };
+  var TWIST_DAYS = { cosy: [7, 14], spicy: [4, 10], chaotic: [2, 6] };
+  var MAXLEN = 140;
+  var CATS = [
+    { id: 'budget', label: 'Budget', hint: 'Set it up at move-in', color: '#FFE066' },
+    { id: 'household', label: 'Household', hint: 'Create them', color: '#22D3C5' },
+    { id: 'rule', label: 'House rule', hint: 'Keep it all run', color: '#FF8A3D' },
+    { id: 'career', label: 'Career', hint: 'Work in this job family', color: '#8C9BFF' },
+    { id: 'personality', label: 'Play as', hint: 'Play them this way', color: '#FF7AC8' },
+    { id: 'goal', label: 'Goal', hint: 'Reach it to finish', color: '#C6F432' },
+    { id: 'twist', label: 'Twist', hint: 'Make it happen on its day', color: '#B9A8FF' }
+  ];
+  // Our own generic lists. c = cosy, s = spicy, x = chaotic.
+  var RAW = {
+    budget: [
+      'c|Comfortable: the usual starting funds, no strings',
+      'c|Cushy: double the usual starting funds',
+      'c|Nest egg: keep a fifth of your funds saved at all times',
+      'c|Modest: spend no more than half your funds on the home',
+      'c|Starter flat: the cheapest furnished home you can find',
+      'c|Hand-me-downs: a small lot and whatever it came with',
+      'c|Steady saver: put something aside every week',
+      'c|Treat jar: one small treat a week, the rest is saved',
+      's|Shoestring: the smallest starting funds you can set',
+      's|Pocket change: never hold more than a week of bills',
+      's|Empty lot: buy bare land and build up from nothing',
+      's|Paycheque to paycheque: spend each pay before the next one',
+      's|Pay it forward: give away a tenth of every pay',
+      's|Cash in a jar: no loans, no credit, only what you hold',
+      's|Bills first: pay every bill the day it arrives',
+      's|One big splurge: half your funds on a single item',
+      's|Swap shop: every purchase must be matched by a sale',
+      'x|Flat broke: drop to zero funds right after move-in',
+      'x|In debt: start owing and pay it off before any luxury',
+      'x|Coin toss: flip a coin each week; tails means no spending',
+      'x|Tent money: no house until you can buy one outright',
+      'x|Rags to riches: zero funds, and only work earns money',
+      'x|Easy come, easy go: huge funds, all spent by day 3',
+      'x|Finders keepers: spend only what you win, find or grow',
+      'x|Downsizer: start rich, sell one thing every day until half the house is bare'
+    ],
+    household: [
+      'c|A young adult striking out alone',
+      'c|A cosy couple and their very old dog',
+      'c|Two best friends who finally moved in together',
+      'c|Newlyweds with more plants than furniture',
+      'c|A grandparent raising a teenager',
+      'c|Siblings who inherited a house together',
+      'c|Empty-nesters starting a new chapter',
+      'c|A parent and grown-up child sharing a flat',
+      's|A single parent with twins',
+      's|Three roommates who have never met',
+      's|A blended family with two kids who do not get along',
+      's|A couple expecting their first baby',
+      's|Four siblings and one bathroom',
+      's|A parent with a toddler every other week',
+      's|Two rival cooks forced to share a flat',
+      's|A teenager who moved out early with a best friend',
+      's|Grandparents minding three grandkids for the summer',
+      'x|Eight strangers in one small house',
+      'x|A single parent with triplets and a puppy',
+      'x|Two families sharing one house to save money',
+      'x|Five musicians living in their rehearsal space',
+      'x|Three generations under one leaky roof',
+      'x|A lone elder who takes in every stray that wanders by',
+      'x|A student house where nobody ever cleans'
+    ],
+    rule: [
+      'c|Only second-hand furniture',
+      'c|Dinner together at the table every evening',
+      'c|No television in the house',
+      'c|Every room gets at least one plant',
+      'c|Walk or cycle wherever you can',
+      'c|Everyone picks up a new hobby',
+      'c|Tidy the house before bed every night',
+      'c|Everyone takes a turn cooking',
+      's|No cars',
+      's|Must garden for all food',
+      's|Cook only what you grew, caught or foraged',
+      's|No buying furniture: craft or find it all',
+      's|One shared bedtime for the whole house',
+      's|Nobody may quit a job once they start it',
+      's|No phones or computers at home',
+      's|Every guest who visits must be fed',
+      's|Build no more than one room per week',
+      'x|One room plus a bathroom, forever',
+      'x|No electricity: candles and fire only',
+      'x|Everyone swaps bedrooms every week',
+      'x|Every big decision is a household vote, dice break ties',
+      'x|Nobody leaves the lot except for work',
+      'x|A party every weekend, no matter what',
+      'x|Redecorate the whole house on every birthday',
+      'x|Only one person may hold a job at a time'
+    ],
+    career: [
+      'c|Something creative',
+      'c|Helping people',
+      'c|Working with animals',
+      'c|Out in nature',
+      'c|Cooking and food',
+      'c|Teaching and books',
+      'c|Making things by hand',
+      'c|Looking after the neighbourhood',
+      's|Numbers and money',
+      's|Science and invention',
+      's|Tech and gadgets',
+      's|Fitness and sport',
+      's|Music and performance',
+      's|Law and order',
+      's|Fashion and style',
+      's|Writing and words',
+      's|Selling things',
+      's|Night work only',
+      'x|A new job family every week',
+      'x|No job: live on what you make and sell',
+      'x|Whatever the first job offer says',
+      'x|The job the youngest household member picks',
+      'x|Three part-time jobs at once',
+      'x|Work from home and never leave for it'
+    ],
+    personality: [
+      'c|Talks to the houseplants every morning',
+      'c|Bakes for the neighbours when nervous',
+      'c|Collects mugs and remembers where each one came from',
+      'c|Always first to offer a hug',
+      'c|Hums while doing chores',
+      'c|Writes down three good things every night',
+      'c|Waves at every passer-by',
+      'c|Takes up any hobby a friend mentions',
+      's|Holds a grudge over the smallest thing',
+      's|Cannot resist a dare',
+      's|Lives by a colour-coded schedule',
+      's|Tells tall tales about their past',
+      's|Treats every meal as a contest',
+      's|Refuses to admit they are lost',
+      's|Falls in love at least once a week',
+      's|Plans everything, then panics',
+      's|Sneaks dessert before dinner',
+      'x|Says yes to absolutely everything',
+      'x|Changes their mind about everything, daily',
+      'x|Believes the house is haunted and acts on it',
+      'x|Starts a new project every day and finishes none',
+      'x|Picks a new rival every week',
+      'x|Answers every problem with a party',
+      'x|Must win every argument, even with the fridge',
+      'x|Is quietly convinced they are royalty'
+    ],
+    goal: [
+      'c|Host a dinner for every neighbour on the street',
+      'c|Grow a garden big enough to share',
+      'c|Fill the house with things you made yourself',
+      'c|Throw a birthday party everyone remembers',
+      'c|Fill a bookcase with books you have read',
+      'c|Make a close friend in every age group',
+      'c|Cook one signature dish to perfection',
+      'c|Build the cosiest reading nook in town',
+      's|Own the home outright with no room unfinished',
+      's|Reach the top of your job family',
+      's|Master three different skills',
+      's|Raise a child who follows a different path from yours',
+      's|Win back the friendship of an old rival',
+      's|Turn a starter home into a dream home without moving',
+      's|Hold a wedding in the back garden',
+      's|Pay the bills with things you made and sold',
+      's|Get everyone in the house a job they love',
+      'x|Four generations under one roof',
+      'x|Befriend every single person in town',
+      'x|Rebuild the house from scratch three times',
+      'x|Retire before the first child grows up',
+      'x|Go from zero funds to the richest household in town',
+      'x|Everyone in the house masters a different skill',
+      'x|Take in as many pets as the house can hold',
+      'x|Keep everyone happy for a whole week straight'
+    ],
+    twist: [
+      'c|A long-lost sibling moves in',
+      'c|A stray cat adopts the household',
+      'c|A mystery gift turns up on the doorstep',
+      'c|Someone takes up a new hobby and practises daily',
+      'c|The garden gives a record harvest; share it around',
+      'c|An old friend visits for a whole week',
+      'c|A surprise party must be thrown by tomorrow',
+      'c|Three days of rain: indoor fun only',
+      'c|A new neighbour needs help moving in',
+      'c|An old love letter is found in a secondhand book',
+      'c|A cooking contest in the park; everyone enters',
+      'c|A pen pal arrives in person',
+      'c|The household adopts a puppy',
+      'c|Someone decides to learn an instrument',
+      'c|Movie night every night for a week',
+      'c|A kind stranger pays for your shopping; pay it forward',
+      'c|The oldest in the house wants one last adventure',
+      'c|The street bake sale needs your best recipe',
+      'c|A treasure map falls out of a library book',
+      'c|Someone gets a promotion and wants a big celebration',
+      'c|A snow day: nobody works, everyone plays',
+      'c|The neighbours start a shared garden',
+      's|The fridge breaks and cannot be replaced for three days',
+      's|A pipe bursts: one bathroom for everyone for a week',
+      's|Someone loses their job',
+      's|A relative leaves a toddler with you for a week',
+      's|A neighbour starts a feud over the fence',
+      's|A surprise pregnancy, or a surprise new housemate',
+      's|Your closest friend moves to the other side of town',
+      's|Sell the most expensive thing in the house',
+      's|A lodger moves into the spare room',
+      's|A heatwave: nobody goes out in the afternoon',
+      's|A rival moves in next door',
+      's|A secret comes out at dinner',
+      's|Someone quits their job to chase a dream',
+      's|The bike is stolen: walk everywhere from now on',
+      's|An ex turns up needing a place to stay',
+      's|Doctor\'s orders: everyone eats well for a week',
+      's|The house fails an inspection: fix everything broken today',
+      's|Open a market stall this week',
+      's|A houseguest overstays by two weeks',
+      's|A leak ruins one room until you rebuild it',
+      's|A pet goes missing for two days',
+      's|Someone falls for the new neighbour',
+      'x|A kitchen fire: rebuild the kitchen from scratch',
+      'x|Everything is sold off except the beds',
+      'x|Swap houses with the neighbours for a week',
+      'x|A second family moves in for good',
+      'x|Every job in the house is lost on the same day',
+      'x|A storm knocks out the power for a week',
+      'x|The household must move to a smaller lot',
+      'x|A long-lost twin appears and wants the house',
+      'x|Everyone swaps jobs with another household member',
+      'x|A windfall arrives, and it must all be given away today',
+      'x|The roof comes off: sleep outside until it is fixed',
+      'x|Sell all the furniture and start again from bare floors',
+      'x|A ghost story goes round town and nobody will visit',
+      'x|Triplets arrive',
+      'x|A sudden move to a new town: new house, no friends',
+      'x|Overnight fame: nobody in the house can go out unrecognised',
+      'x|The eldest hands the house over to the youngest',
+      'x|A bitter rival marries into the family',
+      'x|Every pet on the street moves in',
+      'x|Half the rooms are walled off until the end of the run',
+      'x|Someone leaves to start a new life; play on without them',
+      'x|The heir takes over today: a new generation begins'
+    ]
+  };
+  var TAG = { c: 'cosy', s: 'spicy', x: 'chaotic' };
+  function defaults() {
+    var out = {};
+    CATS.forEach(function (c) {
+      out[c.id] = RAW[c.id].map(function (s) { return { t: s.slice(2), tag: TAG[s.charAt(0)] }; });
+    });
+    return out;
+  }
+  function cloneLists(l) {
+    var out = {};
+    CATS.forEach(function (c) { out[c.id] = (l[c.id] || []).map(function (e) { return { t: e.t, tag: e.tag }; }); });
+    return out;
+  }
+  function fnv(str) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h >>> 0;
+  }
+  // A card's own seed: the run seed mixed with the card's position, so cards are independent.
+  function mix(seed, i) {
+    var h = (seed ^ Math.imul(i + 1, 0x9E3779B1)) >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B) >>> 0;
+    h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35) >>> 0;
+    return (h ^ (h >>> 16)) >>> 0;
+  }
+  function rng(a) {
+    a = a >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  // The list version: a hash of every entry, its tag and its order. Any edit changes it.
+  function listVersion(lists) {
+    var s = '';
+    CATS.forEach(function (c) {
+      s += c.id + ':';
+      (lists[c.id] || []).forEach(function (e) { s += e.tag + '|' + e.t + '\u0001'; });
+      s += '\u0002';
+    });
+    var v = (fnv(s) % 60466176).toString(36).toUpperCase(); // 36^5
+    while (v.length < 5) v = '0' + v;
+    return v;
+  }
+  function poolFor(list, diff) {
+    var w = WEIGHTS[diff] || WEIGHTS.spicy, pool = [], total = 0;
+    list.forEach(function (e, idx) { var wt = w[e.tag] || 0; if (wt > 0) { pool.push({ idx: idx, wt: wt }); total += wt; } });
+    return { pool: pool, total: total };
+  }
+  function dealCard(lists, ci, diff, seed) {
+    var cat = CATS[ci], list = lists[cat.id] || [];
+    var r = rng(mix(seed, ci));
+    var p = poolFor(list, diff), off = false;
+    if (!p.pool.length) { // nothing on this dial: fall back to the whole list and say so
+      off = true;
+      p = { pool: list.map(function (e, idx) { return { idx: idx, wt: 1 }; }), total: list.length };
+    }
+    var x = r() * p.total, pick = p.pool[p.pool.length - 1];
+    for (var k = 0; k < p.pool.length; k++) { x -= p.pool[k].wt; if (x < 0) { pick = p.pool[k]; break; } }
+    var card = { cat: cat.id, idx: -1, text: '(this list is empty)', tag: diff, off: true, diff: diff, seed: seed >>> 0 };
+    if (pick) { var e = list[pick.idx]; card.idx = pick.idx; card.text = e.t; card.tag = e.tag; card.off = off; }
+    if (cat.id === 'twist') { var rg = TWIST_DAYS[diff] || TWIST_DAYS.spicy; card.day = rg[0] + Math.floor(r() * (rg[1] - rg[0] + 1)); }
+    return card;
+  }
+  function sourceOf(spec, i) {
+    var o = spec.over && spec.over[i];
+    return o ? { diff: o.diff, seed: o.seed >>> 0 } : { diff: spec.diff, seed: spec.seed >>> 0 };
+  }
+  function dealRun(lists, spec) {
+    return CATS.map(function (c, i) { var s = sourceOf(spec, i); return dealCard(lists, i, s.diff, s.seed); });
+  }
+  // Re-roll: a new seed and dial for the run; a locked card keeps the seed and dial it came from.
+  function reroll(prev, locks, seed, diff) {
+    var spec = { diff: diff, seed: seed >>> 0, over: {} };
+    CATS.forEach(function (c, i) {
+      if (!locks[i]) return;
+      var s = sourceOf(prev, i);
+      if (s.diff !== diff || s.seed !== spec.seed) spec.over[i] = s;
+    });
+    return spec;
+  }
+  function enc(diff, seed) { return LETTER[diff] + (seed >>> 0).toString(36).toUpperCase(); }
+  // Share code: DIFF+SEED36 - LISTVERSION [- CARDS+DIFF+SEED36 for each locked-in source]
+  function encode(spec, ver) {
+    var groups = {}, order = [];
+    CATS.forEach(function (c, i) {
+      var o = spec.over && spec.over[i];
+      if (!o) return;
+      var k = enc(o.diff, o.seed);
+      if (k === enc(spec.diff, spec.seed)) return;
+      if (!groups[k]) { groups[k] = []; order.push(k); }
+      groups[k].push(i);
+    });
+    var parts = [enc(spec.diff, spec.seed), ver];
+    order.forEach(function (k) { parts.push(groups[k].join('') + k); });
+    return parts.join('-');
+  }
+  function decode(code) {
+    var s = String(code == null ? '' : code).toUpperCase().replace(/\s+/g, '');
+    if (!s) return { error: 'Type a share code first.' };
+    var parts = s.split('-');
+    if (parts.length < 2) return { error: 'That does not look like a Plot Twist code.' };
+    var m = /^([CSX])([0-9A-Z]{1,7})$/.exec(parts[0]);
+    if (!m) return { error: 'The first part of the code is not a seed.' };
+    var seed = parseInt(m[2], 36);
+    if (!(seed <= 0xFFFFFFFF)) return { error: 'That seed is out of range.' };
+    if (!/^[0-9A-Z]{5}$/.test(parts[1])) return { error: 'The list version in the code is not five characters.' };
+    var spec = { diff: FROM_LETTER[m[1]], seed: seed >>> 0, over: {} }, seen = {};
+    for (var g = 2; g < parts.length; g++) {
+      var gm = /^([0-6]{1,7})([CSX])([0-9A-Z]{1,7})$/.exec(parts[g]);
+      if (!gm) return { error: 'Part ' + (g + 1) + ' of the code is not a card group.' };
+      var gs = parseInt(gm[3], 36);
+      if (!(gs <= 0xFFFFFFFF)) return { error: 'A card seed is out of range.' };
+      for (var q = 0; q < gm[1].length; q++) {
+        var ci = +gm[1].charAt(q);
+        if (seen[ci]) return { error: 'Card ' + (ci + 1) + ' appears twice in the code.' };
+        seen[ci] = true;
+        spec.over[ci] = { diff: FROM_LETTER[gm[2]], seed: gs >>> 0 };
+      }
+    }
+    return { spec: spec, ver: parts[1] };
+  }
+  // What a pasted code should do with the lists in hand.
+  function resolveCode(code, lists) {
+    var d = decode(code);
+    if (d.error) return { status: 'bad', error: d.error };
+    var yours = listVersion(lists);
+    if (d.ver === yours) return { status: 'ok', spec: d.spec, ver: d.ver };
+    if (d.ver === listVersion(defaults())) return { status: 'defaults', spec: d.spec, ver: d.ver, yours: yours };
+    return { status: 'mismatch', spec: d.spec, ver: d.ver, yours: yours };
+  }
+  function cleanText(t) { return String(t == null ? '' : t).replace(/\s+/g, ' ').trim().slice(0, MAXLEN); }
+  // Lists from an import or from storage: keep good entries, fall back to defaults for a broken list.
+  function sanitizeLists(o) {
+    if (!o || typeof o !== 'object') return null;
+    var def = defaults(), out = {}, fixed = 0;
+    CATS.forEach(function (c) {
+      var arr = Array.isArray(o[c.id]) ? o[c.id] : null, seen = {}, list = [];
+      (arr || []).forEach(function (e) {
+        if (!e || typeof e !== 'object') return;
+        var t = cleanText(e.t), tag = DIFFS.indexOf(e.tag) >= 0 ? e.tag : 'spicy';
+        if (!t || seen[t.toLowerCase()]) return;
+        seen[t.toLowerCase()] = true; list.push({ t: t, tag: tag });
+      });
+      if (!list.length) { list = def[c.id]; fixed++; }
+      out[c.id] = list;
+    });
+    return { lists: out, fixed: fixed };
+  }
+  function makeRun(lists, spec, now) {
+    var cards = dealRun(lists, spec), ver = listVersion(lists), code = encode(spec, ver);
+    return {
+      id: code + '@' + now, code: code, ver: ver, diff: spec.diff, createdAt: now, day: 1, peeked: false,
+      ticks: CATS.map(function () { return false; }),
+      cards: cards.map(function (c) { var o = { cat: c.cat, text: c.text, tag: c.tag, off: c.off }; if (c.day) o.day = c.day; return o; })
+    };
+  }
+  function sanitizeRun(r) {
+    if (!r || typeof r !== 'object' || !Array.isArray(r.cards) || r.cards.length !== CATS.length) return null;
+    var cards = [];
+    for (var i = 0; i < CATS.length; i++) {
+      var c = r.cards[i];
+      if (!c || typeof c.text !== 'string') return null;
+      var o = { cat: CATS[i].id, text: cleanText(c.text) || '(empty)', tag: DIFFS.indexOf(c.tag) >= 0 ? c.tag : 'spicy', off: !!c.off };
+      if (CATS[i].id === 'twist') o.day = Math.max(1, Math.min(999, parseInt(c.day, 10) || 7));
+      cards.push(o);
+    }
+    var code = typeof r.code === 'string' ? r.code.slice(0, 80) : '';
+    var at = +r.createdAt || 0;
+    return {
+      id: typeof r.id === 'string' ? r.id.slice(0, 100) : code + '@' + at, code: code, ver: typeof r.ver === 'string' ? r.ver.slice(0, 5) : '',
+      diff: DIFFS.indexOf(r.diff) >= 0 ? r.diff : 'spicy', createdAt: at, day: Math.max(1, Math.min(9999, parseInt(r.day, 10) || 1)),
+      peeked: !!r.peeked, ticks: CATS.map(function (c, k) { return !!(r.ticks && r.ticks[k]); }), cards: cards
+    };
+  }
+  function twistOpen(run) { return !!run.peeked || run.day >= run.cards[CATS.length - 1].day; }
+  return {
+    DIFFS: DIFFS, CATS: CATS, WEIGHTS: WEIGHTS, TWIST_DAYS: TWIST_DAYS, MAXLEN: MAXLEN,
+    defaults: defaults, cloneLists: cloneLists, listVersion: listVersion, poolFor: poolFor,
+    dealCard: dealCard, dealRun: dealRun, reroll: reroll, sourceOf: sourceOf, encode: encode, decode: decode,
+    resolveCode: resolveCode, sanitizeLists: sanitizeLists, cleanText: cleanText, makeRun: makeRun, sanitizeRun: sanitizeRun,
+    twistOpen: twistOpen, mix: mix, rng: rng
+  };
+})();
+// LOGIC-END
+
+(function () {
+  'use strict';
+  var CATS = PT.CATS, NC = CATS.length;
+  var qs = new URLSearchParams(location.search);
+  var PREVIEW = !!qs.get('preview');
+  var REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var DEF = PT.defaults(), DEF_VER = PT.listVersion(DEF);
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+  /* ---------- icons: one SVG path each, reused on canvas through Path2D ---------- */
+  var ICON = {
+    budget: 'M5 7a7 3 0 1 0 14 0a7 3 0 1 0-14 0M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5',
+    household: 'M3 11l9-7 9 7M5.5 9.5V20h13V9.5M10 20v-5h4v5',
+    rule: 'M6 4h12v17H6zM9 4V2.5h6V4M9 10h6M9 14h6M9 18h3',
+    career: 'M3 8h18v12H3zM9 8V5h6v3M3 13h18M11 13v2h2v-2',
+    personality: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M8 14.5c1 1.5 2.4 2.2 4 2.2s3-.7 4-2.2M9 9.5v.5M15 9.5v.5',
+    goal: 'M5 21V4M5 4h12l-2.5 4 2.5 4H5',
+    twist: 'M13 2L4.5 13.5h6.5L10 22l8.5-11.5H12z',
+    lockC: 'M5 11h14v10H5zM8 11V8a4 4 0 0 1 8 0v3M12 15v2',
+    lockO: 'M5 11h14v10H5zM8 11V8a4 4 0 0 1 7.6-1.7M12 15v2',
+    logo: 'M3 17c4 0 4-10 8-10s3 10 7 10M15 4l3 3-3 3M18 7h-5',
+    deal: 'M4 7h9v14H4zM9 3h11v14h-3M8.5 12v5',
+    sound: 'M4 9h4l5-4v14l-5-4H4zM16 9c1.5 1.5 1.5 4.5 0 6M18.5 6.5c3 3 3 8 0 11',
+    mute: 'M4 9h4l5-4v14l-5-4H4zM16 9.5l5 5M21 9.5l-5 5',
+    check: 'M5 12.5l4.5 4.5L19 7',
+    x: 'M6 6l12 12M18 6L6 18'
+  };
+  function svg(name, cls) { return '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="ic' + (cls ? ' ' + cls : '') + '" d="' + ICON[name] + '"/></svg>'; }
+  $('logoPath').setAttribute('d', ICON.logo);
+  $('dealIco').setAttribute('d', ICON.deal);
+
+  /* ---------- storage: every read and write guarded ---------- */
+  var KEY = 'plot-twist.v1', saveWarned = false;
+  var store = { lists: null, history: [], activeId: null, muted: false, diff: 'spicy' };
+  (function load() {
+    try {
+      var raw = window.localStorage.getItem(KEY);
+      if (!raw) return;
+      var o = JSON.parse(raw);
+      if (o.lists) { var sl = PT.sanitizeLists(o.lists); if (sl && PT.listVersion(sl.lists) !== DEF_VER) store.lists = sl.lists; }
+      if (Array.isArray(o.history)) store.history = o.history.map(PT.sanitizeRun).filter(Boolean).slice(0, 100);
+      if (typeof o.activeId === 'string') store.activeId = o.activeId;
+      store.muted = !!o.muted;
+      if (PT.DIFFS.indexOf(o.diff) >= 0) store.diff = o.diff;
+    } catch (e) { /* storage unavailable or damaged: carry on with defaults */ }
+  })();
+  function save() {
+    if (PREVIEW) return;
+    try { window.localStorage.setItem(KEY, JSON.stringify(store)); }
+    catch (e) { if (!saveWarned) { saveWarned = true; toast('Saving is unavailable here, so this session will not be kept.'); } }
+  }
+  function curLists() { return store.lists || DEF; }
+  function setLists(l) { store.lists = PT.listVersion(l) === DEF_VER ? null : l; save(); }
+
+  /* ---------- sound: synthesized, only after the first input, never in preview ---------- */
+  var AC = null, acted = false;
+  function actx() {
+    if (PREVIEW || store.muted || !acted) return null;
+    if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+    if (AC.state === 'suspended') { try { AC.resume(); } catch (e) {} }
+    return AC;
+  }
+  function tone(f, dur, type, vol, delay, f2) {
+    var a = actx(); if (!a) return;
+    var t = a.currentTime + (delay || 0), o = a.createOscillator(), g = a.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.1, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + dur + 0.02);
+  }
+  var sfx = {
+    tick: function () { tone(1300 + Math.random() * 500, 0.025, 'square', 0.025); },
+    flip: function () { tone(380, 0.11, 'sine', 0.07, 0, 950); },
+    land: function (i) { var b = [523, 587, 659, 698, 784, 880, 988][i % 7]; tone(b, 0.16, 'triangle', 0.11); tone(b * 1.5, 0.22, 'sine', 0.05, 0.05); },
+    lock: function (on) { tone(on ? 330 : 250, 0.05, 'square', 0.05); tone(on ? 495 : 190, 0.06, 'square', 0.04, 0.05); },
+    fanfare: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.28, 'triangle', 0.07, 0.07 * i); }); },
+    check: function (on) { tone(on ? 660 : 440, 0.09, 'sine', 0.09); if (on) tone(990, 0.12, 'sine', 0.06, 0.06); },
+    day: function () { tone(440, 0.08, 'triangle', 0.08); tone(554, 0.1, 'triangle', 0.07, 0.07); },
+    twist: function () { [392, 494, 587, 784, 988].forEach(function (f, i) { tone(f, 0.2, 'square', 0.035, 0.06 * i); }); tone(196, 0.5, 'sawtooth', 0.04, 0, 98); },
+    soft: function () { tone(520, 0.06, 'sine', 0.06); }
+  };
+  function markActed() { acted = true; }
+  window.addEventListener('pointerdown', markActed, true);
+  window.addEventListener('keydown', markActed, true);
+  function paintMute() {
+    $('mute').setAttribute('aria-pressed', String(store.muted));
+    $('muteIco').setAttribute('d', store.muted ? ICON.mute : ICON.sound);
+    $('mute').setAttribute('aria-label', store.muted ? 'Unmute sound (M)' : 'Mute sound (M)');
+  }
+  function toggleMute() { store.muted = !store.muted; paintMute(); save(); if (!store.muted) sfx.soft(); }
+  $('mute').addEventListener('click', toggleMute);
+  paintMute();
+
+  /* ---------- toast, dialog ---------- */
+  var toastT = 0;
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('show'); }, 2400);
+  }
+  var dlgOpen = false, lastFocus = null;
+  function openDlg(html, focusSel) {
+    lastFocus = document.activeElement;
+    $('dlg').innerHTML = html; $('veil').classList.add('open'); dlgOpen = true;
+    var f = $('dlg').querySelector(focusSel || 'button, input');
+    if (f) setTimeout(function () { f.focus(); }, 30);
+  }
+  function closeDlg() {
+    if (!dlgOpen) return;
+    $('veil').classList.remove('open'); dlgOpen = false; $('dlg').innerHTML = '';
+    if (lastFocus && lastFocus.focus) try { lastFocus.focus(); } catch (e) {}
+  }
+  $('veil').addEventListener('click', function (e) { if (e.target === $('veil')) closeDlg(); });
+  function confirmBox(title, body, okLabel, fn) {
+    openDlg('<h3>' + esc(title) + '</h3><p>' + esc(body) + '</p><div class="btns"><button class="btn warn" id="cOk">' + esc(okLabel) +
+      '</button><button class="btn" id="cNo">Cancel</button></div>', '#cNo');
+    $('cOk').onclick = function () { closeDlg(); fn(); };
+    $('cNo').onclick = closeDlg;
+  }
+
+  /* ---------- screens ---------- */
+  var screen = 'deal';
+  function show(s) {
+    screen = s;
+    document.querySelectorAll('.tab').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.s === s)); });
+    ['deal', 'play', 'history', 'lists'].forEach(function (id) { $(id).hidden = id !== s; });
+    if (s === 'play') renderPlay();
+    if (s === 'history') renderHistory();
+    if (s === 'lists') renderLists();
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll('.tab').forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.s); }); });
+
+  /* ---------- the difficulty dial ---------- */
+  var DIAL_ANGLE = { cosy: -58, spicy: 0, chaotic: 58 }, DIAL_COL = { cosy: '#C6F432', spicy: '#FF8A3D', chaotic: '#B45CF0' };
+  function paintDial() {
+    $('needle').style.transform = 'rotate(' + DIAL_ANGLE[store.diff] + 'deg)';
+    $('knobFace').setAttribute('fill', DIAL_COL[store.diff]);
+    document.querySelectorAll('#seg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.d === store.diff)); });
+  }
+  function setDiff(d) { if (store.diff === d) return; store.diff = d; paintDial(); save(); tone(300 + 160 * PT.DIFFS.indexOf(d), 0.06, 'square', 0.05); }
+  function cycleDiff() { setDiff(PT.DIFFS[(PT.DIFFS.indexOf(store.diff) + 1) % 3]); }
+  $('knob').addEventListener('click', cycleDiff);
+  document.querySelectorAll('#seg button').forEach(function (b) { b.addEventListener('click', function () { setDiff(b.dataset.d); }); });
+  paintDial();
+
+  /* ---------- the deal grid ---------- */
+  var cur = { spec: null, lists: null, cards: null, locks: CATS.map(function () { return false; }) };
+  var cardEls = [];
+  (function buildGrid() {
+    var g = $('grid'), html = '';
+    CATS.forEach(function (c, i) {
+      html += '<div class="card" id="card' + i + '" style="--c:' + c.color + '"><div class="cin">' +
+        '<div class="chead"><span class="ico">' + svg(c.id) + '</span><span class="clab">' + esc(c.label) + '<small>' + (i + 1) + ' to lock</small></span>' +
+        '<button class="lock" aria-pressed="false" aria-label="Lock ' + esc(c.label) + ' card (' + (i + 1) + ')">' + svg('lockO') + '</button></div>' +
+        '<div class="ctext"></div><div class="cfoot"></div>' +
+        '<div class="back"><span class="blab">' + esc(c.label) + '</span><div class="reel"><div class="strip"></div></div></div>' +
+        '</div></div>';
+    });
+    html += '<div class="stamp" id="stamp"><b>Plot Twist</b><span id="stampD">spicy run</span></div>';
+    html += '<div class="tile" id="tile"><span class="tl">This run</span><span class="code" id="codeOut">...</span><span class="note" id="tileNote"></span>' +
+      '<div class="btns"><button class="btn pri" id="playBtn">Play this run</button><button class="btn" id="saveBtn">Save</button>' +
+      '<button class="btn" id="shareBtn">Share</button><button class="btn" id="codeBtn">Enter a code</button></div></div>';
+    g.innerHTML = html;
+    CATS.forEach(function (c, i) {
+      var el = $('card' + i);
+      cardEls.push({ el: el, cin: el.querySelector('.cin'), text: el.querySelector('.ctext'), foot: el.querySelector('.cfoot'), lock: el.querySelector('.lock'), strip: el.querySelector('.strip') });
+      el.querySelector('.lock').addEventListener('click', function () { toggleLock(i); });
+    });
+  })();
+  function paintCard(i) {
+    var c = cur.cards[i], ce = cardEls[i];
+    ce.text.textContent = c.text;
+    var f = '<span class="chip ' + c.tag + '">' + c.tag + '</span>';
+    if (c.day) f += '<span class="chip day">lands on day ' + c.day + '</span>';
+    if (c.off) f += '<span class="chip off" title="Nothing on this dial position, so the whole list was used">off the dial</span>';
+    ce.foot.innerHTML = f;
+  }
+  function paintLocks() {
+    cur.locks.forEach(function (on, i) {
+      var ce = cardEls[i];
+      ce.el.classList.toggle('locked', on);
+      ce.lock.setAttribute('aria-pressed', String(on));
+      ce.lock.innerHTML = svg(on ? 'lockC' : 'lockO');
+    });
+  }
+  function toggleLock(i) {
+    if (!cur.cards) return;
+    cur.locks[i] = !cur.locks[i]; paintLocks(); sfx.lock(cur.locks[i]);
+    if (!REDUCED && cardEls[i].cin.animate) cardEls[i].cin.animate([{ transform: 'rotate(0)' }, { transform: 'rotate(-2deg)' }, { transform: 'rotate(2deg)' }, { transform: 'rotate(0)' }], { duration: 220 });
+  }
+  function curCode() { return PT.encode(cur.spec, PT.listVersion(cur.lists)); }
+  function savedRun() { var code = curCode(); for (var i = 0; i < store.history.length; i++) if (store.history[i].code === code) return store.history[i]; return null; }
+  function paintTile() {
+    if (!cur.spec) return;
+    $('codeOut').textContent = curCode();
+    var note = '';
+    if (cur.lists !== curLists()) note = cur.lists === DEF ? 'Dealt from the default lists.' : 'Dealt from an earlier version of your lists.';
+    if (!note && PT.listVersion(cur.lists) !== DEF_VER) note = 'Your edited lists (version ' + PT.listVersion(cur.lists) + ').';
+    $('tileNote').textContent = note;
+    var s = savedRun();
+    $('saveBtn').textContent = s ? 'Saved' : 'Save';
+    $('saveBtn').disabled = !!s;
+    $('stampD').textContent = cur.spec.diff + ' run';
+    $('stampD').style.background = DIAL_COL[cur.spec.diff];
+  }
+  $('playBtn').addEventListener('click', function () { var r = saveCurrent(); store.activeId = r.id; save(); show('play'); sfx.fanfare(); });
+  $('saveBtn').addEventListener('click', function () { saveCurrent(); toast('Saved to your history.'); sfx.check(true); });
+  $('shareBtn').addEventListener('click', function () { if (cur.spec) openShare(PT.makeRun(cur.lists, cur.spec, Date.now())); });
+  $('codeBtn').addEventListener('click', openCodeDlg);
+  function saveCurrent() {
+    var r = savedRun();
+    if (!r) { r = PT.makeRun(cur.lists, cur.spec, Date.now()); store.history.unshift(r); store.history = store.history.slice(0, 100); save(); }
+    paintTile();
+    return r;
+  }
+
+  /* ---------- dealing, with a slot-machine spin and a flip ---------- */
+  var spin = null;
+  function newSeed() {
+    try { var a = new Uint32Array(1); crypto.getRandomValues(a); return a[0]; } catch (e) { return Math.floor(Math.random() * 4294967296) >>> 0; }
+  }
+  function anyLocked() { return cur.locks.some(Boolean); }
+  function deal() {
+    if (spin) { finishSpin(); return; }
+    if (cur.cards && cur.locks.every(Boolean)) { toast('Every card is locked. Unlock one to re-roll.'); sfx.lock(false); return; }
+    var locked = cur.cards && anyLocked();
+    var lists = locked ? cur.lists : curLists();
+    var seed = newSeed();
+    var spec = locked ? PT.reroll(cur.spec, cur.locks, seed, store.diff) : { diff: store.diff, seed: seed, over: {} };
+    showRun(spec, lists, true);
+    api.deals++;
+  }
+  function showRun(spec, lists, animate) {
+    var cards = PT.dealRun(lists, spec);
+    var changed = cards.map(function (c, i) { return !cur.locks[i] || !cur.cards; });
+    cur.spec = spec; cur.lists = lists; cur.cards = cards;
+    paintTile(); paintLocks();
+    if (!animate || REDUCED) {
+      cards.forEach(function (c, i) { paintCard(i); cardEls[i].el.classList.remove('spin'); });
+      if (REDUCED && animate) sfx.land(0);
+      return;
+    }
+    startSpin(changed, spec);
+  }
+  function flipHalf(el, from, to, dur, done) {
+    if (!el.animate) { done && done(); return; }
+    var a = el.animate([{ transform: 'perspective(700px) rotateY(' + from + 'deg)' }, { transform: 'perspective(700px) rotateY(' + to + 'deg)' }], { duration: dur, easing: 'ease-in-out' });
+    a.onfinish = function () { done && done(); };
+  }
+  function startSpin(changed, spec) {
+    var now = performance.now(), reels = [];
+    sfx.flip();
+    changed.forEach(function (ch, i) {
+      var ce = cardEls[i];
+      if (!ch) { ce.cin.animate && ce.cin.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(-6px)' }, { transform: 'translateY(0)' }], { duration: 260, delay: 60 * i }); return; }
+      // build the reel: random entries from the pool this card was dealt from, the real one last
+      var src = PT.sourceOf(spec, i), list = cur.lists[CATS[i].id] || [], p = PT.poolFor(list, src.diff).pool;
+      if (!p.length) p = list.map(function (e, k) { return { idx: k }; });
+      var n = 12 + i * 2, html = '';
+      for (var k = 0; k < n - 1; k++) { var e = p.length ? list[p[Math.floor(Math.random() * p.length)].idx] : null; html += '<div>' + esc(e ? e.t : '...') + '</div>'; }
+      html += '<div>' + esc(cur.cards[i].text) + '</div>';
+      ce.strip.innerHTML = html; ce.strip.style.transform = 'translateY(0)';
+      var r = { i: i, n: n, h: 0, start: now + 130 + i * 45, dur: 620 + i * 190, last: 0, landed: false };
+      reels.push(r);
+      (function (ce, i) {
+        flipHalf(ce.cin, 0, 90, 120, function () { ce.el.classList.add('spin'); flipHalf(ce.cin, -90, 0, 120); });
+      })(ce, i);
+    });
+    spin = { reels: reels, raf: 0 };
+    spin.raf = requestAnimationFrame(stepSpin);
+  }
+  function easeOutBack(x) { var c1 = 1.1, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+  function stepSpin(t) {
+    if (!spin) return;
+    var ticked = false, all = true;
+    spin.reels.forEach(function (r) {
+      if (r.landed) return;
+      all = false;
+      var ce = cardEls[r.i];
+      // measure a reel row only once the card back is showing (it is display:none before the flip)
+      if (!r.h) {
+        // computed height: unrounded (offsetHeight drifts a fraction of a pixel per row) and,
+        // unlike getBoundingClientRect, untouched by the 3D flip running on the card
+        r.h = (ce.strip.firstChild && ce.strip.firstChild.offsetHeight && parseFloat(getComputedStyle(ce.strip.firstChild).height)) || 0;
+        if (!r.h && t < r.start + r.dur) return;
+        if (!r.h) r.h = 36;
+      }
+      var p = Math.max(0, Math.min(1, (t - r.start) / r.dur));
+      var y = easeOutBack(p) * (r.n - 1) * r.h;
+      ce.strip.style.transform = 'translateY(' + (-y).toFixed(1) + 'px)';
+      var idx = Math.floor(y / r.h);
+      if (idx !== r.last) { r.last = idx; if (!ticked) { sfx.tick(); ticked = true; } }
+      if (p >= 1) land(r);
+    });
+    if (all) { spin = null; sfx.fanfare(); paintTile(); return; }
+    spin.raf = requestAnimationFrame(stepSpin);
+  }
+  function land(r) {
+    r.landed = true;
+    var ce = cardEls[r.i];
+    sfx.land(r.i);
+    flipHalf(ce.cin, 0, 90, 110, function () {
+      ce.el.classList.remove('spin'); paintCard(r.i);
+      flipHalf(ce.cin, -90, 0, 170);
+      sparkle(ce.el, CATS[r.i].color);
+    });
+  }
+  function finishSpin() {
+    if (!spin) return;
+    cancelAnimationFrame(spin.raf);
+    spin.reels.forEach(function (r) { if (!r.landed) { r.landed = true; cardEls[r.i].el.classList.remove('spin'); paintCard(r.i); } });
+    spin = null; sfx.land(6); paintTile();
+  }
+  function sparkle(el, color) {
+    if (REDUCED || PREVIEW && Math.random() < 0.3) return;
+    var cols = [color, '#FFE066', '#FF7AC8', '#22D3C5'];
+    for (var k = 0; k < 7; k++) {
+      var s = document.createElement('i'); s.className = 'spark';
+      s.style.background = cols[k % cols.length]; s.style.left = (15 + Math.random() * 70) + '%'; s.style.top = (35 + Math.random() * 30) + '%';
+      el.appendChild(s);
+      var ang = Math.random() * Math.PI * 2, d = 30 + Math.random() * 40;
+      var a = s.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1 }, { transform: 'translate(' + (Math.cos(ang) * d).toFixed(0) + 'px,' + (Math.sin(ang) * d).toFixed(0) + 'px) scale(.2)', opacity: 0 }], { duration: 520 + Math.random() * 200, easing: 'cubic-bezier(.2,.8,.3,1)' });
+      a.onfinish = (function (s) { return function () { s.remove(); }; })(s);
+    }
+  }
+  $('dealBtn').addEventListener('click', deal);
+
+  /* ---------- share: code and PNG ---------- */
+  function wrap(ctx, text, maxW) {
+    var words = text.split(' '), lines = [], line = '';
+    words.forEach(function (w) { var t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; });
+    if (line) lines.push(line);
+    return lines;
+  }
+  function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+  var FONT = 'ui-rounded,"Trebuchet MS","Segoe UI",system-ui,sans-serif';
+  function drawPNG(run) {
+    var W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d'), INK = '#1A1540';
+    ctx.fillStyle = '#F7F4FF'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#FFE06666'; ctx.beginPath(); ctx.arc(60, 40, 260, 0, 7); ctx.fill();
+    ctx.fillStyle = '#B9A8FF55'; ctx.beginPath(); ctx.arc(W - 20, H - 40, 320, 0, 7); ctx.fill();
+    // title
+    ctx.save(); ctx.translate(96, 104); ctx.rotate(-0.1);
+    rrect(ctx, -40, -40, 80, 80, 20); ctx.fillStyle = '#B45CF0'; ctx.fill(); ctx.lineWidth = 6; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.translate(-28, -28); ctx.scale(2.35, 2.35); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.stroke(new Path2D(ICON.logo)); ctx.restore();
+    ctx.fillStyle = INK; ctx.font = '900 66px ' + FONT; ctx.textBaseline = 'middle'; ctx.fillText('Plot Twist', 160, 94);
+    ctx.font = '700 30px ' + FONT; ctx.globalAlpha = 0.75; ctx.fillText('A ' + run.diff + ' life-sim challenge', 162, 148); ctx.globalAlpha = 1;
+    var dcol = DIAL_COL[run.diff];
+    ctx.font = '900 30px ' + FONT; var dw = ctx.measureText(run.diff.toUpperCase()).width + 44;
+    rrect(ctx, W - 60 - dw, 70, dw, 54, 27); ctx.fillStyle = dcol; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = run.diff === 'chaotic' ? '#fff' : INK; ctx.fillText(run.diff.toUpperCase(), W - 60 - dw + 22, 98);
+    // cards
+    var y = 190, rowH = 132, gap = 12;
+    run.cards.forEach(function (c, i) {
+      var cat = CATS[i], x = 60, w = W - 120;
+      rrect(ctx, x, y + 6, w, rowH, 24); ctx.fillStyle = INK; ctx.fill();
+      rrect(ctx, x, y, w, rowH, 24); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.stroke();
+      ctx.save(); rrect(ctx, x, y, w, rowH, 24); ctx.clip(); ctx.fillStyle = cat.color; ctx.fillRect(x, y, 150, rowH); ctx.restore();
+      ctx.beginPath(); ctx.moveTo(x + 150, y); ctx.lineTo(x + 150, y + rowH); ctx.lineWidth = 4; ctx.stroke();
+      ctx.save(); ctx.translate(x + 75 - 27, y + 22); ctx.scale(2.25, 2.25); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = INK; ctx.stroke(new Path2D(ICON[cat.id])); ctx.restore();
+      ctx.fillStyle = INK; ctx.font = '900 19px ' + FONT; ctx.textAlign = 'center'; ctx.fillText(cat.label.toUpperCase(), x + 75, y + rowH - 26); ctx.textAlign = 'left';
+      var tx = x + 176, tw = w - 200, size = 36, lines;
+      var extra = c.day ? 'Lands on day ' + c.day : '';
+      do { ctx.font = '800 ' + size + 'px ' + FONT; lines = wrap(ctx, c.text, tw); size -= 2; } while (lines.length > (extra ? 2 : 3) && size > 20);
+      if (lines.length === 1 && !extra) { ctx.font = '800 ' + (size + 2) + 'px ' + FONT; }
+      var lh = (size + 2) * 1.18, total = lines.length * lh + (extra ? 34 : 0), ty = y + rowH / 2 - total / 2 + lh / 2;
+      lines.forEach(function (l, k) { ctx.fillText(l, tx, ty + k * lh); });
+      if (extra) { ctx.font = '800 24px ' + FONT; ctx.fillStyle = '#6B55D8'; ctx.fillText(extra, tx, ty + lines.length * lh + 4); ctx.fillStyle = INK; }
+      y += rowH + gap;
+    });
+    // footer
+    ctx.font = '700 26px ' + FONT; ctx.globalAlpha = 0.75; ctx.fillText('Deal this exact run in Plot Twist with the code', 60, H - 96); ctx.globalAlpha = 1;
+    ctx.font = '900 38px ui-monospace,Consolas,"Courier New",monospace'; ctx.fillText(run.code, 60, H - 50);
+    return cv;
+  }
+  function download(blob, name) {
+    var url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+  }
+  function savePNG(run) {
+    var cv = drawPNG(run);
+    cv.toBlob(function (b) { if (b) { download(b, 'plot-twist-' + run.code + '.png'); toast('PNG card downloaded.'); } else toast('Could not make the PNG here.'); }, 'image/png');
+  }
+  function openShare(run) {
+    var url = '';
+    try { url = drawPNG(run).toDataURL('image/png'); } catch (e) {}
+    openDlg('<h3>Share this run</h3><p class="muted">Anyone with the same lists can deal this exact run from the code.</p>' +
+      '<div class="big" id="shareCode">' + esc(run.code) + '</div>' + (url ? '<img alt="The PNG card for this run" src="' + url + '">' : '') +
+      '<div class="btns"><button class="btn pri" id="copyCode">Copy code</button><button class="btn" id="pngBtn">Download PNG card</button><button class="btn" id="shClose">Close</button></div>', '#copyCode');
+    $('copyCode').onclick = function () { copyText(run.code); };
+    $('pngBtn').onclick = function () { savePNG(run); };
+    $('shClose').onclick = closeDlg;
+  }
+  function copyText(s) {
+    var done = function () { toast('Code copied.'); sfx.check(true); };
+    var fallback = function () {
+      var r = document.createRange(), el = $('shareCode') || $('codeOut'); r.selectNodeContents(el);
+      var sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      try { document.execCommand('copy') ? done() : toast('Select the code and copy it.'); } catch (e) { toast('Select the code and copy it.'); }
+    };
+    try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s).then(done, fallback); else fallback(); } catch (e) { fallback(); }
+  }
+  function openCodeDlg() {
+    openDlg('<h3>Deal from a code</h3><p class="muted">Paste a share code to deal that exact run.</p><input id="codeIn" autocomplete="off" spellcheck="false" placeholder="S1A2B3C-K3F9Q" aria-label="Share code">' +
+      '<p class="msg" id="codeMsg"></p><div class="btns" id="codeBtns"><button class="btn pri" id="codeGo">Deal it</button><button class="btn" id="codeNo">Cancel</button></div>', '#codeIn');
+    $('codeGo').onclick = function () { tryCode($('codeIn').value); };
+    $('codeNo').onclick = closeDlg;
+    $('codeIn').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); tryCode($('codeIn').value); } });
+  }
+  function dealFromCode(spec, lists) {
+    if (spin) finishSpin();
+    cur.locks = CATS.map(function () { return false; });
+    cur.cards = null;
+    store.diff = spec.diff; paintDial();
+    closeDlg(); show('deal'); showRun(spec, lists, true);
+  }
+  function tryCode(val) {
+    var r = PT.resolveCode(val, curLists()), msg = $('codeMsg');
+    if (r.status === 'bad') { msg.textContent = r.error; sfx.lock(false); return; }
+    if (r.status === 'ok') { dealFromCode(r.spec, curLists()); toast('Dealt from the code.'); return; }
+    var btns = $('codeBtns');
+    if (r.status === 'defaults') {
+      msg.textContent = 'This code was made with the default lists, and yours have been edited (version ' + r.yours + '), so your lists would deal a different run. Nothing was dealt.';
+      btns.innerHTML = '<button class="btn pri" id="useDef">Deal it from the default lists</button><button class="btn" id="codeNo">Cancel</button>';
+      $('useDef').onclick = function () { dealFromCode(r.spec, DEF); toast('Dealt from the default lists. Yours are unchanged.'); };
+    } else {
+      msg.textContent = 'This code was made with lists at version ' + r.ver + ', and yours are at version ' + r.yours + '. Dealing it here would give a different run, so nothing was dealt.';
+      btns.innerHTML = '<button class="btn" id="anyway">Deal a different run anyway</button><button class="btn" id="codeNo">Cancel</button>';
+      $('anyway').onclick = function () { dealFromCode(r.spec, curLists()); toast('Dealt with your lists: this is not the original run.'); };
+    }
+    $('codeNo').onclick = closeDlg;
+    sfx.lock(false);
+  }
+
+  /* ---------- the checklist ---------- */
+  function activeRun() { for (var i = 0; i < store.history.length; i++) if (store.history[i].id === store.activeId) return store.history[i]; return null; }
+  function ring(done, total) {
+    var r = 26, C = 2 * Math.PI * r, f = total ? done / total : 0;
+    return '<svg class="ring" viewBox="0 0 64 64" aria-label="' + done + ' of ' + total + ' done"><circle cx="32" cy="32" r="' + r + '" fill="#fff" stroke="#1A154022" stroke-width="8"/>' +
+      '<circle cx="32" cy="32" r="' + r + '" fill="none" stroke="#C6F432" stroke-width="8" stroke-linecap="round" stroke-dasharray="' + (C * f).toFixed(1) + ' ' + C.toFixed(1) + '" transform="rotate(-90 32 32)"/>' +
+      '<circle cx="32" cy="32" r="' + (r + 5) + '" fill="none" stroke="#1A1540" stroke-width="2.5"/><text x="32" y="37" text-anchor="middle" font-size="15" font-weight="900" fill="#1A1540">' + done + '/' + total + '</text></svg>';
+  }
+  function renderPlay(flash) {
+    var el = $('play'), run = activeRun();
+    if (!run) {
+      el.innerHTML = '<div class="panel empty"><h2>No run in play yet</h2><p class="muted">Deal a run and press Play this run, or open one from your history.</p><button class="btn pri" id="goDeal">Go to Deal</button></div>';
+      $('goDeal').onclick = function () { show('deal'); };
+      return;
+    }
+    var done = run.ticks.filter(Boolean).length, open = PT.twistOpen(run), tw = run.cards[NC - 1];
+    var html = '<div class="panel"><div class="runhead">' + ring(done, NC) +
+      '<div style="flex:1;min-width:150px"><h2 style="margin:0">Your ' + esc(run.diff) + ' run</h2><div class="muted">Code <b class="hc" style="font-family:ui-monospace,Consolas,monospace">' + esc(run.code) + '</b></div>' +
+      '<div class="muted">' + (done === NC ? 'Run complete. Well played.' : open ? 'The twist has landed.' : 'The twist lands on day ' + tw.day + '.') + '</div></div>' +
+      '<div class="daybox"><button class="btn" id="dayDown" aria-label="Previous day"' + (run.day <= 1 ? ' disabled' : '') + '>-</button><div><div class="daylab">Day</div><div class="dayn" id="dayN">' + run.day + '</div></div>' +
+      '<button class="btn" id="dayUp" aria-label="Next day">+</button><button class="btn pri" id="nextDay">Next day</button></div></div></div>';
+    html += '<ul class="checks">';
+    run.cards.forEach(function (c, i) {
+      var cat = CATS[i], sealed = i === NC - 1 && !open, on = run.ticks[i];
+      html += '<li class="item' + (on ? ' done' : '') + (sealed ? ' sealed' : '') + (i === NC - 1 && flash ? ' due' : '') + '" style="--c:' + cat.color + '">' +
+        '<button class="box" data-i="' + i + '" aria-pressed="' + on + '" aria-label="' + (on ? 'Untick ' : 'Tick ') + esc(cat.label) + '"' + (sealed ? ' disabled' : '') + '>' + svg('check') + '</button>' +
+        '<div style="flex:1;min-width:0"><div class="il">' + esc(cat.label) + '</div><div class="itext">' + esc(sealed ? 'Something is on its way that will change everything' : c.text) + '</div>' +
+        '<div class="ih">' + (sealed ? 'Sealed until day ' + c.day : esc(cat.hint) + (c.day ? ': day ' + c.day : '')) + '</div></div>' +
+        (sealed ? '<button class="btn" id="peek">Peek</button>' : '') + '</li>';
+    });
+    html += '</ul><div class="btns" style="margin-top:14px"><button class="btn" id="plShare">Share this run</button><button class="btn" id="plPng">Download PNG card</button><button class="btn" id="plDeal">Deal another</button></div>';
+    el.innerHTML = html;
+    el.querySelectorAll('.box').forEach(function (b) { b.onclick = function () { tick(run, +b.dataset.i); }; });
+    $('dayUp').onclick = $('nextDay').onclick = function () { setDay(run, run.day + 1); };
+    $('dayDown').onclick = function () { setDay(run, run.day - 1); };
+    if ($('peek')) $('peek').onclick = function () { run.peeked = true; save(); renderPlay(true); sfx.flip(); };
+    $('plShare').onclick = function () { openShare(run); };
+    $('plPng').onclick = function () { savePNG(run); };
+    $('plDeal').onclick = function () { show('deal'); };
+  }
+  function tick(run, i) {
+    run.ticks[i] = !run.ticks[i]; save(); sfx.check(run.ticks[i]);
+    var all = run.ticks.every(Boolean);
+    renderPlay();
+    if (all && run.ticks[i]) { confetti(); sfx.fanfare(); toast('Run complete!'); }
+  }
+  function setDay(run, d) {
+    d = Math.max(1, Math.min(9999, d)); if (d === run.day) return;
+    var was = PT.twistOpen(run); run.day = d; save();
+    var now = PT.twistOpen(run);
+    if (!was && now) { renderPlay(true); sfx.twist(); toast('Plot twist! Day ' + d + ': ' + run.cards[NC - 1].text); }
+    else { renderPlay(); sfx.day(); }
+    if (!REDUCED && $('dayN').animate) $('dayN').animate([{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'cubic-bezier(.3,1.6,.5,1)' });
+  }
+  function confetti() {
+    if (REDUCED) return;
+    var layer = document.createElement('div'); layer.className = 'confetti'; document.body.appendChild(layer);
+    var cols = ['#FFE066', '#FF4F6D', '#C6F432', '#22D3C5', '#B45CF0', '#FF7AC8', '#8C9BFF'];
+    for (var k = 0; k < 60; k++) {
+      var p = document.createElement('i'); p.style.left = Math.random() * 100 + '%'; p.style.background = cols[k % cols.length]; layer.appendChild(p);
+      p.animate([{ transform: 'translate(0,0) rotate(0)' }, { transform: 'translate(' + (Math.random() * 160 - 80) + 'px,' + (innerHeight + 40) + 'px) rotate(' + (Math.random() * 900) + 'deg)' }], { duration: 1400 + Math.random() * 1200, delay: Math.random() * 400, easing: 'cubic-bezier(.3,.1,.6,1)', fill: 'forwards' });
+    }
+    setTimeout(function () { layer.remove(); }, 3200);
+  }
+
+  /* ---------- history, export and import ---------- */
+  function renderHistory() {
+    var el = $('history'), h = store.history;
+    var html = '<div class="panel"><h2>History</h2><p class="muted">Runs you saved or played. They keep their own text, so editing your lists later never changes them.</p>' +
+      '<div class="btns"><button class="btn" id="expBtn">Export runs and lists (.json)</button><button class="btn" id="impBtn">Import a .json file</button></div></div>';
+    if (!h.length) html += '<div class="panel empty"><p class="muted">No saved runs yet. Deal one and press Save or Play this run.</p></div>';
+    else {
+      html += '<ul class="hist">';
+      h.forEach(function (r, k) {
+        var d = r.ticks.filter(Boolean).length;
+        html += '<li class="hrow"><div style="min-width:0"><div><span class="chip ' + r.diff + '">' + r.diff + '</span> <b>' + esc(r.cards[4].text) + '</b></div>' +
+          '<div class="muted">' + esc(new Date(r.createdAt || 0).toLocaleDateString()) + ', day ' + r.day + ', ' + d + ' of ' + NC + ' done' + (r.id === store.activeId ? ', in play' : '') + '</div>' +
+          '<div class="hc">' + esc(r.code) + '</div><div class="hbar"><i style="width:' + Math.round(100 * d / NC) + '%"></i></div></div>' +
+          '<div class="btns" style="justify-content:flex-end"><button class="btn pri" data-a="open" data-k="' + k + '">Open</button><button class="btn" data-a="png" data-k="' + k + '">PNG</button>' +
+          '<button class="x" data-a="del" data-k="' + k + '" aria-label="Delete this run">' + svg('x') + '</button></div></li>';
+      });
+      html += '</ul>';
+    }
+    el.innerHTML = html;
+    $('expBtn').onclick = exportJSON;
+    $('impBtn').onclick = function () { $('importFile').value = ''; $('importFile').click(); };
+    el.querySelectorAll('[data-a]').forEach(function (b) {
+      b.onclick = function () {
+        var r = store.history[+b.dataset.k]; if (!r) return;
+        if (b.dataset.a === 'open') { store.activeId = r.id; save(); show('play'); }
+        if (b.dataset.a === 'png') savePNG(r);
+        if (b.dataset.a === 'del') confirmBox('Delete this run?', 'It leaves your history on this device. An exported .json file keeps a copy if you made one.', 'Delete', function () {
+          store.history = store.history.filter(function (x) { return x !== r; });
+          if (store.activeId === r.id) store.activeId = null;
+          save(); renderHistory(); paintTile(); toast('Run deleted.');
+        });
+      };
+    });
+  }
+  function exportJSON() {
+    var data = { app: 'plot-twist', format: 1, exported: new Date().toISOString(), listVersion: PT.listVersion(curLists()), lists: curLists(), history: store.history };
+    download(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), 'plot-twist-backup.json');
+    toast('Backup downloaded.');
+  }
+  $('importFile').addEventListener('change', function () {
+    var f = this.files && this.files[0]; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var o; try { o = JSON.parse(String(rd.result)); } catch (e) { toast('That file is not valid JSON.'); return; }
+      if (!o || o.app !== 'plot-twist') { toast('That file is not a Plot Twist backup.'); return; }
+      var added = 0;
+      if (Array.isArray(o.history)) {
+        var have = {}; store.history.forEach(function (r) { have[r.id] = true; });
+        o.history.map(PT.sanitizeRun).filter(Boolean).forEach(function (r) { if (!have[r.id]) { store.history.push(r); have[r.id] = true; added++; } });
+        store.history.sort(function (a, b) { return b.createdAt - a.createdAt; });
+        store.history = store.history.slice(0, 100);
+      }
+      var sl = o.lists ? PT.sanitizeLists(o.lists) : null;
+      if (sl) setLists(sl.lists); else save();
+      renderHistory(); paintTile();
+      toast('Imported ' + added + ' run' + (added === 1 ? '' : 's') + (sl ? ' and your lists (version ' + PT.listVersion(curLists()) + ')' : '') + '.');
+    };
+    rd.readAsText(f);
+  });
+
+  /* ---------- My lists ---------- */
+  var listCat = 0;
+  function renderLists() {
+    var el = $('lists'), L = curLists(), cat = CATS[listCat], list = L[cat.id], v = PT.listVersion(L);
+    var counts = { cosy: 0, spicy: 0, chaotic: 0 }; list.forEach(function (e) { counts[e.tag]++; });
+    var html = '<div class="panel"><h2>My lists</h2><p class="muted">Every card is dealt from these lists. List version <b id="verOut">' + v + '</b>' + (v === DEF_VER ? ' (the defaults)' : ' (edited)') +
+      '. Share codes carry this version, so a code made before an edit warns instead of dealing something different.</p><div class="cats">';
+    CATS.forEach(function (c, i) { html += '<button style="--c:' + c.color + '" data-c="' + i + '" aria-pressed="' + (i === listCat) + '">' + esc(c.label) + ' ' + L[c.id].length + '</button>'; });
+    html += '</div><div class="muted">' + list.length + ' entries: ' + counts.cosy + ' cosy, ' + counts.spicy + ' spicy, ' + counts.chaotic + ' chaotic.</div>' +
+      '<div class="addrow"><input id="newEntry" maxlength="' + PT.MAXLEN + '" placeholder="Add your own ' + esc(cat.label.toLowerCase()) + ' entry" aria-label="New entry">' +
+      '<select id="newTag" aria-label="Difficulty tag"><option value="cosy">cosy</option><option value="spicy" selected>spicy</option><option value="chaotic">chaotic</option></select>' +
+      '<button class="btn pri" id="addEntry">Add</button></div><ul class="entries">';
+    list.forEach(function (e, k) {
+      html += '<li><span>' + esc(e.t) + '</span><select data-k="' + k + '" aria-label="Tag">' + PT.DIFFS.map(function (d) { return '<option' + (d === e.tag ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select>' +
+        '<button class="x" data-rm="' + k + '" aria-label="Remove entry"' + (list.length <= 1 ? ' disabled title="A list needs at least one entry"' : '') + '>' + svg('x') + '</button></li>';
+    });
+    html += '</ul><div class="btns" style="margin-top:12px"><button class="btn" id="resetOne">Reset this list to defaults</button><button class="btn warn" id="resetAll">Reset all lists</button></div></div>';
+    el.innerHTML = html;
+    el.querySelectorAll('[data-c]').forEach(function (b) { b.onclick = function () { listCat = +b.dataset.c; renderLists(); }; });
+    function edit(fn) { var l = PT.cloneLists(curLists()); fn(l[cat.id]); setLists(l); renderLists(); paintTile(); }
+    function add() {
+      var t = PT.cleanText($('newEntry').value);
+      if (!t) { toast('Type an entry first.'); return; }
+      if (list.some(function (e) { return e.t.toLowerCase() === t.toLowerCase(); })) { toast('That entry is already on the list.'); return; }
+      var tag = $('newTag').value;
+      edit(function (a) { a.unshift({ t: t, tag: tag }); }); sfx.check(true); toast('Added. List version is now ' + PT.listVersion(curLists()) + '.');
+      $('newEntry').focus();
+    }
+    $('addEntry').onclick = add;
+    $('newEntry').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    el.querySelectorAll('select[data-k]').forEach(function (s) { s.onchange = function () { var k = +s.dataset.k; edit(function (a) { a[k].tag = s.value; }); }; });
+    el.querySelectorAll('[data-rm]').forEach(function (b) { b.onclick = function () { var k = +b.dataset.rm; edit(function (a) { if (a.length > 1) a.splice(k, 1); }); sfx.soft(); }; });
+    $('resetOne').onclick = function () { confirmBox('Reset ' + cat.label + '?', 'This list goes back to the ' + DEF[cat.id].length + ' default entries.', 'Reset', function () { edit(function (a) { a.length = 0; DEF[cat.id].forEach(function (e) { a.push({ t: e.t, tag: e.tag }); }); }); toast(cat.label + ' reset.'); }); };
+    $('resetAll').onclick = function () { confirmBox('Reset all lists?', 'Every list goes back to the defaults. Saved runs keep their own text.', 'Reset all', function () { setLists(PT.cloneLists(DEF)); renderLists(); paintTile(); toast('All lists reset to defaults.'); }); };
+  }
+
+  /* ---------- keyboard ---------- */
+  function typingIn(t) { var n = t && t.tagName; return n === 'INPUT' || n === 'TEXTAREA' || n === 'SELECT' || (t && t.isContentEditable); }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeDlg(); return; } // never preventDefault or stop Escape: the host page listens for it
+    if (e.ctrlKey || e.metaKey || e.altKey || typingIn(e.target)) return;
+    if (e.key === 'm' || e.key === 'M') { toggleMute(); return; }
+    if (dlgOpen || screen !== 'deal') return;
+    if (e.key === ' ' || e.code === 'Space') { e.preventDefault(); if (!e.repeat) deal(); return; }
+    if (/^[1-7]$/.test(e.key)) { toggleLock(+e.key - 1); return; }
+    if (e.key === 'd' || e.key === 'D') { cycleDiff(); return; }
+    if (e.key === 'Enter' && (e.target === document.body || !e.target)) deal();
+  });
+  document.addEventListener('keyup', function (e) {
+    if ((e.key === ' ' || e.code === 'Space') && screen === 'deal' && !dlgOpen && !typingIn(e.target)) e.preventDefault();
+  });
+
+  /* ---------- hooks for the tests, then start ---------- */
+  var api = window.__pt = { PT: PT, store: store, deals: 0, get cur() { return cur; }, get spinning() { return !!spin; }, get screen() { return screen; }, deal: deal, finishSpin: finishSpin, drawPNG: drawPNG, preview: PREVIEW };
+
+  if (PREVIEW) {
+    document.documentElement.classList.add('preview');
+    document.body.classList.add('preview');
+    var n = 0;
+    var loop = function () {
+      n++;
+      store.diff = PT.DIFFS[n % 3];
+      // every third deal, keep one card locked so the demo shows a re-roll around it
+      cur.locks = CATS.map(function () { return false; });
+      if (cur.cards && n % 3 === 0) cur.locks[Math.floor(Math.random() * NC)] = true;
+      deal();
+      setTimeout(loop, 4300);
+    };
+    setTimeout(loop, 250);
+  } else {
+    deal();
+    if (activeRun() && location.hash === '#play') show('play');
+  }
+})();
+</script>
+</body>
+</html>

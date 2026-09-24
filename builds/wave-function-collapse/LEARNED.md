@@ -22,14 +22,8 @@ The first version drew every rotated tile twice-rotated. Thirty-six solves and ~
 
 36 solves audited pairwise against the raw sockets, a closed-form prediction of the solver's internal support counter matched to the unit, plus 23 end-to-end assertions driven only through real clicks, drags, hover and keys. Two negative controls confirm the checkers actually fail on a broken build. Receipts in _verify/RESULTS.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word:
-
-> Step-through lab for Wave Function Collapse with three tilesets sharing one solver. Picked it because I could describe WFC but could not have written the propagator, which means I did not know it. Learned that propagation is the whole algorithm, that rotating a tile is not the same as cycling its sockets, and, the expensive way, that auditing a generator's output does not audit its rendering.
-
 ## About these notes
 
-Copied word for word from the build's own record and build log. Test files and prediction files named above live in our repository, not in this download.
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.

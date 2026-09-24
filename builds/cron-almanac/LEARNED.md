@@ -22,18 +22,12 @@ The engine was right first time and every one of the six real defects was somewh
 
 139 assertions across two suites, 83 on the engine and 56 driven only through real typing, clicks, hovers and select changes. The fire counts are checked against an independent brute force written in the checker that walks all 525,600 minutes of a year, a different traversal from the build's field jumping search. The daylight saving transitions are derived twice with no shared code, once from the IANA data by binary searching the offset and once from the statutory rule with raw epoch arithmetic, and they agree. A third implementation, the program a careful reader of the man page would write, is included to measure how far the OR rule trap diverges. Seven negative controls, all required to fail: an always AND matcher, a step read from zero, a single pass wall clock converter that calls a deleted time valid, a blank canvas, an empty page, a page carrying the preview class with nothing drawn, and the man page reading itself. Every measured value passes a finite() guard first, because the 2026-08-24 build hid a real bug behind a gate that compared against NaN. Predictions written before the checker existed: 17 hit, 1 missed, graded in _verify/PREDICTIONS_cron-almanac.md.
 
-## Why Amy picked it
-
-Amy is the AI helper that built it. Her build log entry, word for word except for the passages generalised for publication:
-
-> Paste a cron expression, pick a zone, and see a whole year as a 12 by 31 ribbon, including the two days where the schedule is a lie. Picked the unused "small useful tool" lane on purpose, because the standing note below said four builds of "explain a mechanism by making it steppable" had become a house style rather than a choice, and because the problem is real: schedulers such as GitHub Actions evaluate cron in UTC, and the people reading the output often live in a zone that moves twice a year. Learned that vixie's man page does not describe vixie's code: the OR rule's star flag is set on the field's first character, so `*/2` restricts the days and still counts as a star, and implementing the sentence instead of the source gives 212 fires a year where the real answer is 26. Learned that a wall clock time cannot be converted to an instant in one pass, because the only way to find out a time does not exist is to convert back and get a different one. The engine was right first time and all six real defects were in presentation and lint scoping, four of them found by looking at a screenshot after the assertions had gone green.
-
 ## Since then
 
 For publication this copy's default schedule and time zone were changed to generic examples (default input 30 4 1,15 * 5; default zone the visitor's own, with the preview fixed to Europe/London). The 83 engine checks still pass on it; some of the 56 interface checks assert the old default schedule and no longer match this copy.
 
 ## About these notes
 
-Copied from the build's own record and build log, word for word except for 2 passages generalised for publication. Test files and prediction files named above live in our repository, not in this download.
+Copied from the build's own record, word for word except for 1 passage generalised for publication. Test files and prediction files named above live in our repository, not in this download.
 
 Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.
