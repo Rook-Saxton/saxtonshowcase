@@ -1,0 +1,1296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="robots" content="noindex, nofollow">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Guide: getting help from Lucas County DD, step by step</title>
+<style>
+:root{--ink:#1a1a1a;--bg:#ffffff;--line:#8a8a8a;--warn:#b00020;--soft:#f2f2f2;--ok:#1b5e20;--okink:#ffffff}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);margin:0 auto;padding:0 16px 48px;line-height:1.55;max-width:720px;font-size:1.0625rem}
+h1{font-size:1.6rem;margin:16px 0 8px}
+h2{font-size:1.3rem;margin:32px 0 8px;padding-top:8px;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;margin:20px 0 6px}
+.notice{border:2px solid var(--warn);padding:8px 12px;margin:12px 0}
+a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+a.go{display:inline-block;margin:4px 0;padding:10px 14px;border:2px solid var(--ok);border-radius:6px;min-height:44px;font-weight:600;text-decoration:none}
+.choose li{margin:12px 0}
+dt{font-weight:600;margin-top:12px}
+dd{margin:2px 0 8px 0}
+ul,ol{padding-left:22px}
+li{margin:6px 0}
+nav ul{list-style:none;padding-left:0}
+nav li{margin:4px 0}
+nav a{display:inline-block;min-height:44px;padding:10px 0}
+.muted{opacity:.92;font-size:.95rem}
+.phone{white-space:nowrap}
+.listen{min-height:44px;margin:4px 0 8px;padding:8px 14px;font:inherit;border-radius:6px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer}
+.text-size{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 12px}
+.text-size button{min-height:44px;padding:8px 14px;font:inherit;border-radius:6px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer}
+.text-size button[aria-pressed="true"]{background:var(--ok);color:var(--okink);border-color:var(--ok);font-weight:600}
+p,li,dd{overflow-wrap:break-word}
+textarea{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);min-height:96px}
+label{display:block;margin:12px 0 4px;font-weight:600}
+button{font:inherit;padding:10px 16px;border-radius:6px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer;min-height:44px;margin:4px 6px 4px 0}
+.skip{position:absolute;left:-10000px;top:auto}
+.skip:focus{position:static;display:inline-block;margin:8px 0;padding:10px 14px;border:2px solid var(--ink);background:var(--bg);color:var(--ink)}
+:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+.box{border:2px solid var(--line);border-radius:6px;padding:4px 14px 10px;margin:16px 0}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto !important;transition:none !important;animation:none !important}}
+@media print{.skip,nav,#advocate-notes{display:none}body{max-width:none;padding:0}a.go{border:0;padding:0}}
+/* design.css: Family Front Door's look, shared by the five pages, the guide and the web app.
+
+   Subject: families working through county disability services, often tired, often on a
+   phone, some reading with a screen reader, a magnifier or a switch. One job: get the right
+   request ready without stress. The look is the owners' brand, Saxton Showcase Daylight
+   (the owner, 2026-09-23: "my brand is the helpful colorful like in saxton showcase ... not so
+   dark and ick"): lilac paper, white cards, ink outlines, one lavender for the thing to do
+   next, candy colors only as stickers behind dark ink, soft red only for warnings, the phone's
+   own system font for everything tapped or read (the pages load nothing from outside, fonts
+   included), and a serif for the letters a family sends, so they read as letters. Every text
+   pair holds 4.5 to 1 (test_access.py computes it), every control is at least 44 pixels,
+   focus is a thick ring, motion stops when asked.
+
+   One light look on every screen, on purpose, since 2026-09-23: the pages no longer turn dark
+   when a phone is set to dark mode, and the guide says so. The old names (ink, bg, line, warn,
+   soft, ok, okink) stay so the page templates keep working. */
+:root{
+  --bg:#f7f4ff;--surface:#ffffff;--ink:#1a1540;--muted:#524a78;--line:#ddd4f5;--field:#7f73b8;
+  --ok:#6b4fd8;--okink:#ffffff;--accent-soft:#ece5ff;--soft:#efeafd;
+  --warn:#b3123a;--warn-soft:#ffe3e8;--paper:#fffefa;
+  --marigold:#ffe066;--grass:#c6f432;--pool:#22d3c5;--bubble:#ff7ac8;--tomato:#ff4f6d;
+  --marigold-soft:#fff4bf;--grass-soft:#eefbc9;--pool-soft:#d6f7f3;--bubble-soft:#ffe4f3;
+  --radius:18px;--shadow:none;
+  color-scheme:light;
+}
+
+/* ---------------------------------------------------------------- page */
+html{background:var(--bg)}
+body,#app{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:var(--ink);background:var(--bg);font-size:1.0625rem;line-height:1.55}
+body{max-width:46rem;margin:0 auto;padding-inline:16px;padding-block:0 64px}
+h1,h2,h3{line-height:1.25;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:1.875rem;margin:20px 0 6px;font-weight:750}
+h2{font-size:1.375rem;margin:28px 0 8px;font-weight:700}
+h3{font-size:1.125rem;margin:18px 0 6px;font-weight:650}
+p,li,dd{max-width:65ch}
+a{color:inherit;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:3px solid var(--ok);outline-offset:3px;border-radius:4px}
+::selection{background:var(--accent-soft)}
+
+/* the not official line: always there, calm, not an alarm */
+.notice{background:var(--warn-soft);border:0;border-left:4px solid var(--warn);border-radius:8px;
+  padding:10px 14px;margin:12px 0;font-size:.95rem;color:var(--ink)}
+.muted,.hint{color:var(--muted);opacity:1}
+
+/* ---------------------------------------------------------------- cards */
+fieldset,.help-box,#results,[id$="-results"],.card{background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 18px 20px;margin:16px 0}
+legend{float:left;width:100%;padding:0;margin:0 0 6px;font-size:1.25rem;font-weight:700}
+legend+*{clear:both}
+fieldset>*:not(legend){clear:both}
+.part{display:block;font-size:.85rem;font-weight:600;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+.help-box{background:var(--accent-soft);border-color:transparent;box-shadow:none}
+.help-box h2{margin-top:4px;font-size:1.2rem}
+.help-box ul{padding-left:20px;margin:6px 0}
+
+/* ---------------------------------------------------------------- fields */
+label{display:block;margin:16px 0 6px;font-weight:600}
+.hint{display:block;font-weight:400;font-size:.95rem;margin:2px 0 8px;line-height:1.45}
+input[type=text],input[type=date],input[type=tel],input[type=email],input[type=number],select,textarea{
+  width:100%;font:inherit;font-weight:400;color:var(--ink);background:var(--surface);
+  border:2px solid var(--field);border-radius:10px;padding:10px 12px;min-height:48px}
+input:hover,select:hover,textarea:hover{border-color:var(--ink)}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--ok);outline-offset:1px}
+[aria-invalid="true"]{border-color:var(--warn) !important;outline:3px solid var(--warn);outline-offset:1px}
+
+/* yes, no, unsure: large choices, the dot stays so the choice never rests on color alone */
+.tri{margin:18px 0 6px}
+.tri>span:first-child{display:block;font-weight:600;margin-bottom:4px}
+.tri label,.checks label{display:inline-flex;align-items:center;gap:8px;min-height:44px;margin:6px 8px 0 0;
+  padding:8px 16px 8px 12px;border:2px solid var(--field);border-radius:999px;background:var(--surface);
+  font-weight:500;cursor:pointer}
+.checks label{border-radius:10px;display:flex;margin:8px 0}
+.tri input,.checks input{width:20px;height:20px;margin:0;accent-color:var(--ok)}
+.tri label:has(input:checked),.checks label:has(input:checked){border-color:var(--ok);background:var(--accent-soft);font-weight:650}
+.tri small{display:block;color:var(--muted);font-size:.9rem;margin:2px 0 6px}
+
+/* ---------------------------------------------------------------- buttons */
+button{font:inherit;font-weight:600;min-height:48px;padding:10px 18px;margin:6px 8px 6px 0;border-radius:10px;
+  border:2px solid var(--field);background:var(--surface);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--ink)}
+button.primary,button[type=submit],.step-next{background:var(--ok);color:var(--okink);border-color:var(--ok)}
+button.primary:hover,button[type=submit]:hover,.step-next:hover{filter:brightness(1.08)}
+button[type=reset]{border-color:transparent;background:transparent;color:var(--muted);text-decoration:underline;text-underline-offset:3px}
+button[type=reset][data-armed]{color:var(--warn);border-color:var(--warn);text-decoration:none;background:var(--warn-soft)}
+.listen{min-height:44px;padding:6px 14px;font-weight:600;font-size:.95rem;border-radius:999px;border:2px solid var(--line);background:transparent;color:var(--ink)}
+.listen::before{content:"";display:inline-block;width:0;height:0;margin-right:8px;vertical-align:middle;
+  border-left:9px solid currentColor;border-top:6px solid transparent;border-bottom:6px solid transparent}
+#error,[id$="-error"],#t-error{color:var(--warn);font-weight:650}
+#error:not(:empty),[id$="-error"]:not(:empty){background:var(--warn-soft);border-radius:8px;padding:10px 14px}
+
+/* ---------------------------------------------------------------- steps */
+.stepper{margin:18px 0 4px}
+.step-count{font-weight:650;margin:0 0 6px}
+.progress{height:8px;border-radius:999px;background:var(--soft);overflow:hidden}
+.progress>span{display:block;height:100%;background:var(--ok);border-radius:999px;transition:width .25s ease}
+.stepper ol{list-style:none;padding:0;margin:10px 0 0;display:flex;flex-wrap:wrap;gap:6px}
+.stepper ol button{min-height:44px;margin:0;padding:6px 12px;font-size:.9rem;font-weight:600;border-radius:999px;border:2px solid var(--line);background:var(--surface);color:var(--muted)}
+.stepper ol button[aria-current="step"]{border-color:var(--ok);color:var(--ink);background:var(--accent-soft)}
+.stepper ol button.done{color:var(--ink)}
+.stepper ol button{display:inline-flex;align-items:center;gap:8px}
+.step-n{display:inline-grid;place-items:center;min-width:26px;height:26px;border-radius:999px;background:var(--soft);font-size:.85rem;font-weight:700}
+.stepper ol button[aria-current="step"] .step-n{background:var(--ok);color:var(--okink)}
+.stepper ol button.done .step-n{background:var(--accent-soft);color:var(--ink)}
+@media (max-width:599px){.step-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .stepper ol button{min-width:44px;justify-content:center;padding:6px}}
+.help-box h2,.view h1{border-top:0;padding-top:0}
+/* a heading the page moves focus to (the results, a part of the form) is not a control: no ring */
+h1[tabindex="-1"]:focus,h2[tabindex="-1"]:focus,legend[tabindex="-1"]:focus{outline:none}
+.has-steps .part{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.lede{font-size:1.1rem;color:var(--muted);margin:0 0 12px;max-width:55ch}
+.promise{margin:10px 0 6px}
+.help-box .examples{margin-top:12px;padding-top:12px;border-top:1px solid rgba(0,0,0,.08)}
+.help-box .examples p{margin:0 0 4px;font-weight:600}
+.help-box .examples a{background:var(--surface)}
+.step-nav{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-top:20px;padding-top:14px;border-top:1px solid var(--line)}
+.step-nav button{margin:0}
+.step-nav .step-next{margin-left:auto}
+button[type=submit].secondary{background:var(--surface);color:var(--ink);border-color:var(--field)}
+.finish-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+
+/* ---------------------------------------------------------------- results */
+#results,[id$="-results"]{border-top:4px solid var(--ok)}
+#results h2,[id$="-results"] h2{font-size:1.2rem;margin:26px 0 4px;padding-top:16px;border-top:1px solid var(--line)}
+#results h2:first-of-type,[id$="-results"] h2:first-of-type{border-top:0;padding-top:0;margin-top:6px;font-size:1.4rem}
+.result-help{margin:0 0 10px}
+.level{display:inline-block;font-size:1.15rem;font-weight:700;text-transform:capitalize;background:var(--accent-soft);
+  border:2px solid var(--ok);border-radius:999px;padding:6px 16px;margin:6px 0 10px}
+.status{display:inline-block;font-weight:700;font-size:.85rem;color:var(--ink);background:var(--soft);border-radius:999px;padding:2px 10px;margin-right:6px;white-space:nowrap}
+.status.chip-good{background:var(--accent-soft)}
+.status.chip-warn{background:var(--warn-soft);color:var(--warn)}
+.status.chip-maybe{background:var(--soft)}
+/* the guide's list of sections: a compact card */
+#toc-h,[id$="toc-h"]{margin-top:0;border-top:0;padding-top:0;font-size:1.1rem}
+nav[aria-labelledby$="toc-h"]{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin:18px 0}
+nav[aria-labelledby$="toc-h"] ul{list-style:none;padding:0;margin:0;columns:2 16rem;column-gap:24px}
+nav[aria-labelledby$="toc-h"] li{margin:0;break-inside:avoid}
+nav[aria-labelledby$="toc-h"] a{display:inline-block;padding:10px 0;min-height:44px}
+.choose li{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:10px 0;list-style:none}
+.choose{padding-left:0}
+a.go{display:inline-flex;align-items:center;min-height:44px;padding:8px 16px;margin:8px 8px 0 0;border-radius:10px;background:var(--ok);color:var(--okink);border:2px solid var(--ok);text-decoration:none;font-weight:650}
+textarea.packet{font-family:Georgia,"Iowan Old Style","Times New Roman",serif;font-size:1.02rem;line-height:1.6;
+  background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px 18px;min-height:320px;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.05)}
+table{border-collapse:collapse;width:100%;font-size:.97rem}
+th{background:var(--soft);text-align:left}
+td,th{border:1px solid var(--line);padding:8px 10px;vertical-align:top}
+.tablewrap{overflow-x:auto;margin:8px 0;border-radius:8px}
+
+/* worked examples: chips */
+.examples ul{list-style:none;padding:0;margin:6px 0 14px;display:flex;flex-wrap:wrap;gap:8px}
+.examples a{display:inline-flex;align-items:center;min-height:44px;padding:8px 14px;border:2px solid var(--line);
+  border-radius:999px;background:var(--surface);text-decoration:none;font-weight:600;font-size:.95rem}
+.examples a:hover{border-color:var(--ok)}
+
+/* text size */
+.text-size{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 12px;font-size:.95rem;color:var(--muted)}
+.text-size button{min-height:44px;margin:0;padding:6px 12px;font-size:.9rem;border-radius:999px;border:2px solid var(--line);background:var(--surface);color:var(--ink)}
+.text-size button[aria-pressed="true"]{background:var(--ok);color:var(--okink);border-color:var(--ok)}
+
+.skip{position:absolute;left:-10000px;top:auto}
+.skip:focus{position:static;display:inline-block;margin:8px 0;padding:10px 14px;border:2px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:8px}
+p,li,dd,td,.hint,legend,label{overflow-wrap:break-word}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto !important;transition:none !important;animation:none !important}}
+@media print{.skip,.help-box,.stepper,.step-nav,.listen,.text-size{display:none}fieldset[hidden]{display:block}}
+
+/* ---------------------------------------------------------------- Daylight (2026-09-23)
+   The owners' brand, Saxton Showcase Daylight, laid over the calm structure above: ink
+   outlines and a lavender shadow on the things that matter (the results, the main button),
+   candy tints on chips, a dashed slot for help. Forms stay quiet on purpose. */
+h1{font-weight:850;letter-spacing:-.03em}
+h2{font-weight:780;letter-spacing:-.02em}
+fieldset,.card{border:1.5px solid var(--line)}
+#results,[id$="-results"]{border:2px solid var(--ink);box-shadow:6px 6px 0 var(--ok)}
+.help-box{background:var(--accent-soft);border:2px dashed var(--ok)}
+button{border-radius:14px}
+button.primary,button[type=submit],.step-next{border-color:var(--ink);box-shadow:3px 3px 0 var(--ink)}
+button.primary:hover,button[type=submit]:hover,.step-next:hover{filter:none;transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+button.primary:active,button[type=submit]:active,.step-next:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+button[type=submit].secondary{box-shadow:none}
+a.go{border-color:var(--ink);border-radius:14px;box-shadow:3px 3px 0 var(--ink)}
+.level{background:var(--marigold-soft);border-color:var(--ink)}
+.status.chip-good{background:var(--grass-soft)}
+.status.chip-maybe{background:var(--marigold-soft)}
+.progress{background:var(--surface);border:1.5px solid var(--ink);height:12px}
+.stepper ol button.done .step-n{background:var(--grass);color:var(--ink)}
+.examples a:hover{border-color:var(--ink);background:var(--marigold-soft)}
+.tri label:has(input:checked),.checks label:has(input:checked){border-color:var(--ink)}
+.choose li{border:2px solid var(--ink);border-radius:18px}
+nav[aria-labelledby$="toc-h"]{border:2px solid var(--ink);border-radius:18px}
+
+</style>
+</head>
+<body>
+<a class="skip" href="#start">Skip to: which page do I need?</a>
+<main id="main">
+<h1>Getting help from Lucas County DD, step by step</h1>
+<p class="notice">This is a family's own planning tool. It is not the Lucas County Board of Developmental Disabilities, is not connected to it, and does not decide eligibility. Only the board's trained staff decide.</p>
+<p>These pages help you get ready to ask the Lucas County Board of Developmental Disabilities (Lucas DD) for help. This guide tells you which page to use, what each question means, and what to have nearby. You can read it all, or jump to the part you need.</p>
+
+<nav aria-labelledby="toc-h">
+<h2 id="toc-h">On this page</h2>
+<ul>
+<li><a href="#start">Which page do I need?</a></li>
+<li><a href="#basics">Good to know first</a></li>
+<li><a href="#upload">Can I upload papers or connect an account?</a></li>
+<li><a href="#access">Ways to make the pages easier to use</a></li>
+<li><a href="#frontdoor">Front door: ask if a person can get services</a></li>
+<li><a href="#fss">Family Support Services: help paying for what the family needs</a></li>
+<li><a href="#waitlist">Waiting list: ask for more help at home</a></li>
+<li><a href="#appeal">Appeal or complaint: when you disagree with Lucas DD</a></li>
+<li><a href="#pilot">Pilot record: tell us how it went</a></li>
+<li><a href="#words">Words you might see</a></li>
+<li><a href="#contacts">Who can help</a></li>
+<li><a href="#advocate">For the family advocate: reading the wording</a></li>
+<li><a href="#sources">Where this guide's facts come from</a></li>
+</ul>
+</nav>
+
+<h2 id="start">Which page do I need?</h2>
+<p>Pick the sentence that sounds most like you.</p>
+<ul class="choose">
+<li>"I want to find out if I, or my child, can get services from Lucas DD." This is the place to start if you are new.<br><a class="go" href="frontdoor.html">Open the front door page</a> <a href="#frontdoor" aria-label="What it asks: the front door page">What it asks</a></li>
+<li>"My child is younger than 3 and may be behind." Start with the front door page. It will point you to Help Me Grow, for Early Intervention.<br><a class="go" href="frontdoor.html">Open the front door page</a></li>
+<li>"We already get services from Lucas DD. We need help paying for something, like respite care or equipment."<br><a class="go" href="fss.html">Open the Family Support Services page</a> <a href="#fss" aria-label="What it asks: the Family Support Services page">What it asks</a></li>
+<li>"We need more help at home. We want a Medicaid waiver, or a place on the waiting list."<br><a class="go" href="waitlist.html">Open the waiting list page</a> <a href="#waitlist" aria-label="What it asks: the waiting list page">What it asks</a></li>
+<li>"Lucas DD turned down a request, or cut, paused or stopped a service. Or we have a problem with Lucas DD."<br><a class="go" href="appeal.html">Open the appeal and complaint page</a> <a href="#appeal" aria-label="What it asks: the appeal and complaint page">What it asks</a></li>
+<li>"We are in the pilot. We want to tell how it went."<br><a class="go" href="pilot.html">Open the pilot record page</a> <a href="#pilot" aria-label="What it asks: the pilot record page">What it asks</a></li>
+</ul>
+
+<h2 id="basics">Good to know first</h2>
+<ul>
+<li><b>Nothing you type leaves your phone or computer.</b> The pages have no account and save nothing. When you close a page, your answers are gone.</li>
+<li>You can skip questions. If you do not know, choose unsure. That is always fine.</li>
+<li>Each question has a short note under it that says what it means.</li>
+<li>The pages never decide anything. Only Lucas DD staff decide.</li>
+<li>The pages never send anything. You send things yourself, when you are ready.</li>
+<li>Every page has worked examples near the top. Try one first to see how it works.</li>
+<li>Save or copy your results before you close the page.</li>
+</ul>
+
+<h2 id="upload">Can I upload papers or connect an account?</h2>
+<p>No. This is on purpose. The pages cannot upload files. They do not connect to Lucas DD or to any account. This keeps your information on your own device.</p>
+<p>Here is what you can do instead:</p>
+<ul>
+<li>If the page shows a Save button, use it to save your results as a file. Then attach that file to an email you send yourself.</li>
+<li>Use the Copy button, and paste the text into an email or a letter you send.</li>
+<li>Take a photo of a paper with your phone camera, so you have it with you when you call.</li>
+<li>Lucas DD Intake has an email address: <a href="mailto:Intake@lucasdd.org">Intake@lucasdd.org</a>. We do not know yet if Intake takes papers by email. Ask when you call.</li>
+</ul>
+
+<h2 id="access">Ways to make the pages easier to use</h2>
+<p>You can use the tools already on your phone or computer. Nothing extra is needed.</p>
+<ul>
+<li><b>Bigger text.</b> Pinch the screen, or use your browser's zoom. The pages grow to fit. On iPhone, Zoom makes the whole screen bigger.</li>
+<li><b>Hear the page read out loud.</b> Turn on your phone's screen reader. On Android it is called TalkBack: open Settings, tap Accessibility, then TalkBack, then Use TalkBack. On iPhone it is called VoiceOver, and Speak Screen reads the whole screen out loud. <a href="https://www.apple.com/accessibility/vision/">Apple's accessibility page</a> describes them.</li>
+<li><b>Braille.</b> VoiceOver can show what is on the screen in braille, on a braille display.</li>
+<li><b>A keyboard instead of touch.</b> Press Tab to move to the next question. Use the arrow keys to pick a choice. Press Enter on a button. Each page starts with a link that skips to the main part of the page.</li>
+<li><b>Light screen.</b> The pages stay light, even when your phone or computer is set to dark mode. If the screen feels too bright, turn down its brightness.</li>
+<li><b>Someone beside you.</b> A family member, a friend or an advocate can fill in a page with you.</li>
+<li><b>Phone calls.</b> If you are deaf, hard of hearing, or have trouble speaking, dial 711 to use Ohio Relay (run by Hamilton Relay) for your calls to Lucas DD.</li>
+</ul>
+<p class="muted">These pages aim to meet WCAG 2.1 Level AA, the standard the Justice Department's ADA rule sets for state and local government web pages. They were checked by tests, not yet by a person using a screen reader. If something does not work for you, please tell whoever gave you these pages.</p>
+
+<h2 id="frontdoor">Front door: ask if a person can get services</h2>
+<p>Use this page to ask Lucas DD if a person can get its services. It shows which office to call, lists the papers to gather, works out the dates, and writes a message you can read on the phone or send.</p>
+<p><a class="go" href="frontdoor.html">Open this page</a></p>
+<h3>Before you start</h3>
+<ul><li>The only answer the page needs is the date of birth. You can skip anything else, or choose unsure.</li><li>It helps to have nearby: doctor, therapy or school papers, and the dates you have called or written to Lucas DD.</li><li>The page does not send anything. At the end you get a message you send yourself, if you want to.</li></ul>
+<h3>Papers that help, for age 3 and up</h3>
+<p>Lucas DD has not published its own list. These are the papers other Ohio boards ask for, and what the rule points to. Ask Intake which ones they need.</p>
+<ul><li>Proof that the person lives in Lucas County (a lease, a utility bill, an ID with the address)</li><li>Medical records that state the current diagnoses and the testing done</li><li>A psychological evaluation, if one exists (other Ohio boards require one with IQ and adaptive scores for an intellectual disability diagnosis)</li><li>School records: Evaluation Team Report or Multi-Factored Evaluation, IEP, 504 plan, if the person is or was in school</li><li>Guardianship papers (the probate court's appointment), only if a court has appointed a guardian</li><li>Signed releases of information so the board can request records for you</li><li>The eligibility letter from another Ohio county board, only if the person was found eligible there before moving</li></ul>
+<h3>What the questions mean</h3>
+<dl>
+<dt>First name (optional)</dt><dd>Only if you want it on the letter or message. You can leave it blank.
+</dd>
+<dt>Date of birth</dt><dd>The person's birthday. The page uses their age to find the right office. This is the one answer the page needs.
+</dd>
+<dt>Do they live in Lucas County?</dt><dd>Lucas DD serves people who live in Lucas County. If the person lives in another county, the page points you to that county's board.
+</dd>
+<dt>Do they live with family?</dt><dd>Does the person live at home with family? This matters for some help, like Family Support Services.
+</dd>
+<dt>Your name (optional)</dt><dd>Your name, if you want it on what you send.
+</dd>
+<dt>Your relationship to the person</dt><dd>How you know the person: parent, guardian, the person themselves, or someone else.
+</dd>
+<dt>Your phone (optional)</dt><dd>So Lucas DD can call you back. Nothing is sent from this page.
+</dd>
+<dt>Your email (optional)</dt><dd>So Lucas DD can write to you. Nothing is sent from this page.
+</dd>
+<dt>Diagnoses, separated by commas (optional)</dt><dd>Any condition a doctor or specialist has named. Use their words. You can leave it blank.
+</dd>
+<dt>Developmental delay areas an evaluator has named</dt><dd>For a child under 6 only. The areas where an evaluator said the child is behind. Use the evaluator's words.
+</dd>
+<dt>Did the disability begin before age 22?</dt><dd>Did it start before age 22? The state says a formal diagnosis before 22 is not needed. Records and history can show it.
+</dd>
+<dt>Is it expected to continue indefinitely?</dt><dd>Is it expected to last, with no end date? That is what the rule means by indefinitely.
+</dd>
+<dt>Life areas (age six and up)</dt><dd>For each everyday area, how much does the disability limit the person? Substantial means a big limit. Some means a smaller one (our plain words). If you do not know, choose unsure. Lucas DD's own assessment decides.
+<ul><li><b>self-care</b>: Taking care of yourself day to day.</li><li><b>receptive and expressive language</b>: Understanding what others say, and saying what you mean.</li><li><b>learning</b>: Learning new things.</li><li><b>mobility</b>: Moving around.</li><li><b>self-direction</b>: Making your own choices and plans.</li><li><b>capacity for independent living</b>: Being able to live on your own.</li><li><b>economic self-sufficiency</b>: Earning a living. This one counts only at age 16 and over.</li></ul><span class="muted">These are our plain words for the rule's terms. Lucas DD's assessment uses the rule's meaning.</span>
+</dd>
+<dt>Records</dt><dd>For each paper: you have it, you need help getting it, you do not know, or it does not apply. The page makes a list of what is still needed.
+</dd>
+<dt>Date you asked Centralized Intake for an eligibility determination (if you have)</dt><dd>The day you first asked Intake, if you have. Lucas DD has 45 days to decide. We count them from this day, or from the day it had every paper it asked for, whichever is later (our reading of the rule).
+</dd>
+<dt>Date the board had every record it asked for (if known)</dt><dd>The day Lucas DD told you it had every paper it asked for, if you know it.
+</dd>
+<dt>Date on a denial notice (only if you received one)</dt><dd>Only if a county board sent you a letter turning down the request. You have 90 days from that letter to appeal.
+</dd>
+<dt>Already found eligible by an Ohio county board?</dt><dd>Has a county board in Ohio already said yes to this person?
+</dd>
+<dt>Enrolled on a Medicaid waiver?</dt><dd>Does the person already get help through a Medicaid waiver? A waiver pays for support at home and in the community.
+</dd>
+<dt>As of date</dt><dd>Leave it blank to use today. Change it only to see the dates as of another day.
+</dd>
+</dl>
+<h3>What you get</h3>
+<dl><dt>Your front door</dt><dd>Where to go first: Lucas DD Intake, Help Me Grow for a child under 3, or another county's board.</dd><dt>Screen</dt><dd>A first look at your answers next to the rule. It says likely meets, unclear or unlikely. It is not a decision. Only Lucas DD decides, and all three end with the number to call.</dd><dt>Records</dt><dd>The papers to gather, and which ones you still need.</dd><dt>Dates</dt><dd>Dates the rules set, with the rule next to each one. A date marked UNVERIFIED is not confirmed, so ask about it.</dd><dt>Your packet</dt><dd>A message you can read on the phone or send. You send it yourself.</dd></dl>
+<h3>What to do next</h3>
+<ol><li>Call Centralized Intake at 419-381-8320, or email Intake@lucasdd.org. Use your packet.</li><li>For a child under 3, call Help Me Grow at 419-665-3322.</li><li>Save or copy your results before you close the page.</li></ol>
+
+<h2 id="fss">Family Support Services: help paying for what the family needs</h2>
+<p>Use this page to ask Lucas DD to help pay for things the family needs because of the disability, like respite care, equipment or changes to the home. It is for a person who lives at home with family. It writes a request you give to your Lucas DD staff person.</p>
+<p><a class="go" href="fss.html">Open this page</a></p>
+<h3>Before you start</h3>
+<ul><li>It helps to have nearby: price quotes, bills or receipts, and a note from a doctor, therapist or teacher if you have one.</li><li>Ask before you spend. The law says to apply before you buy.</li><li>You can add more than one request. You can skip anything, or choose unsure.</li></ul>
+<h3>Papers that help</h3>
+<ul><li>An itemized quote, estimate or invoice for the item or service, dated before you buy</li><li>Receipts or paid statements, after approval, for what you are asking the board to reimburse</li><li>A note from the doctor, therapist or teacher saying why the item or service is needed because of the disability</li><li>Insurance's answer (a denial, an explanation of benefits, or a note that it does not cover this), or a line saying why insurance does not apply</li><li>Income documents, if the board's policy asks for them (the board decides; ask your staff person)</li><li>Who will provide the respite care, where, and for how many hours or days</li></ul>
+<p>The board's areas: respite care, counseling, training and education, special diets, adaptive equipment, home modifications, other (only if it is in the service plan).</p>
+<h3>What the questions mean</h3>
+<dl>
+<dt>First name (optional)</dt><dd>Only if you want it on the letter or message. You can leave it blank.
+</dd>
+<dt>Date of birth</dt><dd>The person's birthday. The page uses it to work out their age.
+</dd>
+<dt>Does the family live in Lucas County?</dt><dd>This program is for families who live in Lucas County.
+</dd>
+<dt>Does the person live in the family home?</dt><dd>Family Support Services are for a person who lives at home with family.
+</dd>
+<dt>Does the person live in a residential facility under contract with the state or the board?</dt><dd>A place where the person lives that is paid under a contract with the state or a county board. If so, this program cannot pay.
+</dd>
+<dt>Your name (optional)</dt><dd>Your name, if you want it on what you send.
+</dd>
+<dt>Your relationship to the person</dt><dd>How you know the person: parent, guardian, the person themselves, or someone else.
+</dd>
+<dt>Your phone</dt><dd>So Lucas DD can call you back. Nothing is sent from this page.
+</dd>
+<dt>Your email</dt><dd>So Lucas DD can write to you. Nothing is sent from this page.
+</dd>
+<dt>Has Lucas DD found the person eligible for its services?</dt><dd>If not yet, start with the front door page.
+</dd>
+<dt>Your Lucas DD staff person's name, if you know it</dt><dd>Your staff person helps fill out and turn in the forms. If you do not know who that is, Intake can tell you: 419-381-8320.
+</dd>
+<dt>Their role</dt><dd>Service and Support Specialist, or Early Intervention Developmental Specialist.
+</dd>
+<dt>Is the person enrolled on a Medicaid waiver?</dt><dd>Say if the person is on a waiver. One old source said a waiver ends Family Support Services. That is not confirmed, so ask your staff person.
+</dd>
+<dt>Date you gave the request to your staff person (if you have)</dt><dd>The day you gave your request to your staff person, if you have.
+</dd>
+<dt>Date the board had your statement of expenses and the evidence it asked for (if known)</dt><dd>The day Lucas DD had your list of costs and the proof it asked for. By law, the board pays within 45 days after that.
+</dd>
+<dt>As of date</dt><dd>Leave it blank to use today. Change it only to see the dates as of another day.
+</dd>
+<dt>What it is</dt><dd>What you need, in plain words. For example: weekend respite care through December.
+</dd>
+<dt>Which of the board's areas</dt><dd>Pick the closest one. Other is only for something in the person's service plan.
+</dd>
+<dt>Estimated cost in dollars (your estimate)</dt><dd>Your best guess, in dollars. A price quote helps.
+</dd>
+<dt>Already paid for?</dt><dd>Did you already pay? The law says to ask before you spend, so say either way.
+</dd>
+<dt>Has insurance or another program been asked first?</dt><dd>Say if insurance or another program was asked to pay first.
+</dd>
+<dt>Needed by (optional)</dt><dd>When you need it, if there is a date.
+</dd>
+<dt>Is it in the person's service plan?</dt><dd>Is it written in the person's service plan? This matters if you picked other.
+</dd>
+<dt>Evidence for this request:</dt><dd>Papers that show the cost and the need. Mark each one: have it, need help getting it, unsure, or does not apply.
+</dd>
+</dl>
+<h3>What you get</h3>
+<dl><dt>Pre check</dt><dd>A first look at whether the program fits: ready to ask, ask first, or check with Intake. It is not a decision.</dd><dt>Your requests</dt><dd>Each request, its area, and the papers that go with it.</dd><dt>Dates</dt><dd>Dates the rules set. The end of November date is marked UNVERIFIED because it was not on the board's page. Ask your staff person.</dd><dt>Your request packet</dt><dd>What to give your staff person. You give it yourself.</dd></dl>
+<h3>What to do next</h3>
+<ol><li>Give your request packet to your Lucas DD staff person.</li><li>If you do not know who that is, call Intake at 419-381-8320 or email Intake@lucasdd.org.</li><li>Ask if there is a date this year by which requests must be in.</li></ol>
+
+<h2 id="waitlist">Waiting list: ask for more help at home</h2>
+<p>Use this page to ask Lucas DD to check whether the person needs more help at home or in the community. That check can lead to a Medicaid waiver or a place on the waiting list. You do not need to know any special words. Asking is enough.</p>
+<p><a class="go" href="waitlist.html">Open this page</a></p>
+<h3>Before you start</h3>
+<ul><li>It helps to have nearby: your Lucas DD staff person's name, and the dates you asked or talked with Lucas DD.</li><li>Give two ways to reach you, like an email and a mailing address, and keep them up to date.</li><li>The page writes a letter you send yourself. You can skip anything, or choose unsure.</li></ul>
+<h3>What the questions mean</h3>
+<dl>
+<dt>First name (optional)</dt><dd>Only if you want it on the letter or message. You can leave it blank.
+</dd>
+<dt>Date of birth</dt><dd>The person's birthday. The page uses it to work out their age.
+</dd>
+<dt>Does the person live in Lucas County?</dt><dd>The board of the county where the person lives does the check.
+</dd>
+<dt>Your name (optional)</dt><dd>Your name, if you want it on what you send.
+</dd>
+<dt>Your relationship to the person</dt><dd>How you know the person: parent, guardian, the person themselves, or someone else.
+</dd>
+<dt>Your phone</dt><dd>So Lucas DD can call you back. Nothing is sent from this page.
+</dd>
+<dt>Your email</dt><dd>Email counts as one way Lucas DD can reach you.
+</dd>
+<dt>Your mailing address</dt><dd>A second way to reach you. The rule lets a board take a name off the list if you do not answer when it tries two different ways, like email and a tracked letter. Keep your email and address up to date.
+</dd>
+<dt>Has Lucas DD found the person eligible for its services?</dt><dd>The waiting list is for people Lucas DD serves. If not yet, start with the front door page.
+</dd>
+<dt>Is a Service and Support Specialist (SSA) assigned?</dt><dd>Do you have a Lucas DD staff person, called a Service and Support Specialist?
+</dd>
+<dt>The SSA's name, if you know it</dt><dd>Your staff person's name, if you know it.
+</dd>
+<dt>Is the person already enrolled on a Medicaid waiver?</dt><dd>If yes, you can still ask about a need the waiver does not meet.
+</dd>
+<dt>Is the person already on the waiting list?</dt><dd>If yes, this asks Lucas DD to check again because things changed, or to do the yearly review.
+</dd>
+<dt>If so, the status date the board gave (optional)</dt><dd>The date Lucas DD gave for the person's place on the list, if you have it.
+</dd>
+<dt>Did the person move to Lucas County from another Ohio county while on that county's list?</dt><dd>A person on another Ohio county's list keeps their date after a move. Tell Lucas DD about the move.
+</dd>
+<dt>The unmet need, in your own words</dt><dd>What help is missing? Say it in your own words. No special words needed.
+</dd>
+<dt>Services that would meet it, separated by commas (optional)</dt><dd>Services you think would help, if you know. For example: respite, personal care hours, adult day support.
+</dd>
+<dt>Other help already tried or in place (optional)</dt><dd>Other help you have tried, or already have.
+</dd>
+<dt>Current need situations (the rule's list)</dt><dd>Mark yes if it fits. Mark unsure if you cannot say. Leave the rest. Lucas DD's check decides.
+</dd>
+<dt>Date you asked for the assessment in writing (if you have)</dt><dd>The day you asked in writing. Lucas DD must hold an interview within 15 days of that.
+</dd>
+<dt>Date of the interview (if held)</dt><dd>The check must be finished within 45 days after the interview.
+</dd>
+<dt>Date the board said the tool was completed and approved (if known)</dt><dd>The day the check was finished. A written result is due within 10 days after that.
+</dd>
+<dt>Date you received the written notice (if any)</dt><dd>The day the written result reached you.
+</dd>
+<dt>If you moved in: the date you told Lucas DD you had moved</dt><dd>If you moved in from another county: the day you told Lucas DD. It reviews the old check within 90 days.
+</dd>
+<dt>As of date</dt><dd>Leave it blank to use today. Change it only to see the dates as of another day.
+</dd>
+</dl>
+<h3>What you get</h3>
+<dl><dt>Pre check</dt><dd>A first look at the two things the rule needs: the person lives in Lucas County, and Lucas DD serves them. It is not a decision.</dd><dt>Need screen</dt><dd>Your marks next to the rule's list of needs. An immediate need means serious harm could happen within 30 days without help. A current need means help is needed within 12 months. Lucas DD's check decides.</dd><dt>Dates</dt><dd>The dates the rule sets, worked out from the dates you gave.</dd><dt>Your letter</dt><dd>The letter you send yourself. Ask Lucas DD to confirm in writing the day they got it.</dd></dl>
+<h3>What to do next</h3>
+<ol><li>Send or give the letter to your Service and Support Specialist. If you do not have one, contact Intake at 419-381-8320 or Intake@lucasdd.org.</li><li>Ask Lucas DD to confirm in writing the day they got it. The dates count from that day.</li><li>Save or copy your results before you close the page.</li></ol>
+
+<h2 id="appeal">Appeal or complaint: when you disagree with Lucas DD</h2>
+<p>Use this page if Lucas DD turned down a request for a service, cut it, paused it or stopped it, or made an eligibility decision you disagree with. You can also use it for a complaint about how things are done. It works out your time limits and writes a letter you send yourself.</p>
+<p><a class="go" href="appeal.html">Open this page</a></p>
+<h3>Before you start</h3>
+<ul><li>It helps to have the letter from Lucas DD nearby, and the date it reached you.</li><li>You have 90 days from the letter to appeal. To keep a service while you appeal, act before the day the change starts.</li><li>You can have someone help you at any time, like a friend or an advocacy group. You can skip anything, or choose unsure.</li></ul>
+<h3>What the questions mean</h3>
+<dl>
+<dt>First name (optional)</dt><dd>Only if you want it on the letter or message. You can leave it blank.
+</dd>
+<dt>Date of birth</dt><dd>The person's birthday. The page uses it to work out their age.
+</dd>
+<dt>Your name (optional)</dt><dd>Your name, if you want it on what you send.
+</dd>
+<dt>Your relationship to the person</dt><dd>How you know the person: parent, guardian, the person themselves, or someone else.
+</dd>
+<dt>Your phone</dt><dd>So Lucas DD can call you back. Nothing is sent from this page.
+</dd>
+<dt>Your email</dt><dd>So Lucas DD can write to you. Nothing is sent from this page.
+</dd>
+<dt>Your mailing address</dt><dd>Where Lucas DD can send letters.
+</dd>
+<dt>How you want the board to reach you</dt><dd>How Lucas DD should send you letters and answers.
+</dd>
+<dt>What kind of action is it?</dt><dd>What Lucas DD did: turned down a request, cut a service, paused it, stopped it, or made an eligibility decision. Or pick complaint. Not sure is fine.
+</dd>
+<dt>The service, if it is about a service</dt><dd>Which service, if it is about one.
+</dd>
+<dt>If it is an eligibility decision, what is the dispute mainly about?</dt><dd>Only for an eligibility decision. Is the problem how the assessment was done or scored, or whether the diagnosis counts?
+</dd>
+<dt>Date the notice reached you</dt><dd>The day the letter reached you. You have 90 days from then to appeal.
+</dd>
+<dt>How it reached you</dt><dd>How the letter came: email, by hand, certified mail, regular mail, or no letter at all.
+</dd>
+<dt>The effective date the notice gives (if any)</dt><dd>The day the change starts. If you appeal before this day, the service stays in place while you wait.
+</dd>
+<dt>The staff member the notice names to help with an appeal (if any)</dt><dd>If the letter names a staff person to help with an appeal, write their name.
+</dd>
+<dt>The reasons the notice gives, in its words or yours</dt><dd>Why the letter says Lucas DD did this. Your own words are fine.
+</dd>
+<dt>Why you disagree, in your own words</dt><dd>Say why you disagree, in your own words.
+</dd>
+<dt>For a complaint: what the problem is</dt><dd>For a complaint only. What is the problem?
+</dd>
+<dt>For a complaint: the date you became aware of it</dt><dd>For a complaint only. The day you found out about the problem. You have 90 days from then.
+</dd>
+<dt>Have you tried to resolve it informally with a supervisor or manager?</dt><dd>Did you try to fix it by talking with a supervisor or manager first?
+</dd>
+<dt>If so, the date that started</dt><dd>When you first talked with them about it.
+</dd>
+<dt>And the date it ended, if it has</dt><dd>When that talk ended. The rule says this step should end within 30 days.
+</dd>
+<dt>Is it about any of these? The rule sends them to other processes.</dt><dd>Some things have their own process, like school services or Medicaid services. If yours is one, the page tells you where to go.
+</dd>
+<dt>The notice, checked against the rule</dt><dd>The rule lists what the letter must say. For each item, mark whether your letter has it. Unsure is fine.
+</dd>
+<dt>An advocate who will assist you (name or organization, optional)</dt><dd>Someone who helps you, like a friend or a group. The rule says an advocate may help at any time.
+</dd>
+<dt>Might an attorney represent you at a hearing?</dt><dd>Might a lawyer speak for you at a hearing? Unsure is fine.
+</dd>
+<dt>Filed with the supervisor or manager (step one)</dt><dd>The day you filed with the supervisor or manager.
+</dd>
+<dt>Step one decision received</dt><dd>The day their answer reached you. You then have 10 days to take it to the board president.
+</dd>
+<dt>Filed with the board president (step two)</dt><dd>The day you filed with the board president. A hearing must be held within 20 days.
+</dd>
+<dt>Hearing held</dt><dd>The day of the hearing.
+</dd>
+<dt>Board decision received</dt><dd>The day the board's answer reached you.
+</dd>
+<dt>Filed with the state director (step three)</dt><dd>The day you asked the state director to look at it.
+</dd>
+<dt>Board sent the record to the director</dt><dd>The day Lucas DD sent its file to the state director, if you know it.
+</dd>
+<dt>As of date</dt><dd>Leave it blank to use today. Change it only to see the dates as of another day.
+</dd>
+</dl>
+<h3>What you get</h3>
+<dl><dt>Scope</dt><dd>Whether this process fits what happened, or whether another process does.</dd><dt>Notice check</dt><dd>What the rule says the letter must include, and what your letter seems to be missing.</dd><dt>Dates</dt><dd>Your time limits, worked out from the dates you gave, with the rule next to each one.</dd><dt>Your letter</dt><dd>The letter you send yourself. Keep a copy, and write down the day you sent it.</dd></dl>
+<h3>What to do next</h3>
+<ol><li>Send the letter, in writing, to a supervisor or manager at Lucas DD. Keep a copy.</li><li>For help: the Lucas DD ombudsman is at 419-381-5262. Arc of Ohio is at 1-800-875-2723. Disability Rights Ohio is at 1-800-282-9181.</li><li>Save or copy your results before you close the page.</li></ol>
+
+<h2 id="pilot">Pilot record: tell us how it went</h2>
+<p>For families in the pilot, after the request has gone in. A few questions about how it went. The page makes a short record you can send to the pilot partner, if you choose.</p>
+<p><a class="go" href="pilot.html">Open this page</a></p>
+<h3>Before you start</h3>
+<ul><li>It helps to have nearby: the dates you asked, when Lucas DD had your papers, and when you got the decision.</li><li>The record has no place for a name, birth date, address, diagnosis or health detail. Please keep the notes that way too.</li><li>Phone numbers and email addresses typed in a note are removed before the record is made.</li><li>You can skip anything, or choose unsure.</li></ul>
+<h3>What the questions mean</h3>
+<dl>
+<dt>Pilot code</dt><dd>The short code the pilot partner gave you. Never a name.
+</dd>
+<dt>Filled in by</dt><dd>Who is filling this in. Optional.
+</dd>
+<dt>As of date</dt><dd>Leave it blank to use today. Change it only to see the dates as of another day.
+</dd>
+<dt>Did you use the front door page or tool before the first call?</dt><dd>Did you use the front door page before you called?
+</dd>
+<dt>The door the tool showed</dt><dd>The office the front door page told you to call first.
+</dd>
+<dt>Records on the tool's list that applied to you</dt><dd>How many papers on the page's list fit your situation.
+</dd>
+<dt>Of those, how many you had in hand when the request went in</dt><dd>How many of those papers you had when you first asked.
+</dd>
+<dt>Where your first call went</dt><dd>The first office you called.
+</dd>
+<dt>Did the first call send you somewhere else?</dt><dd>Did they tell you to call a different office?
+</dd>
+<dt>How many calls it took to reach the right place</dt><dd>Count every call until you reached the right office.
+</dd>
+<dt>Where you were served in the end</dt><dd>The office that took your request in the end.
+</dd>
+<dt>Date of the request</dt><dd>The day you first asked.
+</dd>
+<dt>Date the board had everything it asked for (if you know it)</dt><dd>The day Lucas DD had every paper it asked for, if you know it.
+</dd>
+<dt>Date of the eligibility determination (if it has come)</dt><dd>The day you got Lucas DD's decision, if it has come.
+</dd>
+<dt>Did intake ask for more records after the request went in?</dt><dd>After you asked, did Intake ask you for more papers?
+</dd>
+<dt>If so, which (mark all that fit)</dt><dd>Which papers they asked for.
+</dd>
+<dt>Why intake asked, in a sentence (no health details)</dt><dd>Why they asked for more, in a sentence. No health details.
+</dd>
+<dt>What was confusing</dt><dd>Anything that was hard to understand. This helps fix the pages.
+</dd>
+<dt>What helped</dt><dd>Anything that made it easier.
+</dd>
+</dl>
+<h3>What you get</h3>
+<dl><dt>Measures</dt><dd>How it went, counted the same way for every family in the pilot.</dd><dt>Checks on the answers</dt><dd>Answers that may need a second look, like a date in the future.</dd><dt>Dates</dt><dd>The dates you gave, and the 45 day date from the rule.</dd><dt>Your record</dt><dd>The record you can send to the pilot partner, if you choose.</dd></dl>
+<h3>What to do next</h3>
+<ol><li>Save the record, or copy it into a message to the pilot partner.</li><li>You send it yourself, only if you choose.</li></ol>
+
+<h2 id="words">Words you might see</h2>
+<dl>
+<dt>Lucas DD</dt><dd>The Lucas County Board of Developmental Disabilities. It is the county agency that decides and provides services.</dd>
+<dt>Centralized Intake</dt><dd>Lucas DD's front desk for new requests, for age 3 and up. Phone 419-381-8320.</dd>
+<dt>Eligible, eligibility</dt><dd>Whether a person can get Lucas DD services. Lucas DD staff decide this. The pages never do.</dd>
+<dt>Determination</dt><dd>Lucas DD's decision about eligibility.</dd>
+<dt>Developmental disability</dt><dd>In short: a disability that started before age 22, is expected to last, and makes everyday life harder in several areas. The rule has more parts. Lucas DD staff apply it.</dd>
+<dt>Early Intervention, Help Me Grow</dt><dd>Help for children from birth to age 3 with a delay in one or more areas of development. It is free, and family income does not matter. Help Me Grow takes the referrals in Lucas County: 419-665-3322.</dd>
+<dt>Service and Support Specialist (SSA)</dt><dd>Your Lucas DD staff person. They help with forms and requests.</dd>
+<dt>Medicaid waiver</dt><dd>A program that pays for support at home and in the community. Ohio has three: Individual Options, Level One, and Self-Empowered Life Funding.</dd>
+<dt>Waiting list</dt><dd>Lucas DD's list of people waiting for a waiver.</dd>
+<dt>Family Support Services (FSS)</dt><dd>County money that helps a family pay for things needed because of the disability, for a person who lives at home with family.</dd>
+<dt>Respite care</dt><dd>Short-term care for the person, so the family can keep going or handle a planned or urgent need. It can be in or out of the home.</dd>
+<dt>Release of information</dt><dd>A form you sign so Lucas DD can ask others for records for you.</dd>
+<dt>Appeal</dt><dd>Asking for a decision to be looked at again, in writing, within 90 days of the letter.</dd>
+<dt>Complaint</dt><dd>Telling Lucas DD about a problem with a program, a service, a policy or how things are done.</dd>
+<dt>Advocate</dt><dd>Someone who helps you, like a friend, a family member or an advocacy group. The rule says an advocate may help at any time.</dd>
+<dt>Ombudsman</dt><dd>A neutral helper at Lucas DD when a family has a problem with the board. Phone 419-381-5262.</dd>
+<dt>UNVERIFIED</dt><dd>We could not confirm this on the official page. Ask before you rely on it.</dd>
+</dl>
+
+<h2 id="contacts">Who can help</h2>
+<p>On a phone, tapping a number may start a call. If it does not, dial the number shown.</p>
+<ul>
+<li><b>Lucas County Board of DD, Centralized Intake (eligibility requests, age 3 and up)</b><br>Phone: <a class="phone" href="tel:+14193818320">419-381-8320</a><br>Email: <a href="mailto:Intake@lucasdd.org">Intake@lucasdd.org</a></li>
+<li><b>Lucas County Board of DD, Administration Building</b><br>Phone: <a class="phone" href="tel:+14193804000">419-380-4000</a></li>
+<li><b>Lucas County Board of DD, Children's Department (Early Intervention and school age service coordination)</b><br>Phone: <a class="phone" href="tel:+14193804000">419-380-4000</a></li>
+<li><b>Lucas County Board of DD, report abuse or neglect</b><br>Phone: <a class="phone" href="tel:+14193815206">419-381-5206</a></li>
+<li><b>Lucas County Board of DD, after hours line</b><br>Phone: <a class="phone" href="tel:+14193805100">419-380-5100</a></li>
+<li><b>Lucas County Board of DD, ombudsman (neutral help when a family has a problem with the board)</b><br>Phone: <a class="phone" href="tel:+14193815262">419-381-5262</a></li>
+<li><b>Help Me Grow Central Intake and Referral (Early Intervention referrals for Lucas County, birth to three)</b><br>Phone: <a class="phone" href="tel:+14196653322">419-665-3322</a><br>Email: <a href="mailto:HMGreferrals@helpmegrow.org">HMGreferrals@helpmegrow.org</a></li>
+<li><b>Disability Rights Ohio, guide to complaints and appeals with a county board</b><br>Phone: <a class="phone" href="tel:+18002829181">1-800-282-9181</a></li>
+<li><b>Lucas County Board of DD, Service and Support Administration director's line</b><br>Phone: <a class="phone" href="tel:+14193804090">419-380-4090</a></li>
+<li><b>Arc of Ohio</b>, listed by Lucas DD for help with a complaint or appeal<br>Phone: <a class="phone" href="tel:+18008752723">1-800-875-2723</a></li>
+<li><b>Disability Rights Ohio</b>, listed by Lucas DD for help with a complaint or appeal<br>Phone: <a class="phone" href="tel:+18002829181">1-800-282-9181</a></li>
+<li><b>Ohio Department of Developmental Disabilities</b>, listed by Lucas DD for help with a complaint or appeal<br>Phone: <a class="phone" href="tel:+18006176733">1-800-617-6733</a></li>
+<li><b>Another county</b>: the state lists every county board. <a href="https://dodd.ohio.gov/your-family/locations/lucas">Find the county board</a>.</li>
+<li><b>Phone calls if you are deaf, hard of hearing or have trouble speaking</b>: dial 711 for Ohio Relay.</li>
+</ul>
+
+<h2 id="advocate">For the family advocate: reading the wording</h2>
+<p>Before any family uses these pages, a person who knows families should read what the pages say. That is you. What you find decides what changes.</p>
+<h3>What to read, in order</h3>
+<p>Open each worked example. Read the results and the letter or message at the bottom. Each page has a Copy button for its results.</p>
+<ol>
+<li><b>Front door: ask if a person can get services</b><ul><li><a href="frontdoor.html#example=infant-2">two year old</a></li><li><a href="frontdoor.html#example=child-4">four year old</a></li><li><a href="frontdoor.html#example=child-9">nine year old</a></li><li><a href="frontdoor.html#example=teen-14-unclear">fourteen year old</a></li><li><a href="frontdoor.html#example=adult-30">adult</a></li><li><a href="frontdoor.html#example=other-county">another county</a></li></ul></li>
+<li><b>Family Support Services: help paying for what the family needs</b><ul><li><a href="fss.html#example=respite">respite care</a></li><li><a href="fss.html#example=equipment-paid">equipment already bought, plus a ramp</a></li><li><a href="fss.html#example=unsure">unsure about most things</a></li><li><a href="fss.html#example=moved-away">family outside Lucas County</a></li></ul></li>
+<li><b>Waiting list: ask for more help at home</b><ul><li><a href="waitlist.html#example=caregiver-declining">an aging caregiver</a></li><li><a href="waitlist.html#example=losing-caregiver-adult">an adult about to lose his caregiver</a></li><li><a href="waitlist.html#example=moved-in">moved in from another county</a></li><li><a href="waitlist.html#example=unsure">unsure about most things</a></li><li><a href="waitlist.html#example=other-county">outside Lucas County</a></li></ul></li>
+<li><b>Appeal or complaint: when you disagree with Lucas DD</b><ul><li><a href="appeal.html#example=eligibility-denial">an eligibility decision</a></li><li><a href="appeal.html#example=respite-reduced">respite hours cut, short notice</a></li><li><a href="appeal.html#example=complaint-calls">a complaint about unanswered calls</a></li><li><a href="appeal.html#example=waiver-hours">waiver hours (a different process)</a></li><li><a href="appeal.html#example=unsure">unsure what happened</a></li></ul></li>
+<li><b>Pilot record: tell us how it went</b><ul><li><a href="pilot.html#example=accepted-on-time">accepted on time</a></li><li><a href="pilot.html#example=more-records-asked">intake asked for more</a></li><li><a href="pilot.html#example=sent-elsewhere">sent to Early Intervention</a></li><li><a href="pilot.html#example=still-waiting">still waiting</a></li><li><a href="pilot.html#example=longer-than-45">longer than 45 days</a></li><li><a href="pilot.html#example=unsure">unsure about most things</a></li></ul></li>
+</ol>
+<h3>What to look for</h3>
+<ul>
+<li>Does anything sound like a decision, or like a no? The pages must never decide.</li>
+<li>Would a tired parent understand each sentence the first time?</li>
+<li>Is anything cold, scary or blaming?</li>
+<li>Is anything wrong or missing, from what you know about Lucas DD?</li>
+<li>Is anything too long, or in the wrong order?</li>
+</ul>
+<h3 id="notes-h">Where to write what is wrong</h3>
+<div id="advocate-notes" role="group" aria-labelledby="notes-h">
+<p>Write your notes below, one box per page. Then copy or save them, and send them to the person who asked you to read. This page does not send anything, and your notes are gone when you close it.</p>
+<label for="note-frontdoor">Front door: ask if a person can get services</label>
+<textarea id="note-frontdoor" data-page="Front door: ask if a person can get services" rows="4"></textarea>
+<label for="note-fss">Family Support Services: help paying for what the family needs</label>
+<textarea id="note-fss" data-page="Family Support Services: help paying for what the family needs" rows="4"></textarea>
+<label for="note-waitlist">Waiting list: ask for more help at home</label>
+<textarea id="note-waitlist" data-page="Waiting list: ask for more help at home" rows="4"></textarea>
+<label for="note-appeal">Appeal or complaint: when you disagree with Lucas DD</label>
+<textarea id="note-appeal" data-page="Appeal or complaint: when you disagree with Lucas DD" rows="4"></textarea>
+<label for="note-pilot">Pilot record: tell us how it went</label>
+<textarea id="note-pilot" data-page="Pilot record: tell us how it went" rows="4"></textarea>
+<label for="note-general">Anything else</label>
+<textarea id="note-general" data-page="Anything else" rows="4"></textarea>
+<button type="button" id="notes-copy">Copy my notes</button>
+<button type="button" id="notes-save">Save my notes as a file</button>
+<p id="notes-status" role="status"></p>
+</div>
+
+<h2 id="sources">Where this guide's facts come from</h2>
+<p>Facts about Lucas DD and Ohio's rules come from the same rule file the pages use. Each rule there was read on its official page on 2026-09-22. Each page shows where every rule comes from.</p>
+<p>Other facts in this guide:</p>
+<ul>
+<li>The standard for accessible web pages that the Justice Department's ADA rule sets for state and local governments: <a href="https://www.ada.gov/resources/2024-03-08-web-rule/">https://www.ada.gov/resources/2024-03-08-web-rule/</a>, read on 2026-09-22. The page says: "WCAG 2.1, Level AA is the technical standard for state and local governments' web content and mobile apps."</li>
+<li>TalkBack, the screen reader on Android phones: <a href="https://support.google.com/accessibility/android/answer/6283677">https://support.google.com/accessibility/android/answer/6283677</a>, read on 2026-09-22. The page says: "TalkBack is the Google screen reader included on Android devices."</li>
+<li>How to turn on TalkBack: <a href="https://support.google.com/accessibility/android/answer/6007100">https://support.google.com/accessibility/android/answer/6007100</a>, read on 2026-09-22. The page says: "On your phone, open Settings. Tap Accessibility and then TalkBack. Choose Use TalkBack."</li>
+<li>VoiceOver, Zoom and Speak Screen on Apple devices: <a href="https://www.apple.com/accessibility/vision/">https://www.apple.com/accessibility/vision/</a>, read on 2026-09-22. The page says: "A screen reader that describes what's on your screen, including in braille. ... Zoom is a screen magnifier that lets you enlarge the content you see on your device. ... Hear your entire screen read aloud with Speak Screen"</li>
+<li>Ohio Relay, for callers who are deaf, hard of hearing or have trouble speaking: <a href="https://hamiltonrelay.com/ohio/">https://hamiltonrelay.com/ohio/</a>, read on 2026-09-22. The page says: "Dial 711 to use Hamilton Relay in Ohio"</li>
+</ul>
+<p class="notice">This is a family's own planning tool. It is not the Lucas County Board of Developmental Disabilities, is not connected to it, and does not decide eligibility. Only the board's trained staff decide.</p>
+</main>
+<script>
+(function () {
+  "use strict";
+  var boxes = Array.prototype.slice.call(document.querySelectorAll("#advocate-notes textarea"));
+  function notesText() {
+    var parts = ["Reading notes, " + new Date().toISOString().slice(0, 10)];
+    boxes.forEach(function (b) {
+      if (b.value.trim()) { parts.push("", b.getAttribute("data-page") + ":", b.value.trim()); }
+    });
+    return parts.join("\n");
+  }
+  var status = document.getElementById("notes-status");
+  document.getElementById("notes-copy").addEventListener("click", function () {
+    var text = notesText();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { status.textContent = "Copied. Paste it into a message you send."; },
+        function () { status.textContent = "Copy did not work here. Use Save instead."; });
+    } else { status.textContent = "Copy did not work here. Use Save instead."; }
+  });
+  function download(name, text) {
+    var blob = new Blob([text], { type: "text/plain" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+    status.textContent = "Saved as " + name + ".";
+  }
+  document.getElementById("notes-save").addEventListener("click", function () { download("reading-notes.txt", notesText()); });
+})();
+</script>
+<script>
+var PAGE = "guide";
+var HELP = {"common": {}, "pages": {}};
+/* a11y.js: plain words under every question, and the accessibility helpers every page shares.
+
+   build.py compiles this into each page after the engines, with HELP (from
+   help.json) and PAGE (which page this is). On load, and again whenever the
+   form grows (the FSS page adds request blocks), it:
+   - puts the plain words for each question right under the question, and
+     ties them to it with aria-describedby so a screen reader reads them too;
+   - marks every yes, no, unsure group as a radio group named by its question;
+   - adds the plain words for each life area on the front door;
+   - wraps tables so they scroll sideways on a small screen instead of
+     pushing the page wider;
+   - turns an engine's error into plain words, marks the field it is about
+     as invalid, ties the message to it and moves focus there;
+   - numbers the parts of the form ("Part 2 of 5");
+   - asks for a second press before "Clear everything" clears;
+   - adds Listen buttons (the device's own voice) and a text size control;
+   - shows a long form one part at a time, with progress, Back and Next.
+   A11Y.showResults() shows the results, moves focus to their first heading,
+   and scrolls without animation when the device asks for reduced motion.
+   No network, no storage.
+*/
+(function (root) {
+  "use strict";
+  var help = (typeof HELP !== "undefined" && HELP) || { common: {}, pages: {} };
+  var page = (help.pages || {})[typeof PAGE !== "undefined" ? PAGE : ""] || {};
+  var common = help.common || {};
+  var counter = 0;
+
+  // PAGE is in every id it makes, so two pages sharing one document never reuse one.
+  function nextId(prefix) { counter += 1; return prefix + "-" + (typeof PAGE !== "undefined" ? PAGE + "-" : "") + counter; }
+  function keyFor(name) { return String(name || "").replace(/^req\d+_/, "req_"); }
+
+  function exact(name) {
+    var k = keyFor(name);
+    if (page.fields && page.fields[k]) { return page.fields[k]; }
+    if (page.patterns && page.patterns[k]) { return page.patterns[k]; }
+    if (common[k]) { return common[k]; }
+    return null;
+  }
+  function pattern(name) {
+    var k = keyFor(name);
+    var keys = Object.keys(page.patterns || {});
+    for (var i = 0; i < keys.length; i++) {
+      var p = keys[i];
+      if (p.slice(-1) === "*" && k.indexOf(p.slice(0, -1)) === 0) { return { key: p, entry: page.patterns[p] }; }
+    }
+    return null;
+  }
+
+  function hintEl(text) {
+    var s = document.createElement("span");
+    s.className = "hint";
+    s.id = nextId("hint");
+    s.textContent = text;
+    return s;
+  }
+  function describe(el, id) {
+    var cur = el.getAttribute("aria-describedby");
+    el.setAttribute("aria-describedby", cur ? cur + " " + id : id);
+  }
+
+  // A pattern's plain words go once, under the heading that introduces the group. The note is
+  // kept as an element, not an id: when its block is removed (an FSS request, or a worked
+  // example refilling the form) it is placed again under the next heading, so no field is
+  // left pointing a screen reader at a note that is gone.
+  var patternDone = {};
+  function patternHint(p, form) {
+    var had = patternDone[p.key];
+    if (had && had.isConnected) { return; }
+    delete patternDone[p.key];
+    var q = p.entry.q;
+    var heads = form.querySelectorAll("h3, legend, p, span");
+    for (var i = 0; i < heads.length; i++) {
+      var h = heads[i];
+      if ((h.getAttribute("data-q-text") || h.textContent.trim()) === q && !h.getAttribute("data-hinted")) {
+        var s = hintEl(p.entry.help);
+        s.className = "hint group-hint";
+        h.parentNode.insertBefore(s, h.nextSibling);
+        h.setAttribute("data-hinted", "1");
+        patternDone[p.key] = s;
+        return;
+      }
+    }
+  }
+
+  function enhanceGroup(group, name) {
+    if (group.getAttribute("data-hinted")) { return; }
+    group.setAttribute("data-hinted", "1");
+    var q = group.querySelector("span");
+    if (q) {
+      if (!q.id) { q.id = nextId("q"); }
+      group.setAttribute("role", group.classList.contains("checks") ? "group" : "radiogroup");
+      group.setAttribute("aria-labelledby", q.id);
+    }
+    var entry = exact(name);
+    if (entry && q) {
+      var s = hintEl(entry.help);
+      q.parentNode.insertBefore(s, q.nextSibling);
+      describe(group, s.id);
+    }
+  }
+
+  function enhanceControl(el) {
+    if (el.getAttribute("data-hinted")) { return; }
+    el.setAttribute("data-hinted", "1");
+    var name = el.name;
+    var entry = exact(name);
+    if (entry && entry.required) { el.setAttribute("aria-required", "true"); }
+    var label = el.closest ? el.closest("label") : null;
+    if (entry && label) {
+      var s = hintEl(entry.help);
+      label.insertBefore(s, el);
+      describe(el, s.id);
+    }
+    if (/^lim_/.test(name) && page.areas && label) {
+      var plain = page.areas[name.slice(4)];
+      if (plain) {
+        var a = hintEl(plain);
+        label.insertBefore(a, el);
+        describe(el, a.id);
+      }
+    }
+    var p = pattern(name);
+    if (p && el.form) {
+      patternHint(p, el.form);
+      if (patternDone[p.key]) { describe(el, patternDone[p.key].id); }
+    }
+  }
+
+  function wrapTables(scope) {
+    Array.prototype.forEach.call(scope.querySelectorAll("table"), function (t) {
+      if (t.parentNode && t.parentNode.className === "tablewrap") { return; }
+      var w = document.createElement("div");
+      w.className = "tablewrap";
+      w.setAttribute("role", "region");
+      w.setAttribute("tabindex", "0");
+      var prev = t.previousElementSibling;
+      while (prev && !/^H[1-6]$/.test(prev.tagName)) { prev = prev.previousElementSibling; }
+      w.setAttribute("aria-label", (prev ? prev.textContent.trim() + ", " : "") + "table");
+      t.parentNode.insertBefore(w, t);
+      w.appendChild(t);
+    });
+  }
+
+  function enhance() {
+    var form = document.querySelector("form");
+    if (form) {
+      var seen = {};
+      Array.prototype.forEach.call(form.querySelectorAll("input, select, textarea"), function (el) {
+        if (el.type === "radio" || el.type === "checkbox") {
+          if (seen[el.name]) { return; }
+          seen[el.name] = true;
+          var group = el.closest(".tri, .checks, [role=group]");
+          if (group) { enhanceGroup(group, el.name); }
+          var p = pattern(el.name);
+          if (p) {
+            patternHint(p, form);
+            if (group && patternDone[p.key]) { describe(group, patternDone[p.key].id); }
+          }
+          return;
+        }
+        enhanceControl(el);
+      });
+    }
+    wrapTables(document);
+  }
+
+  function reducedMotion() {
+    return !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+
+  // The engines mark each check with a word in brackets ("[ok]", "[flag]", "[need]"). On the
+  // page those become plain words in a chip; the words carry the meaning, the color only helps.
+  var STATUS = { ok: ["Looks fine", "good"], flag: ["Check this", "warn"], unsure: ["Not sure yet", "maybe"],
+    have: ["Have it", "good"], need: ["Still need it", "warn"], "not applicable": ["Does not apply", "maybe"],
+    yes: ["Yes", "good"], no: ["No", "warn"] };
+  function plainStatuses(section) {
+    Array.prototype.forEach.call(section.querySelectorAll(".status"), function (s) {
+      if (s.getAttribute("data-plain")) { return; }
+      var key = s.textContent.replace(/[\[\]]/g, "").trim().toLowerCase();
+      var m = STATUS[key];
+      if (!m) { return; }
+      s.setAttribute("data-plain", key);
+      s.textContent = m[0];
+      s.classList.add("chip-" + m[1]);
+    });
+  }
+
+  function showResults(section) {
+    section.hidden = false;
+    wrapTables(section);
+    plainStatuses(section);
+    var h = section.querySelector("h2");
+    if (h) {
+      h.setAttribute("tabindex", "-1");
+      try { h.focus({ preventScroll: true }); } catch (e) { h.focus(); }
+    }
+    section.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+  }
+
+  // ---------------------------------------------------------------- errors in plain words
+  // The engines speak in field names and date formats ("person.date_of_birth is required
+  // (YYYY-MM-DD)"). help.json's errors turn each into plain words, name the field it is
+  // about, mark that field invalid, tie the message to it, and move focus there.
+  function plainError(msg) {
+    if (!msg) { return null; }
+    var list = help.errors || [];
+    for (var i = 0; i < list.length; i++) {
+      var m = new RegExp(list[i].match).exec(msg);
+      if (m) {
+        return { say: list[i].say, field: list[i].field || null,
+          value: list[i].by_value ? String(m[m.length - 1] || "") : null };
+      }
+    }
+    return { say: help.error_fallback || "Something did not work with these answers.", field: null, value: null };
+  }
+  function fieldFor(form, p) {
+    if (!form || !p) { return null; }
+    if (p.field && form.elements[p.field] && form.elements[p.field].tagName) { return form.elements[p.field]; }
+    if (p.value !== null) {
+      var dates = form.querySelectorAll("input");
+      for (var i = 0; i < dates.length; i++) { if (dates[i].value === p.value) { return dates[i]; } }
+    }
+    return null;
+  }
+  function watchErrors() {
+    var form = document.querySelector("form");
+    Array.prototype.forEach.call(document.querySelectorAll("[role=alert]"), function (el) {
+      el.setAttribute("tabindex", "-1");
+      if (!el.id) { el.id = nextId("alert"); }
+      var shown = null, marked = null;
+      function unmark() {
+        if (!marked) { return; }
+        marked.removeAttribute("aria-invalid");
+        var rest = (marked.getAttribute("aria-describedby") || "").split(/\s+/).filter(function (x) { return x && x !== el.id; });
+        if (rest.length) { marked.setAttribute("aria-describedby", rest.join(" ")); } else { marked.removeAttribute("aria-describedby"); }
+        marked = null;
+      }
+      if (!root.MutationObserver) { return; }
+      new MutationObserver(function () {
+        var text = el.textContent.trim();
+        if (!text) { unmark(); shown = null; return; }
+        if (text === shown) { return; }
+        var p = plainError(text);
+        unmark();
+        shown = p.say;
+        el.textContent = p.say;
+        var field = fieldFor(form, p);
+        if (field) {
+          if (steps) { steps.open(field); }
+          field.setAttribute("aria-invalid", "true");
+          describe(field, el.id);
+          marked = field;
+          try { field.focus(); } catch (e) { /* focus is best effort */ }
+        } else {
+          try { el.focus(); } catch (e) { /* focus is best effort */ }
+        }
+      }).observe(el, { childList: true, characterData: true, subtree: true });
+    });
+  }
+
+  // ---------------------------------------------------------------- clear, only on a second press
+  // "Clear everything" wipes every answer. One press now only asks; a second press within a
+  // few seconds clears. Nothing is lost to a slip of a finger or a switch.
+  function guardReset(form) {
+    var btn = form && form.querySelector('button[type="reset"]');
+    if (!btn || btn.getAttribute("data-guarded")) { return; }
+    btn.setAttribute("data-guarded", "1");
+    var label = btn.textContent, timer = null;
+    var say = document.createElement("span");
+    say.className = "sr-status";
+    say.setAttribute("role", "status");
+    btn.parentNode.insertBefore(say, btn.nextSibling);
+    function disarm() {
+      btn.removeAttribute("data-armed");
+      btn.textContent = label;
+      say.textContent = "";
+      if (timer) { clearTimeout(timer); timer = null; }
+    }
+    document.addEventListener("click", function (ev) {
+      if (!ev.target || (ev.target !== btn && !btn.contains(ev.target))) { return; }
+      if (btn.getAttribute("data-armed")) { disarm(); return; }
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      btn.setAttribute("data-armed", "1");
+      btn.textContent = "Press again to clear every answer";
+      say.textContent = "Press the button again to clear every answer. Otherwise nothing changes.";
+      timer = setTimeout(disarm, 8000);
+    }, true);
+    btn.addEventListener("blur", function () { if (btn.getAttribute("data-armed")) { setTimeout(disarm, 200); } });
+  }
+
+  // ---------------------------------------------------------------- where am I
+  // Each top level part of the form says "Part 2 of 5", so a person always knows how far along
+  // they are. The legend keeps its own words in data-q-text for the notes to match on.
+  function numberParts(form) {
+    if (!form) { return; }
+    var sets = Array.prototype.filter.call(form.querySelectorAll("fieldset"), function (f) { return f.parentNode === form; });
+    sets.forEach(function (f, i) {
+      var lg = f.querySelector("legend");
+      if (!lg || lg.getAttribute("data-q-text")) { return; }
+      lg.setAttribute("data-q-text", lg.textContent.trim());
+      var s = document.createElement("span");
+      s.className = "part";
+      s.textContent = "Part " + (i + 1) + " of " + sets.length + ": ";
+      lg.insertBefore(s, lg.firstChild);
+    });
+  }
+
+  // ---------------------------------------------------------------- reading help
+  // For a person who finds reading hard but does not use a screen reader: a Listen button on
+  // each part of the form, on the results, and on each section of the guide, read aloud by the
+  // device's own voice (nothing leaves the device), and a text size control. The Listen buttons
+  // appear only where the device can speak. The text size is not remembered: the pages keep
+  // nothing after they close.
+  var synth = (root.speechSynthesis && typeof root.SpeechSynthesisUtterance === "function") ? root.speechSynthesis : null;
+  var speaking = null;
+  function resetListen(b) {
+    b.textContent = "Listen";
+    b.setAttribute("aria-label", b.getAttribute("data-name"));
+  }
+  function stopSpeaking() {
+    if (synth) { synth.cancel(); }
+    if (speaking) { resetListen(speaking); speaking = null; }
+  }
+  function speakable(el) {
+    var c = el.cloneNode(true);
+    Array.prototype.forEach.call(c.querySelectorAll("select, option, button, script, style, textarea, .sr-status, [hidden]"),
+      function (n) { if (n.parentNode) { n.parentNode.removeChild(n); } });
+    var text = c.textContent.replace(/\s+/g, " ").trim();
+    Array.prototype.forEach.call(el.querySelectorAll("textarea[readonly]"), function (t) {
+      if (t.value.trim()) { text += ". " + t.value.replace(/\s+/g, " ").trim(); }
+    });
+    return text;
+  }
+  function listenButton(name, getText) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "listen";
+    b.setAttribute("data-name", name);
+    resetListen(b);
+    b.addEventListener("click", function () {
+      if (speaking === b) { stopSpeaking(); return; }
+      stopSpeaking();
+      var u = new root.SpeechSynthesisUtterance(getText());
+      u.lang = "en-US";
+      u.rate = 0.95;
+      u.onend = u.onerror = function () { if (speaking === b) { resetListen(b); speaking = null; } };
+      speaking = b;
+      b.textContent = "Stop";
+      b.setAttribute("aria-label", "Stop listening");
+      synth.speak(u);
+    });
+    return b;
+  }
+  function readingTools() {
+    textSize();
+    if (!synth) { return; }
+    var form = document.querySelector("form");
+    if (form) {
+      var sets = Array.prototype.filter.call(form.querySelectorAll("fieldset"), function (f) { return f.parentNode === form; });
+      sets.forEach(function (f, i) {
+        var lg = f.querySelector("legend");
+        if (!lg || f.getAttribute("data-listen")) { return; }
+        f.setAttribute("data-listen", "1");
+        lg.parentNode.insertBefore(listenButton("Listen to part " + (i + 1) + ": " + (lg.getAttribute("data-q-text") || lg.textContent.trim()),
+          function () { return speakable(f); }), lg.nextSibling);
+      });
+      var results = document.getElementById("results");
+      if (results && !results.getAttribute("data-listen")) {
+        results.setAttribute("data-listen", "1");
+        var first = results.querySelector("h2");
+        var after = first && first.nextElementSibling && first.nextElementSibling.classList.contains("result-help") ? first.nextElementSibling : first;
+        var lb = listenButton("Listen to your results", function () { return speakable(results); });
+        if (after) { after.parentNode.insertBefore(lb, after.nextSibling); } else { results.insertBefore(lb, results.firstChild); }
+      }
+      return;
+    }
+    // A page with no form (the guide): one Listen button per section, reading to the next heading.
+    Array.prototype.forEach.call(document.querySelectorAll("h2"), function (h) {
+      if (h.closest("nav") || h.getAttribute("data-listen")) { return; }
+      h.setAttribute("data-listen", "1");
+      h.parentNode.insertBefore(listenButton("Listen to: " + h.textContent.trim(), function () {
+        var parts = [h.textContent.trim()], n = h.nextElementSibling;
+        while (n && n.tagName !== "H2") { if (!n.classList.contains("listen")) { parts.push(speakable(n)); } n = n.nextElementSibling; }
+        return parts.join(". ");
+      }), h.nextSibling);
+    });
+  }
+  function textSize() {
+    if (typeof IN_APP !== "undefined") { return; }  // the web app has one control for every page
+    var h1 = document.querySelector("h1");
+    if (!h1 || document.querySelector(".text-size")) { return; }
+    var box = document.createElement("div");
+    box.className = "text-size";
+    box.setAttribute("role", "group");
+    box.setAttribute("aria-label", "Text size");
+    var label = document.createElement("span");
+    label.textContent = "Text size: ";
+    box.appendChild(label);
+    [["Normal", "100%"], ["Larger", "125%"], ["Largest", "150%"]].forEach(function (s, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = s[0];
+      b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+      b.addEventListener("click", function () {
+        document.documentElement.style.fontSize = s[1];
+        Array.prototype.forEach.call(box.querySelectorAll("button"), function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      });
+      box.appendChild(b);
+    });
+    h1.parentNode.insertBefore(box, h1.nextSibling);
+  }
+
+  // ---------------------------------------------------------------- one part at a time
+  // A long form is shown one part at a time: a progress bar, the list of parts (any can be
+  // opened), Back and Next on each part. Every question stays optional, so the finish button
+  // is there on every part; it is the main button only on the last. The hidden parts keep their
+  // answers, and an error opens the part that holds its field.
+  var steps = null;
+  function stepper(form) {
+    if (!form || steps) { return; }
+    var sets = Array.prototype.filter.call(form.querySelectorAll("fieldset"), function (f) { return f.parentNode === form; });
+    if (sets.length < 3) { return; }
+    function nameOf(f, i) {
+      var lg = f.querySelector("legend");
+      return lg ? (lg.getAttribute("data-q-text") || lg.textContent.trim()) : "Part " + (i + 1);
+    }
+    var nav = document.createElement("nav");
+    nav.className = "stepper";
+    nav.setAttribute("aria-label", "Parts of this form");
+    var count = document.createElement("p");
+    count.className = "step-count";
+    count.setAttribute("aria-live", "polite");
+    var bar = document.createElement("div");
+    bar.className = "progress";
+    bar.setAttribute("role", "progressbar");
+    bar.setAttribute("aria-label", "How far along");
+    bar.setAttribute("aria-valuemin", "1");
+    bar.setAttribute("aria-valuemax", String(sets.length));
+    var fill = document.createElement("span");
+    bar.appendChild(fill);
+    var list = document.createElement("ol");
+    var jumps = sets.map(function (f, i) {
+      var li = document.createElement("li");
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-label", "Part " + (i + 1) + ": " + nameOf(f, i));
+      var n = document.createElement("span");
+      n.className = "step-n";
+      n.textContent = String(i + 1);
+      var t = document.createElement("span");
+      t.className = "step-t";
+      t.textContent = nameOf(f, i);
+      b.appendChild(n);
+      b.appendChild(t);
+      b.addEventListener("click", function () { go(i, true); });
+      li.appendChild(b);
+      list.appendChild(li);
+      return b;
+    });
+    nav.appendChild(count);
+    nav.appendChild(bar);
+    nav.appendChild(list);
+    form.insertBefore(nav, sets[0]);
+    form.classList.add("has-steps");
+    sets.forEach(function (f, i) {
+      var row = document.createElement("div");
+      row.className = "step-nav";
+      if (i > 0) {
+        var back = document.createElement("button");
+        back.type = "button";
+        back.className = "step-back";
+        back.textContent = "Back";
+        back.addEventListener("click", function () { go(i - 1, true); });
+        row.appendChild(back);
+      }
+      if (i < sets.length - 1) {
+        var next = document.createElement("button");
+        next.type = "button";
+        next.className = "step-next";
+        next.textContent = "Next: " + nameOf(sets[i + 1], i + 1);
+        next.addEventListener("click", function () { go(i + 1, true); });
+        row.appendChild(next);
+      }
+      f.appendChild(row);
+    });
+    var submit = form.querySelector('button[type="submit"]');
+    function go(i, focus) {
+      sets.forEach(function (f, j) { f.hidden = j !== i; });
+      jumps.forEach(function (b, j) {
+        if (j === i) { b.setAttribute("aria-current", "step"); } else { b.removeAttribute("aria-current"); }
+        b.classList.toggle("done", j < i);
+      });
+      count.textContent = "Part " + (i + 1) + " of " + sets.length + ": " + nameOf(sets[i], i);
+      fill.style.width = Math.round((i + 1) * 100 / sets.length) + "%";
+      bar.setAttribute("aria-valuenow", String(i + 1));
+      if (submit) { submit.classList.toggle("secondary", i !== sets.length - 1); }
+      if (focus) {
+        var lg = sets[i].querySelector("legend");
+        if (lg) {
+          lg.setAttribute("tabindex", "-1");
+          try { lg.focus({ preventScroll: true }); } catch (e) { lg.focus(); }
+        }
+        nav.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+      }
+    }
+    steps = {
+      go: go,
+      open: function (el) {
+        for (var i = 0; i < sets.length; i++) { if (sets[i].contains(el)) { go(i, false); return; } }
+      }
+    };
+    form.addEventListener("reset", function () { setTimeout(function () { go(0, false); }, 0); });
+    go(0, false);
+  }
+
+  function start() {
+    numberParts(document.querySelector("form"));
+    enhance();
+    watchErrors();
+    guardReset(document.querySelector("form"));
+    stepper(document.querySelector("form"));
+    readingTools();
+    var form = document.querySelector("form");
+    if (form && root.MutationObserver) {
+      new MutationObserver(function () { enhance(); }).observe(form, { childList: true, subtree: true });
+    }
+  }
+
+  // The note a question gets: its own, else the pattern that covers it (test_page.py asks node).
+  function lookup(name) {
+    var e = exact(name);
+    if (e) { return { key: keyFor(name), help: e.help, kind: "exact" }; }
+    var p = pattern(name);
+    return p ? { key: p.key, help: p.entry.help, kind: "pattern" } : null;
+  }
+
+  root.A11Y = { showResults: showResults, plainStatuses: plainStatuses, enhance: enhance, keyFor: keyFor, lookup: lookup, plainError: plainError, stopSpeaking: stopSpeaking,
+    steps: function () { return steps; } };
+  if (typeof document === "undefined") { return; }  // node, for the tests: no page to enhance
+  if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", start); } else { start(); }
+}(typeof self !== "undefined" ? self : (typeof globalThis !== "undefined" ? globalThis : this)));
+
+</script>
+</body>
+</html>
+
