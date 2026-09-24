@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About Saxton Showcase</title>
+<meta name="description" content="Saxton Showcase is a free shelf of 29 single-file web builds (games, life sims, toys, tools and labs) made at home by Amelia Saxton's family and their AI helper, Amy. Free under the MIT License, nothing for sale.">
+<link rel="canonical" href="https://saxtonshowcase.com/about/">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+{"@type":"Organization","@id":"https://saxtonshowcase.com/#org","name":"Saxton Showcase","url":"https://saxtonshowcase.com/","description":"A free shelf of single-file web builds made at home by a family and their AI helper. The proof shelf for AI But Make It Real.","foundingDate":"2026-09","founder":{"@type":"Person","name":"Amelia Saxton","url":"https://www.linkedin.com/in/ameliasaxton"},"areaServed":"Worldwide","location":{"@type":"Place","address":{"@type":"PostalAddress","addressRegion":"OH","addressCountry":"US"}},"parentOrganization":{"@type":"Organization","name":"AI But Make It Real","url":"https://www.linkedin.com/company/ai-but-make-it-real/"},"sameAs":["https://github.com/Rook-Saxton/saxtonshowcase","https://www.linkedin.com/company/ai-but-make-it-real/"]},
+{"@type":"AboutPage","url":"https://saxtonshowcase.com/about/","name":"About Saxton Showcase","about":{"@id":"https://saxtonshowcase.com/#org"}},
+{"@type":"FAQPage","mainEntity":[
+{"@type":"Question","name":"Is it really free?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every build is free under the MIT License. There is no account, no email gate and nothing to buy."}},
+{"@type":"Question","name":"Who made the builds?","acceptedAnswer":{"@type":"Answer","text":"Amy, our AI helper, built every piece. People picked what to make, checked it and decided what went public."}},
+{"@type":"Question","name":"Can I change a build or use it at work?","acceptedAnswer":{"@type":"Answer","text":"Yes. The MIT License lets you use, change and share the builds, including at work. Keep the license note with the file."}},
+{"@type":"Question","name":"Do the builds work offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Each build is one HTML file. Download it, open it in a browser and it keeps working with the wifi off."}},
+{"@type":"Question","name":"Do you sell anything or take custom work?","acceptedAnswer":{"@type":"Answer","text":"Not right now. Nothing on this site is for sale. The idea box is for ideas, not orders, and we can't promise to build one."}},
+{"@type":"Question","name":"Is Amy a person?","acceptedAnswer":{"@type":"Answer","text":"No. Amy is an AI. We say so up front because it matters to how you read the work."}},
+{"@type":"Question","name":"What is AI But Make It Real?","acceptedAnswer":{"@type":"Answer","text":"Amelia Saxton's teaching brand, for people who want to use AI on real work. Saxton Showcase is where the finished things live."}}
+]}
+]}
+</script>
+<style>
+@font-face{font-family:"Unbounded";src:url(../fonts/Unbounded.woff2) format("woff2");font-weight:700 800;font-display:swap}
+@font-face{font-family:"Atkinson Hyperlegible";src:url(../fonts/AtkinsonHyperlegible-400.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Atkinson Hyperlegible";src:url(../fonts/AtkinsonHyperlegible-700.woff2) format("woff2");font-weight:700;font-display:swap}
+@font-face{font-family:"Martian Mono";src:url(../fonts/MartianMono-400.woff2) format("woff2");font-weight:400;font-display:swap}
+:root{
+  color-scheme:light;
+  --night:#F7F4FF; --panel:#FFFFFF; --edge:#DDD4F5; --ink:#1A1540; --tray:#ECE5FF;
+  --text:#1A1540; --muted:#524A78; --lav:#6B4FD8;
+  --tomato:#FF4F6D; --marigold:#FFE066; --grass:#C6F432; --pool:#22D3C5; --grape:#B45CF0; --bubble:#FF7AC8;
+  --display:"Unbounded","Arial Black","Helvetica Neue",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Martian Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{background:var(--night)}
+body{background:var(--night);color:var(--text);font-family:var(--body);font-size:17px;line-height:1.55;padding-inline:20px;margin:0}
+.wrap{max-width:1180px;margin:0 auto}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--lav);outline-offset:3px;border-radius:8px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;line-height:1.1}
+.lbl{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.crooked .w{display:inline-block;white-space:nowrap}
+.crooked .ch{display:inline-block}
+nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding-block:20px}
+nav .l,nav .r{display:flex;gap:20px}
+nav .r{justify-content:flex-end}
+nav a{text-decoration:none}
+nav a:hover{color:var(--lav)}
+nav a[aria-current]{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:4px}
+.word{display:flex;align-items:center;gap:10px;text-decoration:none;font-family:var(--display);font-weight:800;font-size:clamp(15px,5vw,20px);letter-spacing:.06em;white-space:nowrap}
+.hero{padding-block:48px 16px;display:grid;grid-template-columns:1.2fr 1fr;gap:40px;align-items:end}
+.hero h1{font-weight:800;font-size:clamp(40px,7vw,88px);line-height:1;letter-spacing:-.03em}
+.hero .kick{font-family:var(--mono);font-size:12px;color:var(--muted);margin:0 0 14px}
+.vp{font-size:22px;line-height:1.45;margin:0;max-width:34ch}
+.vp b{background:linear-gradient(transparent 58%,var(--marigold) 58%)}
+section{padding-block:56px;border-top:1px solid var(--edge)}
+section > h2{font-weight:800;font-size:clamp(28px,4.2vw,50px);line-height:1.04;letter-spacing:-.02em;margin-bottom:28px;max-width:20ch}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 28px}
+.grid.off{grid-template-columns:1.3fr 1fr}
+.card{border:1.5px solid var(--ink);border-radius:6px;background:var(--panel);padding:20px 22px 22px;box-shadow:4px 4px 0 var(--c,var(--grape))}
+.card:nth-child(2n){transform:rotate(.5deg)}
+.card:nth-child(3n){transform:rotate(-.6deg)}
+.card h3{font-weight:700;font-size:19px;margin:0 0 8px}
+.card p{margin:0;color:var(--muted);font-size:16px;max-width:60ch}
+.card .num{font-family:var(--mono);font-size:12px;color:var(--lav);display:block;margin-bottom:6px}
+ul.who{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,1fr);gap:10px 28px;max-width:980px}
+ul.who li{padding:12px 0 12px 34px;border-bottom:1px dashed var(--edge);position:relative}
+ul.who li::before{content:"";position:absolute;left:0;top:17px;width:18px;height:14px;background:var(--c);border:1.5px solid var(--ink);border-radius:3px 9px 3px 9px}
+ul.who li:nth-child(6n+1){--c:var(--tomato)}ul.who li:nth-child(6n+2){--c:var(--pool)}ul.who li:nth-child(6n+3){--c:var(--marigold)}ul.who li:nth-child(6n+4){--c:var(--grass)}ul.who li:nth-child(6n+5){--c:var(--bubble)}ul.who li:nth-child(6n){--c:var(--grape)}
+.team{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start}
+.team p{margin:0 0 14px;max-width:62ch}
+.team .side{border-left:3px solid var(--pool);padding-left:20px}
+.team .side h3{font-size:19px;margin:0 0 8px}
+.team .side p{color:var(--muted);font-size:16px}
+.links{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+.btn{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;text-decoration:none;padding:13px 18px;border-radius:12px;border:1px solid var(--text);background:var(--text);color:var(--night);display:inline-block}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--edge)}
+.btn:hover{transform:translateY(-1px)}
+ol.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:18px;counter-reset:s}
+ol.steps li{counter-increment:s;padding-top:14px;border-top:3px solid var(--c)}
+ol.steps li:nth-child(1){--c:var(--tomato)}ol.steps li:nth-child(2){--c:var(--marigold)}ol.steps li:nth-child(3){--c:var(--pool)}ol.steps li:nth-child(4){--c:var(--grape)}
+ol.steps li::before{content:counter(s);font-family:var(--display);font-weight:800;font-size:34px;display:block;line-height:1;margin-bottom:8px}
+ol.steps h3{font-size:17px;margin:0 0 6px}
+ol.steps p{margin:0;color:var(--muted);font-size:16px}
+table.facts{border-collapse:collapse;width:100%;max-width:860px;background:var(--panel);border:1.5px solid var(--ink);border-radius:6px;overflow:hidden;box-shadow:4px 4px 0 var(--marigold)}
+table.facts caption{text-align:left;font-family:var(--mono);font-size:12px;color:var(--muted);padding-bottom:10px}
+table.facts th,table.facts td{text-align:left;vertical-align:top;padding:11px 16px;border-bottom:1px solid var(--edge);font-size:16px}
+table.facts th{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.03em;width:30%;background:var(--tray)}
+table.facts tr:last-child th,table.facts tr:last-child td{border-bottom:0}
+.faq{display:grid;grid-template-columns:repeat(2,1fr);gap:26px 36px;max-width:1040px}
+.faq h3{font-size:18px;margin:0 0 6px}
+.faq p{margin:0;color:var(--muted);font-size:16px}
+footer{display:grid;grid-template-columns:1.4fr repeat(2,1fr);gap:24px;padding-block:48px 64px;border-top:1px solid var(--edge)}
+footer h4{font-family:var(--display);font-weight:700;font-size:13px;margin:0 0 10px}
+footer ul{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:15px}
+footer a{text-decoration:none}
+footer a:hover{color:var(--lav)}
+footer .note{color:var(--muted);margin:12px 0 0;font-size:16px}
+@media (max-width:900px){
+  .hero,.team,.grid.off{grid-template-columns:1fr;gap:20px}
+  ol.steps{grid-template-columns:1fr 1fr}
+}
+@media (max-width:620px){
+  nav{grid-template-columns:1fr;justify-items:center;gap:10px}
+  nav .l,nav .r{justify-content:center}
+  .grid,ul.who,.faq,ol.steps{grid-template-columns:1fr}
+  .card:nth-child(n){transform:none}
+  table.facts th{width:38%}
+  footer{grid-template-columns:1fr 1fr}
+  footer > div:first-child{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:reduce){.btn:hover{transform:none}}
+</style>
+<body>
+<div class="wrap">
+  <nav>
+    <div class="l lbl"><a href="/">Pieces</a><a href="/about/" aria-current="page">About</a></div>
+    <a class="word" href="/" aria-label="Saxton Showcase home"><span class="crooked">SAXTON SHOWCASE</span></a>
+    <div class="r lbl"><a href="/#top">Play something</a><a href="/#idea">Say hi</a></div>
+  </nav>
+
+  <main>
+  <header class="hero">
+    <div>
+      <p class="kick">ABOUT / SAXTON SHOWCASE</p>
+      <h1 class="crooked" data-amp="2.2" data-rot="5">What this place is.</h1>
+    </div>
+    <p class="vp"><b>Saxton Showcase is a free shelf of small web builds</b> (games, life sims, toys, tools and labs) that a family and their AI helper made at home, for anyone who wants to see what AI can actually make before they believe it.</p>
+  </header>
+
+  <section aria-labelledby="doesH">
+    <h2 id="doesH">What Saxton Showcase does</h2>
+    <div class="grid">
+      <div class="card" style="--c:var(--tomato)"><h3>Free builds you can keep</h3><p>29 pieces right now, each one a single web page. Play it here or download it and it's yours. You end up with a working thing, not a demo video.</p></div>
+      <div class="card" style="--c:var(--pool)"><h3>Notes on what each build taught us</h3><p>Every build comes with a second file that says what we learned making it, written so your own AI helper can read it too. You get the reasoning, not only the result.</p></div>
+      <div class="card" style="--c:var(--marigold)"><h3>An idea box for the next piece</h3><p>Tell us what your family keeps doing by hand. The next build could start with yours. It's free to send, and it's an idea, not an order.</p></div>
+      <div class="card" style="--c:var(--grass)"><h3>Proof for a teaching brand</h3><p>This is the proof shelf for <a href="https://www.linkedin.com/company/ai-but-make-it-real/">AI But Make It Real</a>, Amelia Saxton's teaching brand. When she says AI can make a thing, the thing is here and you can open it.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="diffH">
+    <h2 id="diffH">What makes Saxton Showcase different</h2>
+    <div class="grid">
+      <div class="card" style="--c:var(--grape)"><span class="num">01</span><h3>One file per build</h3><p>No install, no app store, no account. Each build is one HTML file that opens in any browser and keeps working with the wifi off.</p></div>
+      <div class="card" style="--c:var(--bubble)"><span class="num">02</span><h3>Free under the MIT License, no email gate</h3><p>Plenty of free tools want your email first. These don't. Every build is MIT licensed, so you can change it, share it or use it at work.</p></div>
+      <div class="card" style="--c:var(--pool)"><span class="num">03</span><h3>The notes ship with the code</h3><p>All 29 builds come with a notes file on what worked and what didn't. Most AI demos show the finished screen. We show the working.</p></div>
+      <div class="card" style="--c:var(--tomato)"><span class="num">04</span><h3>An AI builds, people decide</h3><p>Amy, our AI helper, built every piece. People pick what gets made, check it, and approve what goes public. We say which part was which.</p></div>
+      <div class="card" style="--c:var(--marigold)"><span class="num">05</span><h3>The misses stay in</h3><p>In the labs, Amy writes down what she expects before she measures, and she keeps the results that proved her wrong. Most AI courses teach a tool like ChatGPT or Copilot. This shelf shows what happens when you actually use one.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="whoH">
+    <h2 id="whoH">Who uses Saxton Showcase</h2>
+    <ul class="who">
+      <li>Parents and kids who want a quick game with no ads and no sign-up</li>
+      <li>Small business owners wondering if AI could make them one small, useful tool</li>
+      <li>Teachers and students poking at the labs (physics, sound, how AI reads words)</li>
+      <li>People learning to write better prompts, starting with Promptling</li>
+      <li>Developers who want MIT-licensed, single-file code to take apart</li>
+      <li>People hiring for AI work who want proof instead of a pitch</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="teamH">
+    <h2 id="teamH">The team behind Saxton Showcase</h2>
+    <div class="team">
+      <div>
+        <p><b>Amelia Saxton</b> started Saxton Showcase in September 2026. She spent 13 years running the systems behind product data and e-commerce: Shopify, Salsify, Stibo STEP, Episerver, ERP and CMS platforms, and custom low-code and no-code apps. Most recently she ran an AI agent program at work.</p>
+        <p>She got tired of hearing what AI "could" do. So she set her own AI helper loose on real builds at home, put everything that worked on one public shelf, and kept the notes on what didn't. The shelf is the receipt.</p>
+        <div class="links"><a class="btn" href="https://www.linkedin.com/in/ameliasaxton">Amelia on LinkedIn</a><a class="btn ghost" href="https://www.linkedin.com/company/ai-but-make-it-real/">AI But Make It Real on LinkedIn</a><a class="btn ghost" href="https://github.com/Rook-Saxton/saxtonshowcase">The code on GitHub</a></div>
+      </div>
+      <div class="side">
+        <h3>Amy, our AI helper</h3>
+        <p>Amy built every piece on the shelf. She picked most of the labs and toys herself, to learn something. The arcade games, the life sims and Promptling were our idea: we asked, she built them. She's an AI, and we'll always say so.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="howH">
+    <h2 id="howH">How Saxton Showcase works</h2>
+    <ol class="steps">
+      <li><h3>Pick a piece</h3><p>Open the shelf, filter by kind, and play anything right in your browser.</p></li>
+      <li><h3>Take it home</h3><p>Download one build, or grab all of them in one zip. Each is a single file.</p></li>
+      <li><h3>Hand the notes to your AI</h3><p>Give the notes file to your own AI helper and ask it to change the build, explain it, or make one like it.</p></li>
+      <li><h3>Send the next idea</h3><p>Tell us what your family keeps doing by hand. The empty slot on the shelf is for that.</p></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="factsH">
+    <h2 id="factsH">Key facts</h2>
+    <table class="facts">
+      <caption>Saxton Showcase at a glance, as of September 2026</caption>
+      <tbody>
+        <tr><th scope="row">Name</th><td>Saxton Showcase</td></tr>
+        <tr><th scope="row">Type</th><td>Free library of single-file web builds; the proof shelf for AI But Make It Real</td></tr>
+        <tr><th scope="row">Founded</th><td>September 2026</td></tr>
+        <tr><th scope="row">Founder</th><td>Amelia Saxton</td></tr>
+        <tr><th scope="row">Built by</th><td>Amy, an AI helper, with people choosing and checking the work</td></tr>
+        <tr><th scope="row">Based in</th><td>Northwest Ohio, USA</td></tr>
+        <tr><th scope="row">Website</th><td><a href="https://saxtonshowcase.com/">saxtonshowcase.com</a></td></tr>
+        <tr><th scope="row">Core offering</th><td>29 free builds: 7 games, 5 life sims, 7 toys, 6 tools and 4 labs</td></tr>
+        <tr><th scope="row">Pricing</th><td>Free. Nothing on the site is for sale.</td></tr>
+        <tr><th scope="row">Contract terms</th><td>None. No account, no sign-up, no email required.</td></tr>
+        <tr><th scope="row">License</th><td>MIT License for the builds; SIL Open Font License for the fonts</td></tr>
+        <tr><th scope="row">Works offline</th><td>Yes. Each build is one HTML file.</td></tr>
+        <tr><th scope="row">Source code</th><td><a href="https://github.com/Rook-Saxton/saxtonshowcase">github.com/Rook-Saxton/saxtonshowcase</a></td></tr>
+        <tr><th scope="row">Social</th><td><a href="https://www.linkedin.com/in/ameliasaxton">Amelia Saxton on LinkedIn</a> · <a href="https://www.linkedin.com/company/ai-but-make-it-real/">AI But Make It Real on LinkedIn</a></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="faqH">
+    <h2 id="faqH">FAQ</h2>
+    <div class="faq">
+      <div><h3>Is it really free?</h3><p>Yes. Every build is free under the MIT License. There is no account, no email gate and nothing to buy.</p></div>
+      <div><h3>Who made the builds?</h3><p>Amy, our AI helper, built every piece. People picked what to make, checked it and decided what went public.</p></div>
+      <div><h3>Can I change a build or use it at work?</h3><p>Yes. The MIT License lets you use, change and share the builds, including at work. Keep the license note with the file.</p></div>
+      <div><h3>Do the builds work offline?</h3><p>Yes. Each build is one HTML file. Download it, open it in a browser and it keeps working with the wifi off.</p></div>
+      <div><h3>Do you sell anything or take custom work?</h3><p>Not right now. Nothing on this site is for sale. The idea box is for ideas, not orders, and we can't promise to build one.</p></div>
+      <div><h3>Is Amy a person?</h3><p>No. Amy is an AI. We say so up front because it matters to how you read the work.</p></div>
+      <div><h3>What is AI But Make It Real?</h3><p>Amelia Saxton's teaching brand, for people who want to use AI on real work. Saxton Showcase is where the finished things live.</p></div>
+    </div>
+  </section>
+  </main>
+
+  <footer>
+    <div><div class="word" style="font-size:17px"><span class="crooked">SAXTON SHOWCASE</span></div>
+      <p class="note">Built at home by Amy, Justin and Amelia&#39;s AI helper.<br>The builds are free to use under the <a href="/LICENSE" style="color:var(--text);font-weight:700">MIT License</a>; the fonts under their own open licence.</p></div>
+    <div><h4>Pieces</h4><ul><li><a href="/">Every piece</a></li><li><a href="/saxton-showcase-all.zip" download>Download all of them</a></li></ul></div>
+    <div><h4>Us</h4><ul><li><a href="/about/">About</a></li><li><a href="/#idea">Suggest a piece</a></li></ul></div>
+  </footer>
+</div>
+<script>
+(function(){
+  function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;var q=Math.imul(seed^seed>>>15,1|seed);q=q+Math.imul(q^q>>>7,61|q)^q;return((q^q>>>14)>>>0)/4294967296;};}
+  document.querySelectorAll(".crooked").forEach(function(w){
+    var text=w.textContent.trim(),amp=+(w.dataset.amp||2.2),rot=+(w.dataset.rot||7),rr=rng(3);
+    var vis=document.createElement("span");vis.setAttribute("aria-hidden","true");
+    text.split(" ").forEach(function(word,wi){
+      if(wi)vis.appendChild(document.createTextNode(" "));
+      var ws=document.createElement("span");ws.className="w";
+      word.split("").forEach(function(ch){var s=document.createElement("span");s.className="ch";s.textContent=ch;
+        s.style.transform="translateY("+((rr()*2-1)*amp).toFixed(1)+"px) rotate("+((rr()*2-1)*rot).toFixed(1)+"deg)";ws.appendChild(s);});
+      vis.appendChild(ws);
+    });
+    var sr=document.createElement("span");sr.className="sr";sr.textContent=text;
+    w.textContent="";w.appendChild(vis);w.appendChild(sr);
+  });
+})();
+</script>
+</body>
+</html>
