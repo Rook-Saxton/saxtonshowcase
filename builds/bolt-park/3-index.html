@@ -1,0 +1,1617 @@
+<!doctype html>
+<!--
+Saxton Showcase build. Copyright (c) 2026 Amelia Saxton. Released under the MIT License:
+
+Copyright (c) 2026 Amelia Saxton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bolt Park</title>
+<style>
+:root{
+  --ink:#2b2340;
+  --paper:#f3edfd;
+  --lilac:#e7ddfa;
+  --lilac-deep:#b9a6ec;
+  --shadow:#a48fe3;
+  --mint:#7fe0c3;
+  --mint-deep:#3fbf99;
+  --sky:#7cc8f7;
+  --sky-deep:#3a9ee0;
+  --tangerine:#ff9f5a;
+  --tangerine-deep:#e67a30;
+  --lemon:#ffe066;
+  --lemon-deep:#e5bf2e;
+  --pink:#ff9ec7;
+  --cream:#fffdf7;
+  --grey:#cfc7e0;
+  --screen:#2b2340;
+  --font:"Fredoka","Baloo 2",ui-rounded,"SF Pro Rounded","Nunito","Segoe UI Rounded",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+html,body{height:100%;margin:0;padding:0}
+body{
+  background:var(--paper);color:var(--ink);font-family:var(--font);
+  overflow:hidden;overscroll-behavior:none;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;
+}
+*{box-sizing:border-box}
+.app{height:100%;display:flex;flex-direction:column;overflow:hidden}
+.topbar{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  padding:calc(8px + env(safe-area-inset-top,0px)) calc(12px + env(safe-area-inset-right,0px)) 8px calc(12px + env(safe-area-inset-left,0px));
+  background:var(--paper);
+}
+.brand{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto}
+.brand svg{flex:0 0 auto;width:40px;height:40px}
+.brand h1{margin:0;font-size:26px;font-weight:700;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+.topbtns{display:flex;gap:8px;flex:0 0 auto;max-width:100%;overflow-x:auto;scrollbar-width:none;touch-action:pan-x;padding:2px 6px 8px 2px}
+.topbtns::-webkit-scrollbar,.tools::-webkit-scrollbar{display:none}
+.stage{
+  position:relative;flex:1 1 auto;min-height:0;overflow:hidden;touch-action:none;
+  background:
+    radial-gradient(circle at 2px 2px, rgba(43,35,64,.10) 1.6px, transparent 2.2px) 0 0/24px 24px,
+    var(--lilac);
+  border-top:3px solid var(--ink);border-bottom:3px solid var(--ink);
+}
+#park{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+.hint{
+  position:absolute;top:10px;left:50%;transform:translateX(-50%);
+  max-width:calc(100% - 24px);text-align:center;
+  background:var(--cream);border:2.5px solid var(--ink);border-radius:20px;
+  padding:6px 16px;font-weight:600;font-size:15px;line-height:1.25;
+  box-shadow:3px 4px 0 var(--shadow);pointer-events:none;opacity:0;
+  transition:opacity .25s ease;
+}
+.hint.show{opacity:1}
+.tools{
+  flex:0 0 auto;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x;
+  background:var(--paper);
+  padding:10px calc(10px + env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) calc(10px + env(safe-area-inset-left,0px));
+}
+.row{display:flex;gap:9px;align-items:center;width:max-content;margin:0 auto;padding:0 4px 4px 0}
+.sep{width:0;height:44px;border-left:3px dotted var(--lilac-deep);margin:0 3px;flex:0 0 auto}
+.btn{
+  appearance:none;-webkit-appearance:none;flex:0 0 auto;
+  min-width:62px;height:64px;padding:5px 7px 4px;margin:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  background:var(--cream);color:var(--ink);
+  border:2.5px solid var(--ink);border-radius:17px;
+  box-shadow:3px 4px 0 var(--shadow);
+  font:600 12.5px/1 var(--font);letter-spacing:.2px;cursor:pointer;
+  touch-action:manipulation;transition:transform .08s ease, box-shadow .08s ease, background-color .12s ease;
+}
+.btn svg{width:32px;height:32px;display:block;pointer-events:none}
+.btn span{pointer-events:none;white-space:nowrap}
+.btn:active{transform:translate(2px,3px);box-shadow:1px 1px 0 var(--shadow)}
+.btn[aria-pressed="true"]{background:var(--lemon);transform:translate(2px,3px);box-shadow:1px 1px 0 var(--shadow)}
+.btn.small{min-width:56px;height:56px}
+.btn.small svg{width:28px;height:28px}
+.btn.confirm{background:var(--tangerine)}
+.btn:focus{outline:none}
+.btn:focus-visible{outline:3px solid var(--sky-deep);outline-offset:3px}
+.btn .off{display:none}
+.btn.muted .on{display:none}
+.btn.muted .off{display:block}
+.btn .gravity-icon{display:none}
+.btn .gravity-icon.cur{display:block}
+@media (max-width:460px){
+  .brand h1{font-size:18px}
+  .brand svg{width:30px;height:30px}
+  .brand{gap:5px}
+  .topbar{gap:6px;padding-left:calc(10px + env(safe-area-inset-left,0px));padding-right:calc(8px + env(safe-area-inset-right,0px))}
+  .topbtns{gap:6px;padding-right:4px}
+  .btn.small{min-width:50px;padding-left:4px;padding-right:4px;font-size:11.5px}
+  .hint{font-size:14px;padding:5px 12px}
+}
+@media (max-width:360px){ .brand h1{display:none} }
+@media (max-height:520px){
+  .topbar{padding-top:calc(4px + env(safe-area-inset-top,0px));padding-bottom:4px}
+  .brand h1{font-size:19px}
+  .brand svg{width:30px;height:30px}
+  .btn{height:52px;min-width:54px;font-size:11px}
+  .btn svg{width:26px;height:26px}
+  .btn.small{height:50px;min-width:50px}
+  .btn.small svg{width:24px;height:24px}
+  .tools{padding-top:6px;padding-bottom:calc(6px + env(safe-area-inset-bottom,0px))}
+  .sep{height:36px}
+}
+@media (prefers-reduced-motion:reduce){
+  .btn,.hint{transition:none}
+}
+/* ?preview=1: the park alone, playing itself, for the showcase's small frame */
+html.preview .topbar,html.preview .tools,html.preview .hint{display:none}
+html.preview .stage{border:0}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <line x1="20" y1="9" x2="20" y2="3.5" stroke="#2b2340" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="20" cy="4" r="3.2" fill="#ffe066" stroke="#2b2340" stroke-width="2"/>
+        <rect x="5" y="9" width="30" height="26" rx="8" fill="#7cc8f7" stroke="#2b2340" stroke-width="2.6"/>
+        <rect x="10" y="14" width="20" height="16" rx="4" fill="#2b2340"/>
+        <circle cx="15.5" cy="20" r="2" fill="#7fe0c3"/><circle cx="24.5" cy="20" r="2" fill="#7fe0c3"/>
+        <path d="M15.5 24.5q4.5 3.5 9 0" fill="none" stroke="#7fe0c3" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <h1>Bolt Park</h1>
+    </div>
+    <div class="topbtns" role="group" aria-label="Park settings">
+      <button class="btn small" id="gravityBtn" type="button" aria-label="Gravity: Earth">
+        <svg class="gravity-icon cur" data-g="0" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="#7cc8f7" stroke="#2b2340" stroke-width="2.4"/><path d="M9 12c3-2 5 1 7 0s2-4 5-3c1 2-1 4-3 5s-1 4-4 4-3-3-5-2zM17 22c2-1 4 0 5 1-1 2-4 3-6 2z" fill="#7fe0c3" stroke="#2b2340" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <svg class="gravity-icon" data-g="1" viewBox="0 0 32 32" aria-hidden="true"><path d="M20 5a11 11 0 1 0 7 17A9 9 0 0 1 20 5z" fill="#ffe066" stroke="#2b2340" stroke-width="2.4" stroke-linejoin="round"/><circle cx="12" cy="18" r="1.8" fill="#e5bf2e"/><circle cx="15" cy="24" r="1.3" fill="#e5bf2e"/></svg>
+        <svg class="gravity-icon" data-g="2" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="12" rx="8" ry="9" fill="#ff9ec7" stroke="#2b2340" stroke-width="2.4"/><path d="M16 21l-2 3h4z" fill="#ff9ec7" stroke="#2b2340" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 24c-2 2 2 3 0 6" fill="none" stroke="#2b2340" stroke-width="1.8" stroke-linecap="round"/><path d="M12 8q2-2 4-2" stroke="#fffdf7" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        <span id="gravityLabel">Earth</span>
+      </button>
+      <button class="btn small" id="slowBtn" type="button" aria-pressed="false" aria-label="Slow motion">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3 25h20c3 0 5-2 6-5l-3-1c-1 2-2 3-3 3" fill="#7fe0c3" stroke="#2b2340" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="14" cy="17" r="8" fill="#ff9f5a" stroke="#2b2340" stroke-width="2.4"/><path d="M14 17m-3 0a3 3 0 1 1 3 3a5 5 0 0 1-5-5" fill="none" stroke="#2b2340" stroke-width="1.8" stroke-linecap="round"/><path d="M26 19l-1-5M28 19l1-5" stroke="#2b2340" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Slow</span>
+      </button>
+      <button class="btn small" id="soundBtn" type="button" aria-pressed="true" aria-label="Sound on">
+        <svg class="on" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 12h5l7-6v20l-7-6H5z" fill="#7cc8f7" stroke="#2b2340" stroke-width="2.4" stroke-linejoin="round"/><path d="M21 11q3 5 0 10M24.5 8q5 8 0 16" fill="none" stroke="#2b2340" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <svg class="off" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 12h5l7-6v20l-7-6H5z" fill="#cfc7e0" stroke="#2b2340" stroke-width="2.4" stroke-linejoin="round"/><path d="M21 12l7 8M28 12l-7 8" stroke="#2b2340" stroke-width="2.4" stroke-linecap="round"/></svg>
+        <span id="soundLabel">Sound</span>
+      </button>
+      <button class="btn small" id="clearBtn" type="button" aria-label="Clear all">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M20 3l-5 13" stroke="#2b2340" stroke-width="2.6" stroke-linecap="round"/><path d="M9 15l12 4-3 10H6z" fill="#ffe066" stroke="#2b2340" stroke-width="2.3" stroke-linejoin="round"/><path d="M10 23l-1 5M14 24l-1 4" stroke="#2b2340" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span id="clearLabel">Clear</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <canvas id="park" aria-label="Bolt Park playground. Drag robots and toys around." role="img"></canvas>
+    <div class="hint" id="hint" aria-live="polite"></div>
+  </main>
+
+  <nav class="tools" aria-label="Tools and things">
+    <div class="row">
+      <button class="btn" type="button" data-tool="grab" aria-pressed="true" aria-label="Grab tool">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M9 17V9.5a2 2 0 0 1 4 0V15V7a2 2 0 0 1 4 0v8V8.5a2 2 0 0 1 4 0V16v-4a2 2 0 0 1 4 0v7.5c0 5.2-3.6 9.5-9 9.5h-1c-3.4 0-5.3-1.8-7.2-4.8l-3-5a2 2 0 0 1 3.3-2.3z" fill="#ffe066" stroke="#2b2340" stroke-width="2.2" stroke-linejoin="round"/></svg>
+        <span>Grab</span>
+      </button>
+      <button class="btn" type="button" data-tool="pin" aria-pressed="false" aria-label="Pin tool">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 19v10" stroke="#2b2340" stroke-width="2.6" stroke-linecap="round"/><path d="M11 4h10l-1.5 7 4.5 4.5V19H8v-3.5l4.5-4.5z" fill="#ff9f5a" stroke="#2b2340" stroke-width="2.3" stroke-linejoin="round"/><path d="M13 7h3" stroke="#fffdf7" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Pin</span>
+      </button>
+      <button class="btn" type="button" data-tool="erase" aria-pressed="false" aria-label="Eraser tool">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><g transform="rotate(-35 16 16)"><rect x="4" y="10" width="24" height="12" rx="3" fill="#ff9ec7" stroke="#2b2340" stroke-width="2.3"/><rect x="4" y="10" width="9" height="12" rx="3" fill="#7cc8f7" stroke="#2b2340" stroke-width="2.3"/></g><path d="M8 29h18" stroke="#2b2340" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 4"/></svg>
+        <span>Eraser</span>
+      </button>
+      <div class="sep" aria-hidden="true"></div>
+      <button class="btn" type="button" data-spawn="bot" aria-pressed="false" aria-label="Add a Bot">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><line x1="16" y1="9" x2="16" y2="4.5" stroke="#2b2340" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="4" r="2.6" fill="#ffe066" stroke="#2b2340" stroke-width="1.8"/><rect x="5" y="9" width="22" height="19" rx="5" fill="#7cc8f7" stroke="#2b2340" stroke-width="2.4"/><rect x="9" y="13" width="14" height="11" rx="3" fill="#2b2340"/><circle cx="13" cy="17.5" r="1.7" fill="#7fe0c3"/><circle cx="19" cy="17.5" r="1.7" fill="#7fe0c3"/><path d="M13 20.5q3 2.4 6 0" fill="none" stroke="#7fe0c3" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <span>Bot</span>
+      </button>
+      <button class="btn" type="button" data-spawn="rover" aria-pressed="false" aria-label="Add a Rover">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="11" width="26" height="10" rx="4" fill="#ff9f5a" stroke="#2b2340" stroke-width="2.3"/><rect x="7" y="14.5" width="16" height="3" rx="1.5" fill="#ffe066"/><circle cx="26" cy="15" r="1.6" fill="#fffdf7"/><circle cx="9.5" cy="23" r="4.5" fill="#2b2340"/><circle cx="22.5" cy="23" r="4.5" fill="#2b2340"/><circle cx="9.5" cy="23" r="1.8" fill="#ffe066"/><circle cx="22.5" cy="23" r="1.8" fill="#ffe066"/></svg>
+        <span>Rover</span>
+      </button>
+      <button class="btn" type="button" data-spawn="rocket" aria-pressed="false" aria-label="Add a Rocket pack">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M13 24q3 7 6 0z" fill="#ff9f5a" stroke="#2b2340" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 17l-4 6h5zM22 17l4 6h-5z" fill="#ff9f5a" stroke="#2b2340" stroke-width="2" stroke-linejoin="round"/><path d="M11 24V11q5-9 10 0v13z" fill="#ffe066" stroke="#2b2340" stroke-width="2.3" stroke-linejoin="round"/><circle cx="16" cy="14" r="2.6" fill="#7cc8f7" stroke="#2b2340" stroke-width="1.8"/></svg>
+        <span>Rocket</span>
+      </button>
+      <button class="btn" type="button" data-spawn="magnet" aria-pressed="false" aria-label="Add a Magnet">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 25V14a8 8 0 0 1 16 0v11" fill="none" stroke="#2b2340" stroke-width="9" stroke-linecap="butt"/><path d="M8 25V14a8 8 0 0 1 16 0v11" fill="none" stroke="#ff9f5a" stroke-width="4.6"/><rect x="3.8" y="22" width="8.4" height="6" rx="1.5" fill="#fffdf7" stroke="#2b2340" stroke-width="2"/><rect x="19.8" y="22" width="8.4" height="6" rx="1.5" fill="#fffdf7" stroke="#2b2340" stroke-width="2"/></svg>
+        <span>Magnet</span>
+      </button>
+      <button class="btn" type="button" data-spawn="belt" aria-pressed="false" aria-label="Add a Conveyor belt">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="12" width="28" height="10" rx="5" fill="#2b2340"/><path d="M9 14.5l3 2.5-3 2.5M15 14.5l3 2.5-3 2.5M21 14.5l3 2.5-3 2.5" fill="none" stroke="#ffe066" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="17" r="2.6" fill="#7fe0c3"/><circle cx="25.5" cy="17" r="2.6" fill="#7fe0c3"/></svg>
+        <span>Belt</span>
+      </button>
+      <button class="btn" type="button" data-spawn="spring" aria-pressed="false" aria-label="Add a Spring pad">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="6" width="24" height="5" rx="2.5" fill="#ff9f5a" stroke="#2b2340" stroke-width="2.2"/><path d="M9 11l14 3-14 3 14 3-14 3 14 2" fill="none" stroke="#2b2340" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/><rect x="3" y="25" width="26" height="5" rx="2.5" fill="#7fe0c3" stroke="#2b2340" stroke-width="2.2"/></svg>
+        <span>Spring</span>
+      </button>
+      <button class="btn" type="button" data-spawn="crate" aria-pressed="false" aria-label="Add a Gear crate">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="4" width="24" height="24" rx="4" fill="#7cc8f7" stroke="#2b2340" stroke-width="2.4"/><circle cx="16" cy="16" r="6" fill="#ffe066" stroke="#2b2340" stroke-width="2" stroke-dasharray="3 1.8"/><circle cx="16" cy="16" r="2" fill="#2b2340"/><circle cx="8" cy="8" r="1.3" fill="#2b2340"/><circle cx="24" cy="8" r="1.3" fill="#2b2340"/><circle cx="8" cy="24" r="1.3" fill="#2b2340"/><circle cx="24" cy="24" r="1.3" fill="#2b2340"/></svg>
+        <span>Crate</span>
+      </button>
+      <button class="btn" type="button" data-spawn="ball" aria-pressed="false" aria-label="Add a Bolt ball">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="#7fe0c3" stroke="#2b2340" stroke-width="2.4"/><path d="M16 10l5.2 3v6L16 22l-5.2-3v-6z" fill="#ffe066" stroke="#2b2340" stroke-width="1.9" stroke-linejoin="round"/><circle cx="16" cy="16" r="1.9" fill="#2b2340"/><path d="M9 10q2-3 5-3.5" fill="none" stroke="#fffdf7" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Ball</span>
+      </button>
+    </div>
+  </nav>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ?preview=1 hides the bars, stays silent and plays a hands-free demo.
+const PREVIEW = /[?&]preview=/.test(location.search);
+if (PREVIEW) document.documentElement.classList.add('preview');
+
+/* ---------- colour tokens (read from :root so CSS stays the single source) ---------- */
+const css = getComputedStyle(document.documentElement);
+const tok = (n, f) => (css.getPropertyValue(n).trim() || f);
+const C = {
+  ink: tok('--ink', '#2b2340'), cream: tok('--cream', '#fffdf7'), mint: tok('--mint', '#7fe0c3'),
+  mintDeep: tok('--mint-deep', '#3fbf99'), sky: tok('--sky', '#7cc8f7'), skyDeep: tok('--sky-deep', '#3a9ee0'),
+  tan: tok('--tangerine', '#ff9f5a'), tanDeep: tok('--tangerine-deep', '#e67a30'), lemon: tok('--lemon', '#ffe066'),
+  lemonDeep: tok('--lemon-deep', '#e5bf2e'), pink: tok('--pink', '#ff9ec7'), grey: tok('--grey', '#cfc7e0'),
+  screen: tok('--screen', '#2b2340'), shadow: 'rgba(120,96,210,0.26)', lilacDeep: tok('--lilac-deep', '#b9a6ec')
+};
+const BOT_STYLES = [
+  { body: C.sky, limb: C.mint }, { body: C.mint, limb: C.tan },
+  { body: C.tan, limb: C.lemon }, { body: C.lemon, limb: C.sky }
+];
+
+const reduceMotionMQ = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+const reducedMotion = () => !!(reduceMotionMQ && reduceMotionMQ.matches);
+
+/* ---------- DOM ---------- */
+const stage = document.getElementById('stage');
+const canvas = document.getElementById('park');
+const ctx = canvas.getContext('2d');
+const hintEl = document.getElementById('hint');
+
+/* ---------- world state ---------- */
+const FLOOR = 22;
+const MAX_BODIES = 120;
+const BASE_DT = 1 / 120;
+const ITER = 3;
+const G_EARTH = 1500;
+const G_MODES = [
+  { name: 'Earth', g: G_EARTH, damp: 0.9995, hint: 'Earth gravity' },
+  { name: 'Moon', g: 280, damp: 0.9995, hint: 'Moon gravity: big floaty jumps!' },
+  { name: 'Float', g: 0, damp: 0.996, hint: 'Float mode: no gravity at all' }
+];
+let gi = 0;
+let timeScale = 1;
+let dt = BASE_DT;
+let simTime = 0;
+let W = 300, H = 300, dpr = 1;
+let B = { l: 0, t: 0, r: 300, b: 278 };
+const things = [];
+let nextId = 1;
+let botCount = 0;
+const puffs = [];
+const sparks = [];
+const grabs = new Map();
+
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+/* ---------- construction helpers ---------- */
+function pt(x, y, im, fr, bo) { return { x, y, px: x, py: y, im, im0: im, ax: 0, ay: 0, fr: fr, bo: bo }; }
+function newThing(kind, isStatic) {
+  const t = { id: nextId++, kind, bodies: [], pts: [], sticks: [], isStatic: !!isStatic, pinned: false,
+    born: nextId, rockets: [], data: {}, springCool: 0, springHit: null };
+  things.push(t);
+  return t;
+}
+function addStick(t, a, b, k, len) {
+  t.sticks.push({ a, b, k: k == null ? 1 : k, len: len == null ? Math.hypot(b.x - a.x, b.y - a.y) : len });
+}
+function makeBody(t, role, hull, extra, o) {
+  const b = { thing: t, role, hull, pts: hull.concat(extra || []), w: o.w || 0, h: o.h || 0, r: o.r || 0,
+    center: o.center || null, fric: o.fric == null ? 0.3 : o.fric, bounce: o.bounce || 0, z: o.z == null ? 1 : o.z,
+    col: o.col || C.cream, col2: o.col2 || C.lemon, x0: 0, y0: 0, x1: 0, y1: 0, cx: 0, cy: 0 };
+  t.bodies.push(b);
+  for (const p of b.pts) t.pts.push(p);
+  return b;
+}
+function boxBody(t, cx, cy, w, h, role, im, o) {
+  o = o || {};
+  const fr = o.fric == null ? 0.3 : o.fric, bo = o.bounce || 0;
+  const hw = w / 2, hh = h / 2;
+  const v = [pt(cx - hw, cy - hh, im, fr, bo), pt(cx + hw, cy - hh, im, fr, bo), pt(cx + hw, cy + hh, im, fr, bo), pt(cx - hw, cy + hh, im, fr, bo)];
+  for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) addStick(t, v[i], v[j], 1);
+  o.w = w; o.h = h;
+  return makeBody(t, role, v, null, o);
+}
+function roundBody(t, cx, cy, r, n, role, im, o) {
+  o = o || {};
+  const fr = o.fric == null ? 0.3 : o.fric, bo = o.bounce || 0;
+  const c = pt(cx, cy, im, fr, bo);
+  const rim = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    rim.push(pt(cx + Math.cos(a) * r, cy + Math.sin(a) * r, im, fr, bo));
+  }
+  for (let i = 0; i < n; i++) {
+    addStick(t, rim[i], rim[(i + 1) % n], 1);
+    addStick(t, rim[i], c, 1);
+    addStick(t, rim[i], rim[(i + 3) % n], 1);
+  }
+  o.r = r; o.center = c;
+  return makeBody(t, role, rim, [c], o);
+}
+function pivot(t, body, x, y) {
+  const p = pt(x, y, body.hull[0].im, body.hull[0].fr, 0);
+  for (const v of body.hull) addStick(t, p, v, 1);
+  body.pts.push(p);
+  t.pts.push(p);
+  return p;
+}
+function hinge(t, body, p) { for (const v of body.hull) addStick(t, v, p, 1); }
+function sortBodies(t) { t.bodies.sort((a, b) => a.z - b.z); }
+
+/* ---------- things ---------- */
+function makeBot(x, y) {
+  const t = newThing('bot');
+  const st = BOT_STYLES[botCount++ % BOT_STYLES.length];
+  t.data = { dizzy: 0, surprised: 0, blink: rand(1, 4), blinkT: 0, lastSpeed: 0, grabbed: 0, phase: rand(0, 6) };
+  const torso = boxBody(t, x, y, 30, 34, 'torso', 0.9, { fric: 0.35, col: st.body, z: 1 });
+  const T = torso.hull;
+  const neck = pivot(t, torso, x, y - 17);
+  const shL = pivot(t, torso, x - 15, y - 12), shR = pivot(t, torso, x + 15, y - 12);
+  const hipL = pivot(t, torso, x - 8, y + 17), hipR = pivot(t, torso, x + 8, y + 17);
+  const legL = boxBody(t, x - 8, y + 30, 11, 26, 'leg', 1.1, { fric: 0.6, col: st.limb, z: 0 });
+  const legR = boxBody(t, x + 8, y + 30, 11, 26, 'leg', 1.1, { fric: 0.6, col: st.limb, z: 0 });
+  hinge(t, legL, hipL); hinge(t, legR, hipR);
+  addStick(t, legL.hull[3], T[0], 0.05); addStick(t, legR.hull[2], T[1], 0.05);
+  const head = boxBody(t, x, y - 33, 36, 28, 'head', 1.2, { fric: 0.3, col: C.cream, col2: st.body, z: 2 });
+  hinge(t, head, neck);
+  addStick(t, head.hull[3], T[0], 0.18); addStick(t, head.hull[2], T[1], 0.18);
+  const armL = boxBody(t, x - 21, y + 1, 10, 26, 'arm', 1.3, { fric: 0.4, col: st.limb, z: 3 });
+  const armR = boxBody(t, x + 21, y + 1, 10, 26, 'arm', 1.3, { fric: 0.4, col: st.limb, z: 3 });
+  hinge(t, armL, shL); hinge(t, armR, shR);
+  addStick(t, armL.hull[3], T[3], 0.01); addStick(t, armR.hull[2], T[2], 0.01);
+  t.data.head = head; t.data.torso = torso;
+  sortBodies(t);
+  return t;
+}
+function makeRover(x, y, dir) {
+  const t = newThing('rover');
+  t.data = { dir: dir || 1, stall: 0, cool: 0 };
+  const ch = boxBody(t, x, y, 72, 22, 'chassis', 0.7, { fric: 0.45, col: C.tan, z: 1 });
+  const w1 = roundBody(t, x - 24, y + 15, 14, 12, 'wheel', 1.4, { fric: 0.95, z: 0 });
+  const w2 = roundBody(t, x + 24, y + 15, 14, 12, 'wheel', 1.4, { fric: 0.95, z: 0 });
+  for (const w of [w1, w2]) for (const v of ch.hull) addStick(t, w.center, v, 0.6);
+  t.data.chassis = ch; t.data.wheels = [w1, w2];
+  sortBodies(t);
+  return t;
+}
+function makeRocket(x, y) {
+  const t = newThing('rocket');
+  const b = boxBody(t, x, y, 18, 28, 'rocket', 1, { fric: 0.3, z: 4 });
+  t.rockets.push({ body: b, t: rand(0, 1.5), on: false, emit: 0 });
+  return t;
+}
+function makeCrate(x, y) {
+  const t = newThing('crate');
+  boxBody(t, x, y, 42, 42, 'crate', 0.5, { fric: 0.45, col: C.sky });
+  return t;
+}
+function makeBall(x, y) {
+  const t = newThing('ball');
+  roundBody(t, x, y, 17, 12, 'ball', 1.4, { fric: 0.5, bounce: 0.62, col: C.mint });
+  return t;
+}
+function makeMagnet(x, y) {
+  const t = newThing('magnet', true);
+  t.data = { on: true, R: 190 };
+  boxBody(t, x, y, 56, 48, 'magnet', 0, { fric: 0.5 });
+  return t;
+}
+function makeBelt(x, y, w) {
+  const t = newThing('belt', true);
+  t.data = { dir: 1, speed: 115 };
+  boxBody(t, x, y, w || 200, 20, 'belt', 0, { fric: 0.9 });
+  return t;
+}
+function makeSpring(x, y) {
+  const t = newThing('spring', true);
+  t.data = { squash: 0 };
+  boxBody(t, x, y, 78, 20, 'spring', 0, { fric: 0.6 });
+  return t;
+}
+
+const NAMES = { bot: 'Bot', rover: 'Rover', rocket: 'Rocket pack', magnet: 'Magnet', belt: 'Conveyor belt', spring: 'Spring pad', crate: 'Gear crate', ball: 'Bolt ball' };
+const HALF = { bot: [30, 48, 46], rover: [40, 14, 32], rocket: [12, 16, 16], magnet: [30, 26, 26], belt: [102, 12, 12], spring: [41, 12, 12], crate: [23, 23, 23], ball: [19, 19, 19] };
+
+function spawn(kind, x, y) {
+  const hs = HALF[kind];
+  x = clamp(x, B.l + hs[0] + 2, B.r - hs[0] - 2);
+  y = clamp(y, B.t + hs[1] + 2, B.b - hs[2] - 2);
+  let t = null;
+  switch (kind) {
+    case 'bot': t = makeBot(x, y); break;
+    case 'rover': t = makeRover(x, y, Math.random() < 0.5 ? 1 : -1); break;
+    case 'rocket': t = makeRocket(x, y); tryAttachRocket(t); break;
+    case 'magnet': t = makeMagnet(x, y); break;
+    case 'belt': t = makeBelt(x, y, Math.min(200, W * 0.45)); break;
+    case 'spring': t = makeSpring(x, y); break;
+    case 'crate': t = makeCrate(x, y); break;
+    case 'ball': t = makeBall(x, y); break;
+  }
+  addPuff(x, y, 18, C.cream, 0.5);
+  sfx.pop();
+  enforceCap(t);
+  return t;
+}
+
+function tryAttachRocket(rt) {
+  const rb = rt.bodies[0];
+  const cx = (rb.hull[0].x + rb.hull[2].x) / 2, cy = (rb.hull[0].y + rb.hull[2].y) / 2;
+  let best = null, bestBody = null, bd = 20;
+  for (const t of things) {
+    if (t === rt || t.isStatic) continue;
+    for (const b of t.bodies) {
+      const d = polyDist(b.hull, cx, cy);
+      if (d < bd) { bd = d; best = t; bestBody = b; }
+    }
+  }
+  if (!best) return false;
+  const near = bestBody.hull.slice().sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)).slice(0, 2);
+  for (const v of rb.hull) for (const n of near) addStick(best, v, n, 1);
+  for (const s of rt.sticks) best.sticks.push(s);
+  rb.thing = best; rb.z = 4;
+  best.bodies.push(rb);
+  for (const p of rb.pts) { best.pts.push(p); if (best.pinned) p.im = 0; }
+  for (const r of rt.rockets) best.rockets.push(r);
+  sortBodies(best);
+  removeThing(rt, true);
+  showHint('Rocket pack attached!');
+  return true;
+}
+
+function bodyCount() { let n = 0; for (const t of things) n += t.bodies.length; return n; }
+function enforceCap(keep) {
+  let guard = 50;
+  while (bodyCount() > MAX_BODIES && guard-- > 0) {
+    let old = null;
+    for (const t of things) if (t !== keep && !t.pinned && (!old || t.born < old.born)) old = t;
+    if (!old) break;
+    removeThing(old);
+  }
+}
+function removeThing(t, quiet) {
+  const i = things.indexOf(t);
+  if (i >= 0) things.splice(i, 1);
+  for (const [id, g] of grabs) if (g.thing === t) grabs.delete(id);
+  if (!quiet) { const c = thingCenter(t); poof(c.x, c.y); }
+}
+
+/* ---------- geometry ---------- */
+function polyDist(h, x, y) {
+  const n = h.length;
+  let pos = false, neg = false, md = Infinity;
+  for (let i = 0; i < n; i++) {
+    const a = h[i], b = h[(i + 1) % n];
+    const ex = b.x - a.x, ey = b.y - a.y;
+    const cr = ex * (y - a.y) - ey * (x - a.x);
+    if (cr > 0) pos = true; else if (cr < 0) neg = true;
+    const l2 = ex * ex + ey * ey;
+    let u = l2 > 0 ? ((x - a.x) * ex + (y - a.y) * ey) / l2 : 0;
+    u = clamp(u, 0, 1);
+    const d = Math.hypot(a.x + ex * u - x, a.y + ey * u - y);
+    if (d < md) md = d;
+  }
+  return pos && neg ? md : 0;
+}
+function thingAABB(t) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of t.pts) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
+  return { x0, y0, x1, y1 };
+}
+function thingCenter(t) {
+  const main = t.kind === 'bot' ? t.data.torso : t.kind === 'rover' ? t.data.chassis : t.bodies[0];
+  if (!main) return { x: W / 2, y: H / 2 };
+  let x = 0, y = 0;
+  for (const p of main.hull) { x += p.x; y += p.y; }
+  return { x: x / main.hull.length, y: y / main.hull.length };
+}
+function translateThing(t, dx, dy) {
+  for (const p of t.pts) { p.x += dx; p.y += dy; p.px += dx; p.py += dy; }
+}
+function keepInside(t) {
+  const a = thingAABB(t);
+  let dx = 0, dy = 0;
+  if (a.x1 > B.r) dx = B.r - a.x1;
+  if (a.x0 + dx < B.l) dx = B.l - a.x0;
+  if (a.y1 > B.b) dy = B.b - a.y1;
+  if (a.y0 + dy < B.t) dy = B.t - a.y0;
+  if (dx || dy) translateThing(t, dx, dy);
+}
+
+/* ---------- physics step (Verlet + SAT, position based) ---------- */
+function updateAABB(b) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, sx = 0, sy = 0;
+  const h = b.hull;
+  for (let i = 0; i < h.length; i++) {
+    const p = h[i];
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    sx += p.x; sy += p.y;
+  }
+  b.x0 = x0; b.y0 = y0; b.x1 = x1; b.y1 = y1; b.cx = sx / h.length; b.cy = sy / h.length;
+}
+
+function collide(A, Bd, first) {
+  let minD = Infinity, nx = 0, ny = 0, e1 = null, e2 = null, owner = null;
+  for (let s = 0; s < 2; s++) {
+    const body = s ? Bd : A;
+    const h = body.hull, n = h.length;
+    for (let i = 0; i < n; i++) {
+      const a = h[i], b = h[(i + 1) % n];
+      let axx = a.y - b.y, axy = b.x - a.x;
+      const l = Math.hypot(axx, axy);
+      if (l < 1e-6) continue;
+      axx /= l; axy /= l;
+      let minA = Infinity, maxA = -Infinity, minB = Infinity, maxB = -Infinity;
+      const ha = A.hull, hb = Bd.hull;
+      for (let k = 0; k < ha.length; k++) { const d = ha[k].x * axx + ha[k].y * axy; if (d < minA) minA = d; if (d > maxA) maxA = d; }
+      for (let k = 0; k < hb.length; k++) { const d = hb[k].x * axx + hb[k].y * axy; if (d < minB) minB = d; if (d > maxB) maxB = d; }
+      const dist = minA < minB ? minB - maxA : minA - maxB;
+      if (dist > 0) return;
+      if (-dist < minD) { minD = -dist; nx = axx; ny = axy; e1 = a; e2 = b; owner = body; }
+    }
+  }
+  if (!owner) return;
+  const E = owner, Vb = owner === A ? Bd : A;
+  if (nx * (Vb.cx - E.cx) + ny * (Vb.cy - E.cy) < 0) { nx = -nx; ny = -ny; }
+  let sm = Infinity, V = null;
+  const hv = Vb.hull;
+  for (let k = 0; k < hv.length; k++) {
+    const d = nx * (hv[k].x - E.cx) + ny * (hv[k].y - E.cy);
+    if (d < sm) { sm = d; V = hv[k]; }
+  }
+  const depth = minD;
+  const ex = e2.x - e1.x, ey = e2.y - e1.y, el = ex * ex + ey * ey;
+  let T = el > 0 ? ((V.x - nx * depth - e1.x) * ex + (V.y - ny * depth - e1.y) * ey) / el : 0.5;
+  T = clamp(T, 0, 1);
+  const wv = V.im, w1 = e1.im * (1 - T) * (1 - T), w2 = e2.im * T * T;
+  const w = wv + w1 + w2;
+  if (w <= 0) return;
+  const lam = depth / w;
+  V.x += nx * lam * wv; V.y += ny * lam * wv;
+  e1.x -= nx * lam * e1.im * (1 - T); e1.y -= ny * lam * e1.im * (1 - T);
+  e2.x -= nx * lam * e2.im * T; e2.y -= ny * lam * e2.im * T;
+
+  // friction (static belt points carry the belt's surface speed in their px/py)
+  const mu = Math.min(0.9, (E.fric + Vb.fric) * 0.5);
+  const vvx = V.x - V.px, vvy = V.y - V.py;
+  const evx = (e1.x - e1.px) * (1 - T) + (e2.x - e2.px) * T;
+  const evy = (e1.y - e1.py) * (1 - T) + (e2.y - e2.py) * T;
+  const rx = vvx - evx, ry = vvy - evy;
+  const rn = rx * nx + ry * ny;
+  const tx = rx - rn * nx, ty = ry - rn * ny;
+  const f = mu / w;
+  V.px += tx * f * wv; V.py += ty * f * wv;
+  e1.px -= tx * f * e1.im * (1 - T); e1.py -= ty * f * e1.im * (1 - T);
+  e2.px -= tx * f * e2.im * T; e2.py -= ty * f * e2.im * T;
+
+  if (first) {
+    const e = Math.max(E.bounce, Vb.bounce);
+    if (e > 0 && depth > 0.6) {
+      V.px -= nx * lam * wv * e; V.py -= ny * lam * wv * e;
+      e1.px += nx * lam * e1.im * (1 - T) * e; e1.py += ny * lam * e1.im * (1 - T) * e;
+      e2.px += nx * lam * e2.im * T * e; e2.py += ny * lam * e2.im * T * e;
+      if (depth > 3) sfx.boop();
+    } else if (depth > 5) sfx.bonk();
+    const ek = E.thing.kind, vk = Vb.thing.kind;
+    if (ek === 'spring' && ny < -0.5 && Vb.dyn) Vb.thing.springHit = E.thing;
+    else if (vk === 'spring' && ny > 0.5 && E.dyn) E.thing.springHit = Vb.thing;
+  }
+}
+
+function clampToBounds(p) {
+  if (p.y > B.b) {
+    const vy = p.y - p.py, vx = p.x - p.px;
+    p.y = B.b;
+    if (vy > 0) p.py = p.y + vy * p.bo;
+    p.px = p.x - vx * (1 - p.fr);
+  } else if (p.y < B.t) {
+    const vy = p.y - p.py, vx = p.x - p.px;
+    p.y = B.t;
+    if (vy < 0) p.py = p.y + vy * p.bo;
+    p.px = p.x - vx * (1 - p.fr * 0.5);
+  }
+  if (p.x < B.l) {
+    const vx = p.x - p.px, vy = p.y - p.py;
+    p.x = B.l;
+    if (vx < 0) p.px = p.x + vx * p.bo;
+    p.py = p.y - vy * (1 - p.fr * 0.5);
+  } else if (p.x > B.r) {
+    const vx = p.x - p.px, vy = p.y - p.py;
+    p.x = B.r;
+    if (vx > 0) p.px = p.x + vx * p.bo;
+    p.py = p.y - vy * (1 - p.fr * 0.5);
+  }
+}
+
+const bodyList = [];
+function step() {
+  const mode = G_MODES[gi];
+  const g = mode.g, damp = mode.damp, dt2 = dt * dt;
+  const maxV = 16 * timeScale;
+  simTime += dt;
+
+  behaviours();
+
+  for (const t of things) {
+    t.dyn = !t.isStatic && !t.pinned;
+    if (t.isStatic) {
+      if (t.kind === 'belt') {
+        const h = t.bodies[0].hull;
+        let ux = h[1].x - h[0].x, uy = h[1].y - h[0].y;
+        const l = Math.hypot(ux, uy) || 1; ux /= l; uy /= l;
+        const v = t.data.dir * t.data.speed * dt;
+        for (const p of t.pts) { p.px = p.x - ux * v; p.py = p.y - uy * v; }
+      } else for (const p of t.pts) { p.px = p.x; p.py = p.y; }
+      continue;
+    }
+    for (const p of t.pts) {
+      if (p.im === 0) { p.px = p.x; p.py = p.y; p.ax = p.ay = 0; continue; }
+      let vx = (p.x - p.px) * damp, vy = (p.y - p.py) * damp;
+      const sp = Math.hypot(vx, vy);
+      if (sp > maxV) { vx *= maxV / sp; vy *= maxV / sp; }
+      p.px = p.x; p.py = p.y;
+      p.x += vx + p.ax * dt2;
+      p.y += vy + (g + p.ay) * dt2;
+      p.ax = 0; p.ay = 0;
+    }
+  }
+
+  bodyList.length = 0;
+  for (const t of things) for (const b of t.bodies) { b.dyn = t.dyn; bodyList.push(b); }
+  const n = bodyList.length;
+
+  for (let it = 0; it < ITER; it++) {
+    for (const t of things) {
+      if (!t.dyn) continue;
+      const ss = t.sticks;
+      for (let i = 0; i < ss.length; i++) {
+        const s = ss[i], a = s.a, b = s.b;
+        const w = a.im + b.im;
+        if (w === 0) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 1e-6) continue;
+        const k = (d - s.len) / (d * w) * s.k;
+        a.x += dx * k * a.im; a.y += dy * k * a.im;
+        b.x -= dx * k * b.im; b.y -= dy * k * b.im;
+      }
+    }
+    for (const gr of grabs.values()) {
+      if (!gr.p || !gr.thing.dyn) continue;
+      gr.p.x += (gr.tx - gr.p.x) * 0.55;
+      gr.p.y += (gr.ty - gr.p.y) * 0.55;
+    }
+    for (let i = 0; i < n; i++) updateAABB(bodyList[i]);
+    for (let i = 0; i < n; i++) {
+      const A = bodyList[i];
+      for (let j = i + 1; j < n; j++) {
+        const Bd = bodyList[j];
+        if (A.thing === Bd.thing) continue;
+        if (!A.dyn && !Bd.dyn) continue;
+        if (A.x1 < Bd.x0 || Bd.x1 < A.x0 || A.y1 < Bd.y0 || Bd.y1 < A.y0) continue;
+        collide(A, Bd, it === 0);
+      }
+    }
+    for (const t of things) {
+      if (!t.dyn) continue;
+      for (const p of t.pts) if (p.im > 0) clampToBounds(p);
+    }
+  }
+
+  afterStep();
+}
+
+/* ---------- behaviours: rover motors, rockets, magnets ---------- */
+function behaviours() {
+  const magnets = [];
+  for (const t of things) if (t.kind === 'magnet' && t.data.on) magnets.push(t);
+
+  for (const t of things) {
+    if (t.springCool > 0) t.springCool -= dt;
+    if (t.isStatic || t.pinned) continue;
+
+    if (t.kind === 'rover') roverDrive(t);
+
+    for (const r of t.rockets) {
+      r.t += dt;
+      const cycle = r.t % 2.6;
+      const was = r.on;
+      r.on = cycle < 1.1;
+      if (r.on && !was) sfx.whoosh();
+      if (!r.on) continue;
+      const h = r.body.hull;
+      const tx = (h[0].x + h[1].x) / 2, ty = (h[0].y + h[1].y) / 2;
+      const bx = (h[2].x + h[3].x) / 2, by = (h[2].y + h[3].y) / 2;
+      let ux = tx - bx, uy = ty - by;
+      const l = Math.hypot(ux, uy) || 1; ux /= l; uy /= l;
+      const acc = G_EARTH * (t.kind === 'rocket' ? 2.0 : 2.25);
+      for (const p of t.pts) { p.ax += ux * acc; p.ay += uy * acc; }
+      r.emit -= dt;
+      if (r.emit <= 0) {
+        r.emit = reducedMotion() ? 0.12 : 0.045;
+        puffs.push({ x: bx - ux * 6, y: by - uy * 6, vx: -ux * rand(60, 120) + rand(-25, 25), vy: -uy * rand(60, 120) + rand(-25, 25),
+          r: rand(4, 7), life: 0, max: rand(0.5, 0.8), col: Math.random() < 0.5 ? C.cream : C.lemon });
+      }
+    }
+
+    if (magnets.length) {
+      for (const m of magnets) {
+        const mb = m.bodies[0];
+        let mx = 0, my = 0;
+        for (const p of mb.hull) { mx += p.x; my += p.y; }
+        mx /= 4; my /= 4;
+        const R = m.data.R;
+        for (const p of t.pts) {
+          const dx = mx - p.x, dy = my - p.y;
+          const d = Math.hypot(dx, dy);
+          if (d > R || d < 1) continue;
+          const f = 1650 * (1 - d / R);
+          p.ax += dx / d * f; p.ay += dy / d * f;
+        }
+      }
+    }
+  }
+}
+
+function roverDrive(t) {
+  const d = t.data;
+  const ch = d.chassis;
+  let cx = 0, cvx = 0;
+  for (const p of ch.hull) { cx += p.x; cvx += p.x - p.px; }
+  cx /= 4; cvx = cvx / 4 / dt;
+  if (d.cool > 0) d.cool -= dt;
+  const grabbed = [...grabs.values()].some(g => g.thing === t);
+  if (!grabbed) {
+    if (Math.abs(cvx) < 22) d.stall += dt; else d.stall = 0;
+    if (d.cool <= 0 && (d.stall > 0.7 || (cx - B.l < 55 && d.dir < 0) || (B.r - cx < 55 && d.dir > 0))) {
+      d.dir = -d.dir; d.stall = 0; d.cool = 1.0;
+      sfx.beep();
+    }
+  }
+  // gentle self righting when tipped over for a while
+  const h = ch.hull;
+  const ang = Math.atan2(h[1].y - h[0].y, h[1].x - h[0].x);
+  if (Math.abs(ang) > 1.0 && !grabbed) d.tipped = (d.tipped || 0) + dt; else d.tipped = 0;
+  if (d.tipped > 1.2) {
+    const s = ang > 0 ? 1 : -1, k = 5200;
+    h[1].ay -= k * s; h[2].ay -= k * s;
+    h[0].ay += k * 0.4 * s; h[3].ay += k * 0.4 * s;
+    if (d.tipped > 3) d.tipped = 0.6;
+  }
+  const target = 10 * d.dir;
+  for (const w of d.wheels) {
+    const c = w.center;
+    const cvx2 = c.x - c.px, cvy2 = c.y - c.py;
+    let om = 0;
+    for (const p of w.hull) {
+      const rx = p.x - c.x, ry = p.y - c.y;
+      const vx = (p.x - p.px) - cvx2, vy = (p.y - p.py) - cvy2;
+      om += (rx * vy - ry * vx) / (rx * rx + ry * ry || 1);
+    }
+    om = om / w.hull.length / dt;
+    if ((target > 0 && om < target) || (target < 0 && om > target)) {
+      const a = 6500 * d.dir;
+      for (const p of w.hull) {
+        const rx = p.x - c.x, ry = p.y - c.y;
+        const l = Math.hypot(rx, ry) || 1;
+        p.ax += -ry / l * a; p.ay += rx / l * a;
+      }
+    }
+  }
+}
+
+function afterStep() {
+  for (const t of things) {
+    if (t.springHit) {
+      const s = t.springHit;
+      t.springHit = null;
+      if (t.springCool <= 0 && t.dyn) {
+        const L = 1150;
+        for (const p of t.pts) if (p.im > 0) p.py = p.y + L * dt;
+        t.springCool = 0.35;
+        s.data.squash = 1;
+        sfx.boing();
+      }
+    }
+    if (t.kind === 'bot') botMood(t);
+  }
+}
+
+function botMood(t) {
+  const d = t.data, h = d.head;
+  let vx = 0, vy = 0;
+  for (const p of h.hull) { vx += p.x - p.px; vy += p.y - p.py; }
+  const speed = Math.hypot(vx, vy) / 4 / dt;
+  if (d.dizzy > 0) d.dizzy -= dt;
+  if (d.surprised > 0) d.surprised -= dt;
+  if (!t.pinned && d.lastSpeed > 650 && d.lastSpeed - speed > 520) {
+    d.dizzy = 2.2;
+    sfx.bonk(true);
+  }
+  if (speed > 430 || d.grabbed > 0) d.surprised = Math.max(d.surprised, 0.45);
+  d.lastSpeed = speed;
+  d.blink -= dt;
+  if (d.blink < 0) { d.blinkT = 0.13; d.blink = rand(2, 5); }
+  if (d.blinkT > 0) d.blinkT -= dt;
+}
+
+/* ---------- effects ---------- */
+function addPuff(x, y, r, col, max) {
+  puffs.push({ x, y, vx: 0, vy: -10, r, life: 0, max: max || 0.5, col: col || C.cream, grow: true });
+}
+function poof(x, y) {
+  addPuff(x, y, 22, C.cream, 0.45);
+  const n = reducedMotion() ? 6 : 12;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + rand(-0.2, 0.2);
+    const s = rand(140, 260);
+    sparks.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0, max: rand(0.3, 0.5), col: i % 2 ? C.lemon : C.tan });
+  }
+  sfx.poof();
+}
+function updateFx(el) {
+  for (let i = puffs.length - 1; i >= 0; i--) {
+    const p = puffs[i];
+    p.life += el;
+    if (p.life > p.max) { puffs.splice(i, 1); continue; }
+    p.x += p.vx * el; p.y += p.vy * el;
+    p.vx *= 0.96; p.vy *= 0.96;
+  }
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.life += el;
+    if (s.life > s.max) { sparks.splice(i, 1); continue; }
+    s.x += s.vx * el; s.y += s.vy * el;
+    s.vx *= 0.92; s.vy *= 0.92;
+  }
+  if (puffs.length > 220) puffs.splice(0, puffs.length - 220);
+  for (const t of things) if (t.kind === 'spring' && t.data.squash > 0) t.data.squash = Math.max(0, t.data.squash - el * 4);
+}
+
+/* ---------- audio (made in code, starts after first tap) ---------- */
+let actx = null, master = null, muted = false, unlocked = false, noiseBuf = null;
+const lastPlay = {};
+function audio() {
+  if (muted || !unlocked) return null;
+  if (!actx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try {
+      actx = new AC();
+      master = actx.createGain(); master.gain.value = 0.45; master.connect(actx.destination);
+      noiseBuf = actx.createBuffer(1, Math.floor(actx.sampleRate * 0.4), actx.sampleRate);
+      const ch = noiseBuf.getChannelData(0);
+      for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+    } catch (e) { actx = null; return null; }
+  }
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  return actx;
+}
+function gate(name, ms) {
+  const n = performance.now();
+  if (lastPlay[name] && n - lastPlay[name] < ms) return false;
+  lastPlay[name] = n;
+  return true;
+}
+function tone(f0, f1, dur, type, vol, delay) {
+  const a = audio(); if (!a) return;
+  const t0 = a.currentTime + (delay || 0);
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(master);
+  o.start(t0); o.stop(t0 + dur + 0.03);
+}
+function hiss(dur, vol, freq) {
+  const a = audio(); if (!a || !noiseBuf) return;
+  const t0 = a.currentTime;
+  const s = a.createBufferSource(); s.buffer = noiseBuf;
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8;
+  const g = a.createGain();
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  s.connect(f); f.connect(g); g.connect(master);
+  s.start(t0); s.stop(t0 + dur + 0.02);
+}
+const sfx = {
+  pop() { if (gate('pop', 60)) tone(420, 900, 0.12, 'sine', 0.22); },
+  boing() { if (gate('boing', 120)) { tone(150, 520, 0.18, 'triangle', 0.26); tone(520, 300, 0.16, 'triangle', 0.14, 0.16); } },
+  boop() { if (gate('boop', 110)) tone(300, 520, 0.09, 'sine', 0.12); },
+  bonk(big) { if (gate(big ? 'bonkBig' : 'bonk', big ? 200 : 160)) tone(big ? 260 : 190, 80, big ? 0.16 : 0.08, 'square', big ? 0.07 : 0.035); },
+  beep() { if (gate('beep', 250)) { tone(880, 880, 0.06, 'square', 0.04); tone(1320, 1320, 0.06, 'square', 0.04, 0.08); } },
+  poof() { if (gate('poof', 70)) { hiss(0.25, 0.3, 1400); tone(700, 200, 0.14, 'sine', 0.12); } },
+  whoosh() { if (gate('whoosh', 350)) hiss(0.35, 0.09, 700); },
+  click() { if (gate('click', 50)) tone(660, 520, 0.05, 'sine', 0.14); }
+};
+
+/* ---------- drawing ---------- */
+function rr(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function circ(x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); }
+function fillStroke(fill, lw) { ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = lw || 3; ctx.strokeStyle = C.ink; ctx.stroke(); }
+function frameOf(b) {
+  if (b.center) {
+    const c = b.center, r = b.hull[0];
+    return { x: c.x, y: c.y, a: Math.atan2(r.y - c.y, r.x - c.x) };
+  }
+  const h = b.hull;
+  return { x: (h[0].x + h[1].x + h[2].x + h[3].x) / 4, y: (h[0].y + h[1].y + h[2].y + h[3].y) / 4,
+    a: Math.atan2(h[1].y - h[0].y, h[1].x - h[0].x) };
+}
+
+function drawShadow(b) {
+  const f = frameOf(b);
+  ctx.save();
+  ctx.translate(f.x + 3, f.y + 4);
+  if (b.center) { circ(0, 0, b.r + 1.5); }
+  else {
+    ctx.rotate(f.a);
+    if (b.role === 'magnet') { ctx.restore(); return; }
+    const rad = b.role === 'arm' || b.role === 'leg' ? b.w / 2 : b.role === 'belt' ? b.h / 2 : 8;
+    rr(-b.w / 2 - 1.5, -b.h / 2 - 1.5, b.w + 3, b.h + 3, rad);
+  }
+  ctx.fillStyle = C.shadow;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBody(b) {
+  const t = b.thing, f = frameOf(b);
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.rotate(f.a);
+  const w = b.w, h = b.h;
+  switch (b.role) {
+    case 'torso': {
+      rr(-w / 2, -h / 2, w, h, 8); fillStroke(b.col);
+      rr(-9, -10, 18, 12, 4); fillStroke(C.cream, 2.2);
+      circ(-4, -4, 2.3); ctx.fillStyle = C.tan; ctx.fill();
+      circ(4, -4, 2.3); ctx.fillStyle = C.mintDeep; ctx.fill();
+      circ(0, 9, 2.6); ctx.fillStyle = C.cream; ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
+      break;
+    }
+    case 'head': {
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(0, -h / 2); ctx.lineTo(0, -h / 2 - 10);
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 3; ctx.stroke();
+      circ(0, -h / 2 - 12, 4.6); fillStroke(t.data.dizzy > 0 ? C.pink : C.lemon, 2.4);
+      rr(-w / 2 - 4, -6, 6, 12, 3); fillStroke(b.col2, 2.4);
+      rr(w / 2 - 2, -6, 6, 12, 3); fillStroke(b.col2, 2.4);
+      rr(-w / 2, -h / 2, w, h, 8); fillStroke(C.cream);
+      drawFace(t, w, h);
+      if (t.data.dizzy > 0) {
+        const a0 = simTime * 5;
+        for (let i = 0; i < 3; i++) {
+          const a = a0 + (i * Math.PI * 2) / 3;
+          star(Math.cos(a) * 20, -h / 2 - 8 + Math.sin(a) * 6, 4.2);
+        }
+      }
+      break;
+    }
+    case 'arm': case 'leg': {
+      ctx.lineCap = 'round';
+      const y0 = -h / 2 + w / 2, y1 = h / 2 - w / 2;
+      ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(0, y1);
+      ctx.strokeStyle = C.ink; ctx.lineWidth = w + 1; ctx.stroke();
+      ctx.strokeStyle = b.col; ctx.lineWidth = w - 5; ctx.stroke();
+      if (b.role === 'arm') { circ(0, h / 2 - 3, 5.2); fillStroke(C.lemon, 2.4); }
+      else { rr(-7.5, h / 2 - 7, 15, 8, 3.5); fillStroke(C.ink, 2); }
+      break;
+    }
+    case 'chassis': {
+      rr(-w / 2, -h / 2, w, h, 8); fillStroke(b.col);
+      rr(-26, -3, 52, 6, 3); ctx.fillStyle = C.lemon; ctx.fill();
+      const dir = t.data.dir;
+      circ(dir * 31, -3, 4); fillStroke(C.lemon, 2.2);
+      circ(-dir * 32, -3, 2.6); ctx.fillStyle = C.pink; ctx.fill();
+      break;
+    }
+    case 'wheel': {
+      const r = b.r;
+      circ(0, 0, r + 1); fillStroke(C.ink, 2);
+      ctx.strokeStyle = C.cream; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+      for (let i = 0; i < 3; i++) {
+        const a = (i * Math.PI * 2) / 3;
+        ctx.beginPath(); ctx.moveTo(Math.cos(a) * 4, Math.sin(a) * 4); ctx.lineTo(Math.cos(a) * (r - 4), Math.sin(a) * (r - 4)); ctx.stroke();
+      }
+      circ(0, 0, 5.5); fillStroke(C.lemon, 2.2);
+      break;
+    }
+    case 'ball': {
+      const r = b.r;
+      circ(0, 0, r + 1); fillStroke(b.col);
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; const x = Math.cos(a) * 8, y = Math.sin(a) * 8; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+      ctx.closePath(); fillStroke(C.lemon, 2.2);
+      circ(0, 0, 2.8); ctx.fillStyle = C.ink; ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, r - 5, Math.PI * 1.1, Math.PI * 1.45);
+      ctx.strokeStyle = C.cream; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.stroke();
+      break;
+    }
+    case 'crate': {
+      rr(-w / 2, -h / 2, w, h, 7); fillStroke(b.col);
+      rr(-w / 2 + 5, -h / 2 + 5, w - 10, h - 10, 4); ctx.strokeStyle = C.skyDeep; ctx.lineWidth = 2; ctx.stroke();
+      gear(0, 0, 11, 8); fillStroke(C.lemon, 2.2);
+      circ(0, 0, 3.2); ctx.fillStyle = C.ink; ctx.fill();
+      ctx.fillStyle = C.ink;
+      for (const [x, y] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) { circ(x * (w / 2 - 5), y * (h / 2 - 5), 1.8); ctx.fill(); }
+      break;
+    }
+    case 'rocket': {
+      const on = t.rockets.some(r => r.body === b && r.on);
+      if (on) {
+        const fl = reducedMotion() ? 1 : 0.8 + Math.sin(simTime * 40) * 0.2;
+        ctx.beginPath(); ctx.moveTo(-5, h / 2 + 2); ctx.quadraticCurveTo(0, h / 2 + 26 * fl, 5, h / 2 + 2); ctx.closePath();
+        fillStroke(C.tan, 2);
+        ctx.beginPath(); ctx.moveTo(-2.5, h / 2 + 3); ctx.quadraticCurveTo(0, h / 2 + 15 * fl, 2.5, h / 2 + 3); ctx.closePath();
+        ctx.fillStyle = C.lemon; ctx.fill();
+      }
+      ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(-9, 5); ctx.lineTo(-14, h / 2 + 1); ctx.lineTo(-8, h / 2 + 1); ctx.closePath(); fillStroke(C.tan, 2.2);
+      ctx.beginPath(); ctx.moveTo(9, 5); ctx.lineTo(14, h / 2 + 1); ctx.lineTo(8, h / 2 + 1); ctx.closePath(); fillStroke(C.tan, 2.2);
+      rr(-5, h / 2 - 1, 10, 5, 2); fillStroke(C.ink, 1.5);
+      ctx.beginPath(); ctx.moveTo(-9, h / 2); ctx.lineTo(-9, -4); ctx.quadraticCurveTo(-8, -h / 2 - 1, 0, -h / 2 - 2);
+      ctx.quadraticCurveTo(8, -h / 2 - 1, 9, -4); ctx.lineTo(9, h / 2); ctx.closePath(); fillStroke(C.lemon, 2.6);
+      circ(0, -1, 3.8); fillStroke(C.sky, 2);
+      break;
+    }
+    case 'magnet': {
+      const on = t.data.on;
+      const r = 17;
+      ctx.lineCap = 'butt';
+      ctx.beginPath(); ctx.moveTo(-r, h / 2 - 9); ctx.lineTo(-r, -h / 2 + r + 5); ctx.arc(0, -h / 2 + r + 5, r, Math.PI, 0); ctx.lineTo(r, h / 2 - 9);
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 21; ctx.stroke();
+      ctx.strokeStyle = on ? C.tan : C.grey; ctx.lineWidth = 15; ctx.stroke();
+      rr(-r - 10.5, h / 2 - 12, 21, 12, 3); fillStroke(on ? C.cream : C.grey, 2.6);
+      rr(r - 10.5, h / 2 - 12, 21, 12, 3); fillStroke(on ? C.cream : C.grey, 2.6);
+      circ(0, -h / 2 + 7, 3.2); ctx.fillStyle = on ? C.lemon : C.ink; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = C.ink; ctx.stroke();
+      break;
+    }
+    case 'belt': {
+      const dir = t.data.dir;
+      rr(-w / 2, -h / 2, w, h, h / 2); fillStroke(C.ink);
+      ctx.save();
+      rr(-w / 2 + h / 2, -h / 2 + 3, w - h, h - 6, 3); ctx.clip();
+      ctx.strokeStyle = C.lemon; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      const off = reducedMotion() ? 0 : ((simTime * t.data.speed * dir) % 18 + 18) % 18;
+      for (let x = -w / 2 - 18; x < w / 2 + 18; x += 18) {
+        const xx = x + off;
+        ctx.beginPath(); ctx.moveTo(xx - 3 * dir, -4); ctx.lineTo(xx + 3 * dir, 0); ctx.lineTo(xx - 3 * dir, 4); ctx.stroke();
+      }
+      ctx.restore();
+      for (const sx of [-1, 1]) {
+        const rx = sx * (w / 2 - h / 2);
+        circ(rx, 0, h / 2 - 3); fillStroke(C.mint, 2);
+        const a = reducedMotion() ? 0 : (simTime * t.data.speed * dir) / (h / 2);
+        ctx.beginPath(); ctx.moveTo(rx, 0); ctx.lineTo(rx + Math.cos(a) * (h / 2 - 4), Math.sin(a) * (h / 2 - 4));
+        ctx.strokeStyle = C.ink; ctx.lineWidth = 2; ctx.stroke();
+      }
+      break;
+    }
+    case 'spring': {
+      const s = t.data.squash * 6;
+      rr(-w / 2, h / 2 - 7, w, 7, 3.5); fillStroke(C.mint, 2.6);
+      ctx.beginPath();
+      const top = -h / 2 + 6 + s, bot = h / 2 - 7;
+      const segs = 6;
+      for (let i = 0; i <= segs; i++) {
+        const y = top + ((bot - top) * i) / segs;
+        const x = i % 2 ? 22 : -22;
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(0, y);
+      }
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 2.6; ctx.lineJoin = 'round'; ctx.stroke();
+      rr(-w / 2 + 2, -h / 2 + s, w - 4, 7, 3.5); fillStroke(C.tan, 2.6);
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+function gear(x, y, r, teeth) {
+  ctx.beginPath();
+  const n = teeth * 2;
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const rad = i % 2 ? r * 0.78 : r;
+    const a1 = a - Math.PI / n * 0.5, a2 = a + Math.PI / n * 0.5;
+    if (i === 0) ctx.moveTo(x + Math.cos(a1) * rad, y + Math.sin(a1) * rad);
+    else ctx.lineTo(x + Math.cos(a1) * rad, y + Math.sin(a1) * rad);
+    ctx.lineTo(x + Math.cos(a2) * rad, y + Math.sin(a2) * rad);
+  }
+  ctx.closePath();
+}
+function star(x, y, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rad = i % 2 ? r * 0.45 : r;
+    if (i) ctx.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); else ctx.moveTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+  }
+  ctx.closePath();
+  fillStroke(C.lemon, 1.6);
+}
+
+function drawFace(t, w, h) {
+  const d = t.data;
+  const sw = w - 10, sh = h - 10;
+  rr(-sw / 2, -sh / 2, sw, sh, 5);
+  ctx.fillStyle = C.screen; ctx.fill();
+  const ex = sw * 0.24, ey = -sh * 0.1;
+  ctx.strokeStyle = C.mint; ctx.fillStyle = C.mint; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  if (d.dizzy > 0) {
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      const spin = simTime * 8 * s;
+      for (let i = 0; i <= 20; i++) {
+        const a = spin + i * 0.55, rad = 0.2 * i;
+        const x = s * ex + Math.cos(a) * rad, y = ey + Math.sin(a) * rad;
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    for (let i = 0; i <= 8; i++) {
+      const x = -6 + i * 1.5, y = sh * 0.25 + Math.sin(i * 1.4 + simTime * 10) * 1.3;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  } else if (d.surprised > 0) {
+    circ(-ex, ey, 3.4); ctx.stroke();
+    circ(ex, ey, 3.4); ctx.stroke();
+    circ(-ex, ey, 1.2); ctx.fill();
+    circ(ex, ey, 1.2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, sh * 0.26, 2.6, 3, 0, 0, Math.PI * 2); ctx.stroke();
+  } else {
+    if (d.blinkT > 0) {
+      ctx.beginPath(); ctx.moveTo(-ex - 2.5, ey); ctx.lineTo(-ex + 2.5, ey); ctx.moveTo(ex - 2.5, ey); ctx.lineTo(ex + 2.5, ey); ctx.stroke();
+    } else {
+      circ(-ex, ey, 2.5); ctx.fill();
+      circ(ex, ey, 2.5); ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(0, sh * 0.02, sh * 0.26, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
+    ctx.fillStyle = C.pink;
+    circ(-ex - 3, sh * 0.2, 1.7); ctx.fill();
+    circ(ex + 3, sh * 0.2, 1.7); ctx.fill();
+  }
+}
+
+function drawMagnetField(t) {
+  if (!t.data.on) return;
+  const b = t.bodies[0];
+  const f = frameOf(b);
+  const R = t.data.R;
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  ctx.setLineDash([6, 8]);
+  const rm = reducedMotion();
+  for (let k = 0; k < 4; k++) {
+    const rad = rm ? 45 + k * (R - 45) / 4 : 36 + (((simTime * 45) + k * (R - 36) / 4) % (R - 36));
+    const alpha = Math.max(0, 1 - rad / R) * 0.55;
+    ctx.strokeStyle = 'rgba(58,158,224,' + alpha.toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(0, 0, rad, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, rad, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawPin(t) {
+  const c = thingCenter(t);
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(0, 6); ctx.strokeStyle = C.ink; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.stroke();
+  circ(0, -8, 7); fillStroke(C.pink, 2.6);
+  circ(-2, -10, 2); ctx.fillStyle = C.cream; ctx.fill();
+  ctx.restore();
+}
+
+function draw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineJoin = 'round';
+
+  // floor
+  ctx.fillStyle = C.mint;
+  ctx.fillRect(0, B.b, W, H - B.b);
+  ctx.fillStyle = C.mintDeep;
+  for (let x = 0; x < W + 30; x += 30) { ctx.beginPath(); ctx.arc(x + 15, H + 4, 10, Math.PI, 0); ctx.fill(); }
+  ctx.beginPath(); ctx.moveTo(0, B.b + 1.5); ctx.lineTo(W, B.b + 1.5);
+  ctx.strokeStyle = C.ink; ctx.lineWidth = 3; ctx.stroke();
+
+  for (const t of things) if (t.kind === 'magnet') drawMagnetField(t);
+
+  for (const t of things) if (t.isStatic) for (const b of t.bodies) drawShadow(b);
+  for (const t of things) if (t.isStatic) for (const b of t.bodies) drawBody(b);
+  for (const t of things) if (!t.isStatic) for (const b of t.bodies) drawShadow(b);
+  for (const t of things) if (!t.isStatic) for (const b of t.bodies) drawBody(b);
+  for (const t of things) if (t.pinned) drawPin(t);
+
+  // grab lines
+  for (const g of grabs.values()) {
+    if (!g.p) continue;
+    ctx.beginPath(); ctx.moveTo(g.p.x, g.p.y); ctx.lineTo(g.tx, g.ty);
+    ctx.setLineDash([4, 5]); ctx.strokeStyle = C.ink; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+    circ(g.tx, g.ty, 7); fillStroke(C.lemon, 2.2);
+  }
+
+  for (const p of puffs) {
+    const k = p.life / p.max;
+    const r = p.grow ? p.r * (0.6 + k * 1.2) : p.r * (1 + k * 1.3);
+    ctx.globalAlpha = Math.max(0, 1 - k);
+    circ(p.x, p.y, r); ctx.fillStyle = p.col; ctx.fill();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = C.ink; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.lineCap = 'round';
+  for (const s of sparks) {
+    const k = s.life / s.max;
+    ctx.globalAlpha = Math.max(0, 1 - k);
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - s.vx * 0.05, s.y - s.vy * 0.05);
+    ctx.strokeStyle = C.ink; ctx.lineWidth = 5; ctx.stroke();
+    ctx.strokeStyle = s.col; ctx.lineWidth = 2.6; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------- input ---------- */
+let tool = 'grab';
+let armed = null;
+
+function toLocal(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+function pickBody(x, y, tol) {
+  let best = null, bd = tol;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = things.length - 1; i >= 0; i--) {
+      const t = things[i];
+      if ((pass === 0) === t.isStatic) continue;
+      for (let j = t.bodies.length - 1; j >= 0; j--) {
+        const b = t.bodies[j];
+        const d = polyDist(b.hull, x, y);
+        if (d === 0) return b;
+        if (d < bd) { bd = d; best = b; }
+      }
+    }
+  }
+  return best;
+}
+
+function startGrab(id, x, y) {
+  const b = pickBody(x, y, 22);
+  if (!b) return;
+  const t = b.thing;
+  const g = { thing: t, p: null, tx: x, ty: y, sx: x, sy: y, lx: x, ly: y, moved: false, t0: performance.now() };
+  if (t.dyn === undefined) t.dyn = !t.isStatic && !t.pinned;
+  if (!t.isStatic && !t.pinned) {
+    let bp = null, bd = Infinity;
+    for (const p of b.pts) { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; bp = p; } }
+    g.p = bp;
+    if (t.kind === 'bot') t.data.grabbed = 1;
+  }
+  grabs.set(id, g);
+  canvas.style.cursor = 'grabbing';
+}
+function moveGrab(id, x, y) {
+  const g = grabs.get(id);
+  if (!g) return;
+  if (Math.hypot(x - g.sx, y - g.sy) > 9) g.moved = true;
+  if (g.p) { g.tx = clamp(x, B.l, B.r); g.ty = clamp(y, B.t, B.b); }
+  else {
+    const dx = x - g.lx, dy = y - g.ly;
+    g.lx = x; g.ly = y;
+    if (g.moved) { translateThing(g.thing, dx, dy); keepInside(g.thing); }
+  }
+}
+function endGrab(id) {
+  const g = grabs.get(id);
+  if (!g) return;
+  grabs.delete(id);
+  const t = g.thing;
+  if (t.kind === 'bot') t.data.grabbed = [...grabs.values()].some(o => o.thing === t) ? 1 : 0;
+  const tap = !g.moved && performance.now() - g.t0 < 500;
+  if (tap) {
+    if (t.kind === 'magnet') {
+      t.data.on = !t.data.on; sfx.beep();
+      showHint(t.data.on ? 'Magnet on' : 'Magnet off');
+    } else if (t.kind === 'belt') {
+      t.data.dir = -t.data.dir; sfx.click();
+      showHint('Belt goes the other way!');
+    } else if (t.kind === 'bot') {
+      t.data.surprised = 0.6; sfx.beep();
+    } else if (t.kind === 'rover') {
+      t.data.dir = -t.data.dir; t.data.cool = 1; sfx.beep();
+    }
+  }
+  if (!grabs.size) canvas.style.cursor = 'grab';
+}
+
+function unlockAudio() {
+  if (unlocked || PREVIEW) return;
+  unlocked = true;
+  audio();
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  unlockAudio();
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  const { x, y } = toLocal(e);
+  if (armed) {
+    spawn(armed, x, y);
+    setArmed(null);
+    return;
+  }
+  if (tool === 'grab') startGrab(e.pointerId, x, y);
+  else if (tool === 'pin') {
+    const b = pickBody(x, y, 16);
+    if (b && !b.thing.isStatic) {
+      const t = b.thing;
+      t.pinned = !t.pinned;
+      for (const p of t.pts) { p.im = t.pinned ? 0 : p.im0; p.px = p.x; p.py = p.y; }
+      sfx.click();
+      showHint(t.pinned ? 'Pinned! Tap again to let go.' : 'Unpinned!');
+    } else if (b) showHint('That one already stays put.');
+  } else if (tool === 'erase') {
+    const b = pickBody(x, y, 16);
+    if (b) removeThing(b.thing);
+  }
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!grabs.has(e.pointerId)) return;
+  e.preventDefault();
+  const { x, y } = toLocal(e);
+  moveGrab(e.pointerId, x, y);
+});
+const endPtr = (e) => { endGrab(e.pointerId); };
+canvas.addEventListener('pointerup', endPtr);
+canvas.addEventListener('pointercancel', endPtr);
+canvas.addEventListener('lostpointercapture', endPtr);
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+stage.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+stage.addEventListener('dblclick', (e) => e.preventDefault());
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener('gesturechange', (e) => e.preventDefault());
+document.addEventListener('keydown', unlockAudio);
+
+/* ---------- toolbar ---------- */
+let hintTimer = 0;
+function showHint(msg, ms) {
+  hintEl.textContent = msg;
+  hintEl.classList.add('show');
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => hintEl.classList.remove('show'), ms || 2400);
+}
+const toolBtns = [...document.querySelectorAll('[data-tool]')];
+const spawnBtns = [...document.querySelectorAll('[data-spawn]')];
+const TOOL_HINTS = {
+  grab: 'Grab: drag anything and fling it!',
+  pin: 'Pin: tap a thing to freeze it. Tap again to let go.',
+  erase: 'Eraser: tap a thing to poof it away.'
+};
+function setTool(name) {
+  tool = name;
+  for (const b of toolBtns) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
+  canvas.style.cursor = name === 'grab' ? 'grab' : 'pointer';
+}
+function setArmed(kind) {
+  armed = kind;
+  for (const b of spawnBtns) b.setAttribute('aria-pressed', String(b.dataset.spawn === kind));
+  if (kind) canvas.style.cursor = 'copy';
+  else setTool(tool);
+}
+for (const b of toolBtns) b.addEventListener('click', () => {
+  unlockAudio();
+  setArmed(null);
+  setTool(b.dataset.tool);
+  sfx.click();
+  showHint(TOOL_HINTS[b.dataset.tool]);
+});
+for (const b of spawnBtns) b.addEventListener('click', () => {
+  unlockAudio();
+  const k = b.dataset.spawn;
+  if (armed === k) {
+    const isStatic = k === 'magnet' || k === 'belt' || k === 'spring';
+    spawn(k, W / 2 + rand(-30, 30), isStatic ? (B.t + B.b) / 2 : B.t + 70);
+    setArmed(null);
+    return;
+  }
+  setArmed(k);
+  sfx.click();
+  showHint('Tap the park to place a ' + NAMES[k] + '. Tap the button again to drop it.', 3600);
+});
+
+const gravityBtn = document.getElementById('gravityBtn');
+const gravityLabel = document.getElementById('gravityLabel');
+gravityBtn.addEventListener('click', () => {
+  unlockAudio();
+  gi = (gi + 1) % G_MODES.length;
+  gravityLabel.textContent = G_MODES[gi].name;
+  gravityBtn.setAttribute('aria-label', 'Gravity: ' + G_MODES[gi].name);
+  for (const s of gravityBtn.querySelectorAll('.gravity-icon')) s.classList.toggle('cur', Number(s.dataset.g) === gi);
+  sfx.click();
+  showHint(G_MODES[gi].hint);
+});
+const slowBtn = document.getElementById('slowBtn');
+slowBtn.addEventListener('click', () => {
+  unlockAudio();
+  const next = timeScale === 1 ? 0.3 : 1;
+  const ratio = next / timeScale;
+  for (const t of things) for (const p of t.pts) {
+    p.px = p.x - (p.x - p.px) * ratio;
+    p.py = p.y - (p.y - p.py) * ratio;
+  }
+  timeScale = next;
+  dt = BASE_DT * timeScale;
+  slowBtn.setAttribute('aria-pressed', String(timeScale !== 1));
+  sfx.click();
+  showHint(timeScale !== 1 ? 'Slow motion on' : 'Slow motion off');
+});
+const soundBtn = document.getElementById('soundBtn');
+const soundLabel = document.getElementById('soundLabel');
+soundBtn.addEventListener('click', () => {
+  unlockAudio();
+  muted = !muted;
+  soundBtn.classList.toggle('muted', muted);
+  soundBtn.setAttribute('aria-pressed', String(!muted));
+  soundBtn.setAttribute('aria-label', muted ? 'Sound off' : 'Sound on');
+  soundLabel.textContent = muted ? 'Quiet' : 'Sound';
+  if (muted && actx && actx.state === 'running') actx.suspend().catch(() => {});
+  if (!muted) { audio(); sfx.click(); }
+});
+const clearBtn = document.getElementById('clearBtn');
+const clearLabel = document.getElementById('clearLabel');
+let clearArmedTimer = 0;
+function resetClear() {
+  clearBtn.classList.remove('confirm');
+  clearLabel.textContent = 'Clear';
+  clearBtn.setAttribute('aria-label', 'Clear all');
+}
+clearBtn.addEventListener('click', () => {
+  unlockAudio();
+  if (!clearBtn.classList.contains('confirm')) {
+    clearBtn.classList.add('confirm');
+    clearLabel.textContent = 'Sure?';
+    clearBtn.setAttribute('aria-label', 'Tap again to clear everything');
+    showHint('Tap Clear again to sweep the whole park.', 3000);
+    sfx.click();
+    clearTimeout(clearArmedTimer);
+    clearArmedTimer = setTimeout(resetClear, 3000);
+    return;
+  }
+  clearTimeout(clearArmedTimer);
+  resetClear();
+  const old = things.slice();
+  for (const t of old) removeThing(t, true);
+  grabs.clear();
+  for (let i = 0; i < 4; i++) poof(rand(W * 0.2, W * 0.8), rand(H * 0.3, H * 0.7));
+  setArmed(null);
+  showHint('All clean! Pick something below to add.');
+});
+
+/* ---------- sizing ---------- */
+function resize() {
+  const r = stage.getBoundingClientRect();
+  const nw = Math.max(200, Math.round(r.width)), nh = Math.max(160, Math.round(r.height));
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(nw * dpr);
+  canvas.height = Math.round(nh * dpr);
+  W = nw; H = nh;
+  B = { l: 0, t: 0, r: W, b: H - FLOOR };
+  for (const t of things) keepInside(t);
+}
+if (window.ResizeObserver) new ResizeObserver(() => resize()).observe(stage);
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+
+/* ---------- starting scene ---------- */
+function buildScene() {
+  const beltW = Math.min(200, W * 0.42);
+  const beltX = clamp(W * 0.28, beltW / 2 + 10, W - beltW / 2 - 10);
+  const beltY = B.t + (B.b - B.t) * 0.5;
+  makeBelt(beltX, beltY, beltW);
+  makeSpring(clamp(W * 0.8, 45, W - 45), B.b - 11);
+  makeMagnet(clamp(W * 0.8, 40, W - 40), B.t + Math.min(110, (B.b - B.t) * 0.2));
+  const rx = clamp(W * 0.42, 50, W - 50);
+  makeRover(rx, B.b - 30, 1);
+  makeBot(rx, B.b - 30 - 11 - 46);
+  makeBot(beltX - beltW * 0.25, beltY - 10 - 46);
+  makeBot(clamp(W * 0.64, 40, W - 40), B.b - 46);
+  makeBall(clamp(W * 0.55, 30, W - 30), B.t + 60);
+  makeCrate(clamp(W * 0.1, 30, W - 30), B.b - 22);
+}
+
+/* ---------- preview demo: drops, rocket packs and switches on a loop, then a fresh park ---------- */
+const DEMO = ['bot', 'ball', 'rocket', 'crate', 'magnet', 'bot', 'ball', 'belt', 'rocket', 'crate', 'magnet', 'ball'];
+let demoT = 0, demoN = 0, demoAge = 0, demoLoops = 0;
+function demo(el) {
+  demoT += el; demoAge += el;
+  if (demoAge > 36 || bodyCount() > 80) { demoReset(); return; }
+  if (demoT < 1.5) return;
+  demoT = 0;
+  const k = DEMO[demoN++ % DEMO.length];
+  if (k === 'rocket') {
+    const bots = things.filter(t => t.kind === 'bot' && !t.pinned && !t.rockets.length);
+    if (!bots.length) return;
+    const c = thingCenter(bots[Math.floor(Math.random() * bots.length)]);
+    spawn('rocket', c.x, c.y);
+  } else if (k === 'magnet' || k === 'belt') {
+    for (const t of things) if (t.kind === k) { if (k === 'magnet') t.data.on = !t.data.on; else t.data.dir = -t.data.dir; }
+  } else spawn(k, rand(W * 0.15, W * 0.85), B.t + 60);
+}
+function demoReset() {
+  for (const t of things.slice()) removeThing(t, true);
+  grabs.clear();
+  for (let i = 0; i < 4; i++) poof(rand(W * 0.2, W * 0.8), rand(H * 0.3, H * 0.7));
+  buildScene();
+  for (const t of things) t.dyn = !t.isStatic && !t.pinned;
+  demoT = 0; demoAge = 0; demoLoops++;
+}
+
+/* ---------- loop ---------- */
+let last = performance.now(), acc = 0;
+function tick(now) {
+  let el = (now - last) / 1000;
+  last = now;
+  if (el > 0.1) el = 0.1;
+  if (el < 0) el = 0;
+  acc += el;
+  let n = 0;
+  while (acc >= BASE_DT && n < 6) { step(); acc -= BASE_DT; n++; }
+  if (n >= 6) acc = 0;
+  updateFx(el * timeScale);
+  if (PREVIEW) demo(el * timeScale);
+  draw();
+  requestAnimationFrame(tick);
+}
+document.addEventListener('visibilitychange', () => { last = performance.now(); acc = 0; });
+
+resize();
+buildScene();
+for (const t of things) t.dyn = !t.isStatic && !t.pinned;
+showHint('Drag the bots around! Pick a thing below to add more.', 4200);
+requestAnimationFrame((t) => { last = t; tick(t); });
+
+// read-only handle for automated checks
+window.boltPark = {
+  bodyCount,
+  thingCount: () => things.length,
+  state: () => ({ W, H, gravity: G_MODES[gi].name, slow: timeScale !== 1, muted, audio: actx ? actx.state : null, preview: PREVIEW, demoLoops, simTime }),
+  list: () => things.map(t => { const c = thingCenter(t); return { id: t.id, kind: t.kind, x: c.x, y: c.y, pinned: t.pinned, rockets: t.rockets.length, on: t.data.on, dir: t.data.dir }; }),
+  roverX: () => { const r = things.find(t => t.kind === 'rover'); return r ? thingCenter(r).x : null; },
+  firstBotHead: () => { const b = things.find(t => t.kind === 'bot'); if (!b) return null; const c = frameOf(b.data.head); return { x: c.x, y: c.y }; }
+};
+})();
+</script>
+</body>
+</html>
+
