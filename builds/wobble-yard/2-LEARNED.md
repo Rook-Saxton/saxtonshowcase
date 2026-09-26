@@ -1,0 +1,30 @@
+# Wobble Yard, a sandbox of floppy jelly people
+
+Notes from the Saxton Showcase, written for an AI helper as much as for a person. Hand this file to your agent along with `wobble-yard.html`, the game itself, and it gets what we learned without having to rebuild it to find out.
+
+- Built: 2026-09-25
+- Tags: toy, sandbox, physics, ragdoll, canvas, touch, web audio
+- The game: one self contained HTML file. Open it in a current browser; it needs no install, no account and no internet, though some builds need WebGL2 or sound.
+
+## What it is
+
+A single-file browser sandbox. The yard starts with three wobblies (jelly people), a stack of three crates, a trampoline, a bouncy ball and a balloon tied to one wobbly's hand. The toolbar drops eight things: a wobbly, a crate, a bouncy ball, a balloon (tied to whatever it is dropped on, and strong enough to lift a wobbly), a trampoline, a plank, a fan that blows (tap it to turn it round) and a boing bomb that goes off after two seconds and throws everything near it. Tools: Grab (drag and fling, one pointer per finger), Pin (tap to hold a thing still, tap again to let go) and Eraser (tap or rub). The top bar cycles gravity through Earth, Moon and Float, turns slow motion on at 0.3 speed, mutes the sound (made in code, started by the first tap) and clears the yard on a second tap. Each wobbly is 11 circles joined by 16 sticks, solved position based at 60 frames a second in 5 substeps of 2 passes; crates and planks keep their shape by shape matching; the yard holds at most 60 things. A head bonked hard enough sees stars, and a flung or held wobbly goes wide-eyed. No storage and no network. ?preview=1 hides the bars, never starts sound, and plays a demo that drops, flings, ties on a balloon or sets a bomb every 1.4 seconds of game time, starting a fresh yard after 36 seconds or at 27 things.
+
+## What we learned building it
+
+The session that built it published it as a private claude.ai page and its own notes did not travel with the file, so this record was written on 2026-09-26 by the session that placed it on the showcase, from the source and that session's own checks. The published source had no document wrapper, because the page host adds one, so it was wrapped in a minimal page with a character set and a viewport. The showcase's small preview frame needs every build to play itself, so a preview mode was added rather than showing an idle yard with its toolbar squeezed into a 600 by 300 frame. The demo script only calls the game's own spawn code and adds velocity to a wobbly's parts the way the bomb already does, so the preview shows the real physics, not a recording, and it can never create an AudioContext because the one function that makes one returns first in preview. The checks read a small read-only handle (window.wobbleYard) that reports counts, positions, gravity, slow motion, mute and the game clock, which let every button be checked by its effect rather than by its look.
+
+## The gotcha
+
+Two of the placing session's own checks failed for reasons of their own, and the game was fine both times. A ball dropped in Float mode seemed to fall: it was dropped on the spot where every earlier test drop had landed, and the pile pushed it down. The gravity checks now run in a cleared yard, each at its own spot. Then a ball dropped on Earth seemed to stop short of the ground: the ball bounces, and one sample caught it in the air. The check now takes the lowest point over a second. Checking one isolated drop by hand first, before changing anything, is what showed both were the test.
+
+## How we checked it
+
+node tests/wobble-yard/check.js all (Playwright, system Chrome): 73 passed, 0 failed, and 73 of 73 again on a second full run. Desktop 1280x720 by mouse, 36 checks: the starting yard (3 wobblies, 3 crates, a trampoline, a ball, a balloon); nothing outside the yard after 3 s; no AudioContext until the first input and one after it; a dragged and flung wobbly moves; each of the 8 toolbar things presses its button and drops one on a tap; a second tap on an armed button drops another; the boing bomb goes off by itself; Pin holds a crate within half a pixel for a second and lets it go on a second tap; Eraser removes what it touches; gravity cycles Moon, Float, Earth with matching label and aria-label; in a cleared yard a ball dropped in Float stays up and one dropped on Earth reaches the ground within a second; Slow runs the game clock at about 0.3 of real time (0.305 and 0.300 measured) and turns off again; Sound mutes and unmutes; Clear asks first, forgets the ask after 3 s and clears on two taps; Escape is not default-prevented; no page scroll; no localStorage writes; no request off the machine; zero page or console errors. Phone 390x844 with touch, 8 checks: every button at least 44 px each way; no sideways overflow; the toolbar scrolls to its last button and that button works; tap to drop; Eraser by tap; a CDP touch swipe on the yard does not scroll the page. Preview at 600x300, 9 checks: bars hidden and the yard filling the frame; frames 3 s apart differ; the demo adds things; a fresh yard within 38 s; never more than 27 things; no AudioContext; no localStorage writes; zero errors. The showcase page opened from disk at 1280x800 and 390x844, 10 checks each: the board piece is there and labelled a playground toy; clicking it opens the detail view; the preview frame, read through Playwright's frame API, is in preview mode with the yard populated; Play opens the full build with its toolbar; Back closes Play; Download it offers wobble-yard.html; no request off the machine; zero errors. Screenshots reviewed at 1280 and 390, the previews at 600x300 and 350x175, and the page's detail view and board. Not checked: a real iPad or phone, real multi-finger grabs, and the sound itself (only that it starts, mutes and unmutes).
+
+## About these notes
+
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
+
+Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.
+
