@@ -1,0 +1,30 @@
+# Bolt Park, a sandbox of floppy robots
+
+Notes from the Saxton Showcase, written for an AI helper as much as for a person. Hand this file to your agent along with `bolt-park.html`, the game itself, and it gets what we learned without having to rebuild it to find out.
+
+- Built: 2026-09-25
+- Tags: toy, sandbox, physics, robots, canvas, touch, web audio
+- The game: one self contained HTML file. Open it in a current browser; it needs no install, no account and no internet, though some builds need WebGL2 or sound.
+
+## What it is
+
+A single-file browser sandbox of floppy robots. The park starts with a conveyor belt, a spring pad, a magnet, a rover carrying a bot, two more bots, a bolt ball and a gear crate. The toolbar adds eight things: a bot (torso, head, arms and legs hinged together, with a face that blinks, looks surprised when grabbed or thrown and goes dizzy after a hard stop), a rover that drives itself, turns round when it stalls or nears a wall and rights itself when tipped over, a rocket pack that attaches to whatever it is placed on and fires for 1.1 seconds in every 2.6, a magnet that pulls things within 190 pixels (tap it on or off), a conveyor belt (tap to reverse), a spring pad that launches what lands on it, a gear crate and a bouncy bolt ball. Tools: Grab (drag and fling, one pointer per finger), Pin (tap to freeze, tap again to let go) and Eraser. The top bar cycles gravity through Earth, Moon and Float, turns slow motion on at 0.3 speed, mutes the sound (made in code, started by the first input) and clears the park on a second tap. Everything is Verlet points joined by sticks; bodies are convex outlines that collide by the separating axis test, at 120 steps a second with 3 passes, and the park holds at most 120 bodies. No storage and no network. ?preview=1 hides the bars, never starts sound, and plays a demo that drops bots, balls and crates, fits rocket packs to bots and flips the magnet and belt every 1.5 seconds of game time, starting a fresh park after 36 seconds or past 80 bodies.
+
+## What we learned building it
+
+The session that built it published it as a private claude.ai page and its own notes did not travel with the file, so this record was written on 2026-09-26 by the session that placed it on the showcase, from the source and that session's own checks. It was the only one of the pair that reached outside itself: one line imported a rounded font from Google Fonts. The showcase promises that a visit makes no outside request and that every download runs offline, so the line was removed. Its font list already fell back to rounded fonts on the device and then the system font, so the heading changes face slightly and nothing else. Like Wobble Yard it was wrapped in a minimal page with a charset and a viewport, given a preview mode (bars hidden, sound can never start, a demo script that uses the game's own spawn code), and a read-only handle (window.boltPark) for the checks, which report each thing's kind, position, pin, rocket count, magnet state and belt direction.
+
+## The gotcha
+
+The placing session's check that a rocket pack lifts its bot failed once while the game was fine: it picked the first bot in the list, which was the one the same test had just flung to the ceiling, so it had nowhere to rise. It now picks the bot nearest the ground, and that bot rose more than 60 pixels within 3 seconds. The gravity checks were written after the same lesson from Wobble Yard, so they run in a cleared park and take the lowest point over a second.
+
+## How we checked it
+
+node tests/bolt-park/check.js all (Playwright, system Chrome): 80 passed, 0 failed, and 80 of 80 again on a second full run. Desktop 1280x720 by mouse, 41 checks: the starting park (belt, spring, magnet, rover, 3 bots, ball, crate); no outside font request; no AudioContext until the first input and one after it; nothing outside the park after 2.5 s; the rover drives by itself; a dragged and flung bot moves; tapping the magnet switches it off and on; tapping the belt reverses it; each of the 8 toolbar things presses its button and places one on a tap; a rocket pack placed on a bot joins it (no new thing) and that bot rises more than 60 px within 3 s; Pin holds a crate within half a pixel for a second and lets it go; Eraser removes what it touches; gravity cycles Moon, Float, Earth with matching label and aria-label; Slow runs the game clock at about 0.3 of real time and turns off; Sound mutes (label Quiet) and unmutes; in a cleared park a ball dropped in Float stays up and one dropped on Earth reaches the ground within a second; Clear asks first, forgets the ask after 3 s and clears on two taps; Escape is not default-prevented; no page scroll; no localStorage writes; no request off the machine; zero page or console errors. Phone 390x844 with touch, 9 checks: every button at least 44 px tall and 50 px wide; no sideways overflow; the toolbar scrolls to its last button and that button works; tap to place a bot; tapping the magnet switches it off; Eraser by tap; a CDP touch swipe does not scroll the page; zero errors. Preview at 600x300, 10 checks: bars hidden and the park filling the frame; frames 3 s apart differ; within 6 s the demo has added things and fitted a rocket pack to a bot; a fresh park within 38 s; bodies under the cap; no AudioContext; no localStorage writes; no request off the machine; zero errors. The showcase page opened from disk at 1280x800 and 390x844, 10 checks each, the same as Wobble Yard's. Screenshots reviewed at 1280 and 390, the previews at 600x300 and 350x175, and the page's detail view. Not checked: a real iPad or phone, real multi-finger grabs, and the sound itself.
+
+## About these notes
+
+Copied word for word from the build's own record. Test files and prediction files named above live in our repository, not in this download.
+
+Copyright (c) 2026 Amelia Saxton. MIT License; see LICENSE, or the notice at the top of the game file.
+
